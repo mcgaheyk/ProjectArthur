@@ -1,7 +1,7 @@
 """RobotSnapshot + FeederHealth → DisplayState. Pure: knows nothing about displays or pixels.
 
 Implements docs/states.md: the highest layer with something to say wins (trust, needs you,
-live, idle), and badges are added on top.
+live, idle).
 """
 
 from __future__ import annotations
@@ -39,9 +39,6 @@ KNOWN_STATUSES: frozenset[str] = frozenset(
     | set(LIVE_KINDS)
 )
 
-LOW_LITTER_STATES = frozenset({"LOW", "EMPTY"})
-
-
 def _no_data_reason(
     snapshot: RobotSnapshot | None, health: FeederHealth, now: datetime, cfg: Config
 ) -> str | None:
@@ -55,24 +52,6 @@ def _no_data_reason(
     if age > cfg.timings.no_data_after_s:
         return "timeout"
     return None
-
-
-def badges_for(snapshot: RobotSnapshot, health: FeederHealth, cfg: Config) -> frozenset[str]:
-    """The badges that apply, regardless of which state is showing."""
-    out = set()
-    if snapshot.waste_drawer_level >= cfg.thresholds.drawer_warn_pct:
-        out.add("drawer_nearly_full")
-    if snapshot.litter_level_state is not None and (
-        snapshot.litter_level_state.upper() in LOW_LITTER_STATES
-    ):
-        out.add("litter_low")
-    if snapshot.is_laser_dirty:
-        out.add("laser_dirty")
-    if snapshot.power_type == "DC":
-        out.add("on_battery")
-    if not health.ws_connected:
-        out.add("polling_only")
-    return frozenset(out)
 
 
 def _kind_and_fields(
@@ -133,9 +112,6 @@ def to_display_state(
         )
 
     kind, extra = _kind_and_fields(snapshot, now, cfg)
-    badges = badges_for(snapshot, health, cfg)
-    if kind == "drawer_full":
-        badges = badges - {"drawer_nearly_full"}  # the state already says it
     return DisplayState(
         kind=kind,
         drawer_pct=snapshot.waste_drawer_level,
@@ -146,6 +122,6 @@ def to_display_state(
         visits_today=snapshot.visits_today,
         pet_weight_lbs=snapshot.pet_weight_lbs,
         sleeping=snapshot.is_sleeping,
-        badges=badges,
+        laser_dirty=snapshot.is_laser_dirty,
         **extra,  # type: ignore[arg-type]
     )

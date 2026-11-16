@@ -6,7 +6,7 @@ import pytest
 from arthur.config import default_config
 from arthur.fixtures import BASE, FIXTURES, HEALTHY, NOW, ago
 from arthur.mapping import to_display_state
-from arthur.model import BADGES, KINDS, LAYERS, FeederHealth
+from arthur.model import KINDS, LAYERS, DisplayState, FeederHealth
 
 CFG = default_config()
 
@@ -126,9 +126,9 @@ def test_never_contacted_is_no_data():
     assert (s.kind, s.detail) == ("no_data", "timeout")
 
 
-def test_no_data_has_no_badges():
+def test_no_data_does_not_carry_laser_dirty():
     snap = replace(BASE, power_type="DC", is_laser_dirty=True)
-    assert state(snap, FeederHealth(last_contact_at=NOW, error="api")).badges == frozenset()
+    assert state(snap, FeederHealth(last_contact_at=NOW, error="api")).laser_dirty is False
 
 
 # --- just_cleaned window -----------------------------------------------------------------
@@ -197,40 +197,33 @@ def test_ready_carries_levels_and_visits():
     assert s.last_visit_at == BASE.last_visit_at
 
 
-# --- badges ----------------------------------------------------------------------------
+# --- laser dirty (badges are gone) -------------------------------------------------------
 
 
-@pytest.mark.parametrize(("changes", "health", "badge"), [
-    ({"waste_drawer_level": 80.0}, HEALTHY, "drawer_nearly_full"),
-    ({"litter_level_state": "LOW"}, HEALTHY, "litter_low"),
-    ({"litter_level_state": "EMPTY"}, HEALTHY, "litter_low"),
-    ({"is_laser_dirty": True}, HEALTHY, "laser_dirty"),
-    ({"power_type": "DC"}, HEALTHY, "on_battery"),
-    ({}, FeederHealth(last_contact_at=NOW, ws_connected=False), "polling_only"),
-])
-def test_each_badge(changes, health, badge):
-    assert state(replace(BASE, **changes), health).badges == frozenset({badge})
+def test_display_state_has_no_badges():
+    assert "badges" not in DisplayState.__dataclass_fields__
+    assert not hasattr(DisplayState(kind="ready"), "badges")
+    assert DisplayState(kind="ready").laser_dirty is False
 
 
-def test_no_badges_when_all_is_well():
-    assert state().badges == frozenset()
-    assert state(replace(BASE, waste_drawer_level=79.9, litter_level_state="REFILL",
-                         power_type="NC")).badges == frozenset()
+@pytest.mark.parametrize("status", ["READY", "CAT_DETECTED", "CAT_SENSOR_TIMING", "CLEAN_CYCLE",
+                                    "DRAWER_FULL", "PINCH_DETECT", "OFFLINE", "OFF"])
+def test_laser_dirty_is_mapped_on_every_state_with_data(status):
+    assert state(replace(BASE, status=status, is_laser_dirty=True)).laser_dirty is True
+    assert state(replace(BASE, status=status, is_laser_dirty=False)).laser_dirty is False
 
 
-def test_badges_ride_on_live_states():
-    s = state(replace(BASE, status="CAT_DETECTED", power_type="DC"))
-    assert (s.kind, s.badges) == ("in_use", frozenset({"on_battery"}))
+def test_power_and_websocket_change_nothing_shown():
+    plain = state()
+    assert state(replace(BASE, power_type="DC")) == plain
+    assert state(BASE, FeederHealth(last_contact_at=ago(5), ws_connected=False)) == plain
 
 
-def test_drawer_full_drops_redundant_badge():
-    s = state(replace(BASE, status="DRAWER_FULL", waste_drawer_level=100.0, power_type="DC"))
-    assert s.badges == frozenset({"on_battery"})
-
-
-def test_all_badges_fixture():
-    fx = FIXTURES["ready_badges"]
-    assert state(fx.snapshot, fx.health, fx.now).badges == frozenset(BADGES)
+def test_laser_dirty_fixture():
+    fx = FIXTURES["ready_laser_dirty"]
+    s = state(fx.snapshot, fx.health, fx.now)
+    assert (s.kind, s.laser_dirty) == ("ready", True)
+    assert s == replace(state(), laser_dirty=True)
 
 
 # --- fixtures say what they map to -------------------------------------------------------

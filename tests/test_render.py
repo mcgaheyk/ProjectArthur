@@ -9,22 +9,33 @@ import pytest
 from arthur.config import default_config
 from arthur.fixtures import FIXTURES, NOW
 from arthur.mapping import to_display_state
-from arthur.model import BADGES, KINDS, DisplayState
+from arthur.model import KINDS, DisplayState
 from arthur.render import Frame, list_kinds, list_sizes, list_variants, overlay_stale, render
 from arthur.render.font import condensed_small_font, large_font, small_font
 from arthur.render.icons import get_icon, icon_names
 from arthur.render.screens import (
     DRAWER_FULL_LOOP,
     EDGE_RING,
-    badges_to_draw,
+    IDLE_R,
+    IDLE_X,
+    LASER_WORDS,
+    TAIL_FLICK,
+    TAIL_REST,
+    TAIL_X,
+    TAIL_Y,
+    _ready_arthur_52,
+    _waiting_52,
     drawer_role,
     fmt_age,
     fmt_clock,
     fmt_countdown,
     has_edge_ring,
+    idle_pose,
+    idle_tail,
     litter_role,
     phase,
 )
+from arthur.render.text import check_text, strict_text
 
 CFG = default_config()
 SIZES = list(list_sizes())
@@ -140,7 +151,7 @@ def test_every_kind_has_layouts():
             assert list_variants(kind, size)
 
 
-@pytest.mark.parametrize("kind", ["ready", "in_use", "waiting", "cleaning"])
+@pytest.mark.parametrize("kind", ["ready", "in_use", "cleaning"])
 def test_variant_kinds_have_two_or_more(kind):
     for size in SIZES:
         assert 2 <= len(list_variants(kind, size)) <= 3
@@ -203,20 +214,23 @@ def test_interrupted_differs_from_cleaning_in_shape():
 def test_countdown_ticks():
     fx = FIXTURES["waiting"]
     s = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
-    frames = {render(s, fx.now + timedelta(seconds=t), CFG, variant="countdown").to_rgb888()
-              for t in range(3)}
+    frames = {render(s, fx.now + timedelta(seconds=t), CFG).to_rgb888() for t in range(3)}
     assert len(frames) == 3
 
 
-def test_badges_change_pixels():
-    plain = FIXTURES["ready"]
-    badged = FIXTURES["ready_badges"]
-    for size in SIZES:
-        s = to_display_state(badged.snapshot, badged.health, badged.now, CFG)
-        f = render(s, NOW, CFG, size=size)
-        s2 = DisplayState(**{**s.__dict__, "badges": frozenset()})
-        assert f != render(s2, NOW, CFG, size=size)
-    assert plain.kind == badged.kind
+# --- waiting: one layout ---------------------------------------------------------------------
+
+
+def test_waiting_has_one_layout_that_says_clean_in():
+    assert list_variants("waiting", (52, 16)) == ["default"]
+    assert tuple(CFG.captions["waiting"]) == ("CLEAN IN",)
+    fx = FIXTURES["waiting"]
+    s = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
+    with strict_text() as records:
+        f = _waiting_52(s, fx.now, CFG)
+        check_text(f, records)
+    assert [r.text for r in records] == ["CLEAN IN", "4:42"]
+    assert f == render(s, fx.now, CFG)
 
 
 # --- level colours -----------------------------------------------------------------------
@@ -269,27 +283,122 @@ def test_idle_fixtures_show_each_level_colour():
     assert bar_roles("ready_drawer_high") == ("alert", "ok")
 
 
-# --- badges ------------------------------------------------------------------------------
+# --- idle: the long tail, the moved line and the laser notice --------------------------------
+
+READY = DisplayState(kind="ready", drawer_pct=42, litter_pct=78, litter_state="OPTIMAL",
+                     last_visit_at=NOW - timedelta(hours=2))
 
 
-def test_idle_hides_the_level_badges_and_other_kinds_keep_them():
-    every = frozenset(BADGES)
-    idle = badges_to_draw(DisplayState(kind="ready", badges=every))
-    assert idle == every - {"drawer_nearly_full", "litter_low"}
-    for kind in ("in_use", "waiting", "cleaning", "just_cleaned", "interrupted", "fault"):
-        assert badges_to_draw(DisplayState(kind=kind, badges=every)) == every
-    assert badges_to_draw(DisplayState(kind="no_data", badges=every)) == frozenset()
-    assert badges_to_draw(DisplayState(kind="drawer_full", badges=every)) == frozenset()
+def _labels(state, now):
+    """Idle Arthur's frame and its labels, checked strictly (nothing may touch a label)."""
+    with strict_text() as records:
+        f = _ready_arthur_52(state, now, CFG)
+        check_text(f, records)
+    assert f == render(state, now, CFG, variant="arthur")
+    return f, list(records)
 
 
-@pytest.mark.parametrize("variant", list_variants("ready", (52, 16)))
-def test_idle_level_badges_draw_nothing(variant):
-    plain = DisplayState(kind="ready", drawer_pct=85, litter_pct=20, litter_state="LOW")
-    badged = DisplayState(**{**plain.__dict__,
-                             "badges": frozenset({"drawer_nearly_full", "litter_low"})})
-    assert render(badged, NOW, CFG, variant=variant) == render(plain, NOW, CFG, variant=variant)
-    laser = DisplayState(**{**plain.__dict__, "badges": frozenset({"laser_dirty"})})
-    assert render(laser, NOW, CFG, variant=variant) != render(plain, NOW, CFG, variant=variant)
+def _pose_times():
+    """A moment for each idle pose: at rest, the blink, the tail flick."""
+    every = int(CFG.timings.idle_blink_every_s)
+    out = {}
+    for dt in range(2 * every + 1):
+        out.setdefault(idle_pose(NOW + timedelta(seconds=dt), CFG), NOW + timedelta(seconds=dt))
+    assert set(out) == {None, "blink", "tail"}
+    return out
+
+
+def test_idle_laser_notice_shows_and_fits():
+    width = IDLE_R - IDLE_X + 1
+    want = next(w for w in LASER_WORDS if small_font().width(w) <= width)
+    dirty = DisplayState(**{**READY.__dict__, "laser_dirty": True})
+    f, labels = _labels(dirty, NOW)  # strict: raises if it does not fit
+    bottom = [r for r in labels if r.y == 9]
+    assert [r.text for r in bottom] == [want]
+    assert all(f.get(x, y) == CFG.rgb("attention") for x, y in bottom[0].ink)
+    assert f != render(READY, NOW, CFG, variant="arthur")
+
+
+@pytest.mark.parametrize("variant", ["vacant", "numbers"])
+def test_other_idle_variants_ignore_the_laser(variant):
+    dirty = DisplayState(**{**READY.__dict__, "laser_dirty": True})
+    assert render(dirty, NOW, CFG, variant=variant) == render(READY, NOW, CFG, variant=variant)
+
+
+@pytest.mark.parametrize("ago_s", [None, 0, 59, 60, 59 * 60, 3600, 10 * 3600, 47 * 3600,
+                                   48 * 3600, 9 * 86400, 99 * 86400])
+def test_idle_last_visit_forms_fit_the_moved_line(ago_s):
+    last = None if ago_s is None else NOW - timedelta(seconds=ago_s)
+    s = DisplayState(**{**READY.__dict__, "last_visit_at": last})
+    _, labels = _labels(s, NOW)  # strict: raises if it does not fit
+    (bottom,) = [r for r in labels if r.y == 9]
+    assert bottom.x == IDLE_X and bottom.right == IDLE_R == 50
+
+
+def _tail_cells(pose):
+    return {(TAIL_X + x, TAIL_Y + y) for y, row in enumerate(idle_tail(pose))
+            for x, ch in enumerate(row) if ch != "."}
+
+
+def test_tail_art_shapes():
+    assert idle_tail(None) == idle_tail("blink") == TAIL_REST
+    assert idle_tail("tail") == TAIL_FLICK
+    for art in (TAIL_REST, TAIL_FLICK):
+        assert len({len(r) for r in art}) == 1
+    for pose in (None, "tail"):
+        cells = _tail_cells(pose)
+        assert max(x for x, _ in cells) > 15  # it reaches beyond the 16x16 icon
+        assert max(x for x, _ in cells) < IDLE_X - 1  # and leaves a gap column before content
+
+
+@pytest.mark.parametrize("laser", [False, True])
+@pytest.mark.parametrize("drawer", [0, 42, 100])
+def test_tail_never_touches_the_marks_or_text(laser, drawer):
+    s = DisplayState(**{**READY.__dict__, "laser_dirty": laser, "drawer_pct": drawer})
+    off = CFG.rgb("off")
+    for pose, now in _pose_times().items():
+        f, _ = _labels(s, now)  # strict: nothing drawn against a label
+        tail = _tail_cells(pose)
+        content = {(x, y) for x in range(IDLE_X, 51) for y in range(1, 15)
+                   if f.get(x, y) != off}
+        assert content
+        for tx, ty in tail:
+            assert f.get(tx, ty) != off
+            for cx, cy in content:
+                assert max(abs(cx - tx), abs(cy - ty)) >= 2, (pose, (tx, ty), (cx, cy))
+
+
+def test_idle_is_still_apart_from_blink_and_tail():
+    frames = {render(READY, NOW + timedelta(seconds=dt), CFG, variant="arthur").to_rgb888()
+              for dt in range(2 * int(CFG.timings.idle_blink_every_s))}
+    assert len(frames) == 3
+
+
+def test_idle_bars_keep_length_and_colours():
+    for pct, role in ((50, "drawer"), (100, "alert")):
+        s = DisplayState(**{**READY.__dict__, "drawer_pct": pct, "litter_pct": 100})
+        f = render(s, NOW, CFG, variant="arthur")
+        lit = [x for x in range(52) if f.get(x, 2) == CFG.rgb(role)]
+        track = [x for x in range(52) if f.get(x, 2) == CFG.rgb("dim")]
+        litter = [x for x in range(52) if f.get(x, 6) == CFG.rgb("ok")]
+        assert sorted(lit + track) == litter == list(range(IDLE_X + 7, IDLE_R + 1))
+
+
+#: Layouts allowed to draw in columns 48-50 (column 51 is the border): idle Arthur moved its
+#: bars and bottom line there, and drawer_full's FULL and caption run to column 49.
+WIDE = {("ready", "arthur"), ("drawer_full", "default")}
+
+
+@pytest.mark.parametrize(("name", "size", "variant"), list(cases()))
+def test_only_wide_layouts_use_columns_48_to_50(name, size, variant):
+    fx = FIXTURES[name]
+    s = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
+    if (fx.kind, variant) in WIDE:
+        return
+    off = CFG.rgb("off")
+    for dt in range(4):
+        f = render(s, fx.now + timedelta(seconds=dt), CFG, size=size, variant=variant)
+        assert all(f.get(x, y) == off for x in (48, 49, 50) for y in range(1, 15)), name
 
 
 # --- drawer full: the flashing edge ring -----------------------------------------------------

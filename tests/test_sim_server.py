@@ -147,7 +147,7 @@ async def test_studio_meta(client):
     assert meta["sizes"] == ["52x16"] and meta["default_size"] == "52x16"
     assert "ready" in meta["kinds"]
     assert meta["variants"]["52x16"]["ready"][0]
-    assert any(f["name"] == "ready_badges" and f["description"] for f in meta["fixtures"])
+    assert any(f["name"] == "ready_laser_dirty" and f["description"] for f in meta["fixtures"])
     sc = {s["name"]: s for s in meta["scenarios"]}["normal_visit"]
     assert sc["duration_s"] > 0 and sc["steps"][0]["label"] == "ready"
     assert meta["palette"]["stale"] == "#6E0700"
@@ -398,7 +398,7 @@ async def test_manual_mode(client):
         "mode": "manual", "manual": {"status": "CAT_DETECTED", "waste_drawer_level": 90}})
     st = await r.json()
     assert st["showing"]["kind"] == "in_use"
-    assert "drawer_nearly_full" in st["showing"]["badges"]
+    assert "badges" not in st["showing"]
     st = await (await client.post("/studio/control", json={
         "manual": {"health_error": "auth"}})).json()
     assert st["showing"]["kind"] == "no_data"

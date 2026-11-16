@@ -135,18 +135,8 @@ _LIST: list[Fixture] = [
         litter_level=100.0, litter_level_state="OVERFILL"),
     _fx("ready_drawer_high", "ready", "Idle, drawer 85% (red), litter OPTIMAL",
         waste_drawer_level=85.0, litter_level_state="OPTIMAL"),
-    _fx("ready_badges", "ready", "Idle with every badge: drawer 85%, litter low, laser dirty, "
-        "on battery, WebSocket down",
-        health=FeederHealth(last_contact_at=ago(60), ws_connected=False),
-        waste_drawer_level=85.0, litter_level=20.0, litter_level_state="LOW",
-        is_laser_dirty=True, power_type="DC"),
-    _fx("in_use_badges", "in_use", "In use with drawer nearly full and on battery",
-        status="CAT_DETECTED", status_code="CD", status_since=ago(95), waste_drawer_level=88.0,
-        power_type="DC", previous_status="READY"),
-    _fx("cleaning_polling", "cleaning", "Cleaning while the WebSocket is down",
-        health=FeederHealth(last_contact_at=ago(120), ws_connected=False),
-        status="CLEAN_CYCLE", status_code="CCP", status_since=ago(130),
-        previous_status="CAT_SENSOR_TIMING"),
+    _fx("ready_laser_dirty", "ready", "Idle, the robot says the laser is dirty",
+        is_laser_dirty=True),
 ]
 
 FIXTURES: dict[str, Fixture] = {f.name: f for f in _LIST}

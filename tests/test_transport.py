@@ -60,7 +60,7 @@ def the_clock(client):
 
 
 async def test_pushed_frame_equals_screen(client):
-    fx = FIXTURES["ready_badges"]
+    fx = FIXTURES["ready_laser_dirty"]
     frame = render(to_display_state(fx.snapshot, fx.health, fx.now, CFG), fx.now, CFG)
     assert frame.size == (52, 16)
     t = AwtrixNgTransport(base(client))

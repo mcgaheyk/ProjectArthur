@@ -1,7 +1,7 @@
 """Print screens as text (and optionally write PNGs).
 
     uv run python -m arthur.render.preview --all
-    uv run python -m arthur.render.preview waiting --variant label --stale
+    uv run python -m arthur.render.preview in_use --variant door --stale
     uv run python -m arthur.render.preview --all --png /tmp/screens
     uv run python -m arthur.render.preview --sheet /tmp/sheets             # every fixture
     uv run python -m arthur.render.preview in_use --sheet /tmp/s --frames 8 --step 1
@@ -12,7 +12,7 @@
 animation can be read side by side.
 
 A positional name may be a display kind (uses the fixture of the same name) or any fixture name
-from ``arthur.fixtures`` (e.g. ``ready_badges``). One character per pixel; ``.`` is off; the
+from ``arthur.fixtures`` (e.g. ``ready_laser_dirty``). One character per pixel; ``.`` is off; the
 legend says which character is which palette role.
 """
 

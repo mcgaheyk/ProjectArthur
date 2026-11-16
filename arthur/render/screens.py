@@ -16,9 +16,10 @@ Canvas rules (docs/states.md, design-screen skill):
 - Every label goes through :func:`arthur.render.text.put_text` with the box it must fit, and
   nothing else may touch a label (the strict text check in the tests).
 - A 16x16 picture at x=0, content in x=17..47 (a big-font or small-font first line from row 1,
-  a small-font second line on rows 9-13 or the drawer gauge on rows 13-14), badges in
-  columns 49-50. Idle screens leave out the drawer and litter badges (the bars say it);
-  ``drawer_full`` draws no badges (its ring and second line use those columns).
+  a small-font second line on rows 9-13 or the drawer gauge on rows 13-14). Columns 48-50 are
+  not reserved: most layouts leave them empty, but the idle Arthur layout shifts its bars and
+  bottom line to columns 20-50 (to make room for his long tail in columns 16-18), and
+  ``drawer_full`` uses columns up to 49 inside its ring.
 - Level colours: the drawer bar is ``drawer`` (orange) below ``drawer_warn_pct`` and
   ``alert`` from there or when full; the litter bar follows the robot's own litter word
   (OPTIMAL ``ok``, REFILL/OVERFILL ``caution``, LOW/EMPTY ``alert``, else ``sand``).
@@ -54,7 +55,7 @@ PIC = 16
 
 # Geometry
 C52_X = 17  # content starts here (after the 16x16 picture and a 1-px gap)
-C52_R = 47  # last content column (48 is a gap, 49-50 hold badges, 51 is the border)
+C52_R = 47  # last content column of most layouts (51 is the border)
 C52_W = C52_R - C52_X + 1
 L1_Y = 1  # first line: big font rows 1-7, or small font rows 1-5
 L2_Y = 9  # second line: small font rows 9-13
@@ -518,19 +519,8 @@ def _sleep_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     return f
 
 
-@layout(S52, "waiting", "countdown")
-def _waiting_countdown_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    if state.sleeping:
-        return _sleep_52(state, now, cfg)
-    f = _f52()
-    hourglass(f, cfg, wait_fraction_left(state, now), now)
-    digits52(f, cfg, _wait_text(state, now), "gold")
-    drawer_gauge52(f, state, cfg)
-    return f
-
-
-@layout(S52, "waiting", "label")
-def _waiting_label_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
+@layout(S52, "waiting")
+def _waiting_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     if state.sleeping:
         return _sleep_52(state, now, cfg)
     f = _f52()
@@ -646,13 +636,73 @@ def _last_visit(state: DisplayState, now: datetime) -> str:
     return f"{fmt_age(seconds_between(state.last_visit_at, now))} AGO"
 
 
-def _levels_52(f: Frame, state: DisplayState, cfg: Config, y_bin: int, y_lit: int) -> None:
+#: Length of each idle level bar (both the same), after its 5-px mark and a 2-px gap.
+LEVEL_BAR_W = C52_W - 7
+
+
+def _levels_52(
+    f: Frame, state: DisplayState, cfg: Config, y_bin: int, y_lit: int, x: int = C52_X
+) -> None:
     """Two labelled gauges, each 3 rows tall: a tiny poop and the drawer level, a tiny sand
-    pile and the litter level."""
-    draw_art(f, BIN_MARK, C52_X, y_bin, cfg)
-    gauge(f, C52_X + 7, y_bin, C52_W - 7, 3, drawer_frac(state), drawer_role(state, cfg), cfg)
-    draw_art(f, LITTER_MARK, C52_X, y_lit, cfg)
-    gauge(f, C52_X + 7, y_lit, C52_W - 7, 3, litter_frac(state), litter_role(state), cfg)
+    pile and the litter level. Marks at ``x``, bars from ``x + 7``."""
+    draw_art(f, BIN_MARK, x, y_bin, cfg)
+    gauge(f, x + 7, y_bin, LEVEL_BAR_W, 3, drawer_frac(state), drawer_role(state, cfg), cfg)
+    draw_art(f, LITTER_MARK, x, y_lit, cfg)
+    gauge(f, x + 7, y_lit, LEVEL_BAR_W, 3, litter_frac(state), litter_role(state), cfg)
+
+
+#: Idle Arthur's content: bars and bottom line shifted right into the freed columns, so his
+#: tail has columns 16-18 (column 19 stays a gap).
+IDLE_X = C52_X + 3
+IDLE_R = IDLE_X + 7 + LEVEL_BAR_W - 1  # 50: the last column inside the border
+#: Arthur's long tail, drawn over the 16x16 icon from (TAIL_X, TAIL_Y). It continues the
+#: little tail already in the icon art (bottom right of arthur_sit / arthur_blink, raised in
+#: arthur_tail) out into columns 16-18. Solid orange (stripe bands on a 1-px tail read as gaps)
+#: with a dark tip.
+TAIL_X = 13
+TAIL_Y = 1
+#: At rest: along the floor, then up and curled back at the tip, beside the bottom line.
+TAIL_REST = (
+    "......",  # row 1
+    "......",
+    "......",
+    "......",
+    "......",
+    "......",
+    "......",
+    "......",
+    "......",
+    "....S.",  # row 10: the dark tip, curling back
+    ".....O",
+    ".....O",
+    "....O.",
+    "..OO..",  # row 14: along the floor
+)
+#: Flicked: up from the raised tail in arthur_tail, out to the right and curled back at the
+#: tip, the same curl as at rest but tall, beside the level bars.
+TAIL_FLICK = (
+    "....S.",  # row 1: the dark tip, curling back
+    ".....O",
+    ".....O",
+    "....O.",
+    "....O.",
+    "...O..",
+    "...O..",
+    "..O...",  # row 8: just above the raised tail in the icon
+    "......",
+    "......",
+    "......",
+    "......",
+    "......",
+    "......",
+)
+#: Words for the laser notice on idle's bottom line; the first that fits is used.
+LASER_WORDS = ("WIPE LASER", "LASER DIRTY", "LASER")
+
+
+def idle_tail(pose: str | None) -> tuple[str, ...]:
+    """The long-tail art for an idle pose (see :func:`idle_pose`)."""
+    return TAIL_FLICK if pose == "tail" else TAIL_REST
 
 
 @layout(S52, "ready", "arthur")
@@ -660,8 +710,13 @@ def _ready_arthur_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     f = _f52()
     pose = idle_pose(now, cfg)
     icon52(f, cfg, {"blink": "arthur_blink", "tail": "arthur_tail"}.get(pose or "", "arthur_sit"))
-    _levels_52(f, state, cfg, 1, 5)
-    small52(f, cfg, _last_visit(state, now), "text")
+    draw_art(f, idle_tail(pose), TAIL_X, TAIL_Y, cfg)
+    _levels_52(f, state, cfg, 1, 5, x=IDLE_X)
+    if state.laser_dirty:
+        line = first_fitting(LASER_WORDS, IDLE_R - IDLE_X + 1, small_font())
+        small52(f, cfg, line, "attention", x=IDLE_X, right=IDLE_R)
+    else:
+        small52(f, cfg, _last_visit(state, now), "text", x=IDLE_X, right=IDLE_R)
     return f
 
 
@@ -683,26 +738,6 @@ def _ready_numbers_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     draw_art(f, LITTER_MARK, C52_X, 11, cfg)
     small52(f, cfg, fmt_pct(state.litter_pct), litter_role(state), x=C52_X + 7)
     return f
-
-
-# =========================================================================================
-# Badges: fixed slots so position as well as colour says which is which.
-# =========================================================================================
-
-#: badge → (slot index from the top, role)
-BADGE_STYLE: dict[str, tuple[int, str]] = {
-    "drawer_nearly_full": (0, "attention"),
-    "litter_low": (1, "sand"),
-    "laser_dirty": (2, "text"),
-    "on_battery": (3, "alert"),
-    "polling_only": (4, "ghost"),
-}
-
-
-def draw_badges(f: Frame, badges: frozenset[str], cfg: Config) -> None:
-    for badge in badges:
-        slot, role = BADGE_STYLE[badge]
-        f.rect(49, 1 + 3 * slot, 2, 2, cfg.rgb(role))
 
 
 # =========================================================================================
@@ -740,28 +775,6 @@ def list_variants(kind: str, size: Size | str) -> list[str]:
         raise KeyError(f"no layout for {kind!r} at {s}") from None
 
 
-#: Badges idle screens leave out: the drawer and litter bars already say these, by colour.
-IDLE_HIDDEN_BADGES = frozenset({"drawer_nearly_full", "litter_low"})
-#: Kinds that draw no badges at all: no_data (nothing is known), drawer_full (its ring and
-#: its EMPTY NOW line use the badge columns).
-NO_BADGE_KINDS = frozenset({"no_data", "drawer_full"})
-
-
-def badges_to_draw(state: DisplayState) -> frozenset[str]:
-    """The badges a screen for ``state`` draws (the mapping still computes them all)."""
-    if state.kind in NO_BADGE_KINDS:
-        return frozenset()
-    if state.kind == "ready":
-        return state.badges - IDLE_HIDDEN_BADGES
-    return state.badges
-
-
-def _draw(fn: Layout, state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    frame = fn(state, now, cfg)
-    draw_badges(frame, badges_to_draw(state), cfg)
-    return frame
-
-
 def render(
     state: DisplayState,
     now: datetime,
@@ -784,8 +797,8 @@ def render(
     if fn is None:
         fn = next(iter(variants.values()))
     if not is_strict():
-        return _draw(fn, state, now, cfg)
+        return fn(state, now, cfg)
     with strict_text() as records:
-        frame = _draw(fn, state, now, cfg)
+        frame = fn(state, now, cfg)
         check_text(frame, records)
     return frame

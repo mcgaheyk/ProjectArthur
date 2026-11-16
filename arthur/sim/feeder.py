@@ -545,7 +545,6 @@ class StudioFeeder:
         return {
             "kind": state.kind,
             "detail": state.detail,
-            "badges": sorted(state.badges),
             "sim_time": now.isoformat(),
             "label": label,
             "frames": frames,

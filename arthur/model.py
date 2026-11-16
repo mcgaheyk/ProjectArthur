@@ -9,7 +9,7 @@ All datetimes should be timezone-aware UTC.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 #: Every display-state id, in layer order (see docs/states.md). ``stale`` is not one: the clock
@@ -54,15 +54,6 @@ LAYERS: dict[str, int] = {
     ),
     "ready": 4,
 }
-
-#: Every badge id (see docs/states.md, "Badges").
-BADGES: tuple[str, ...] = (
-    "drawer_nearly_full",
-    "litter_low",
-    "laser_dirty",
-    "on_battery",
-    "polling_only",
-)
 
 #: Values of ``FeederHealth.error``.
 HEALTH_ERRORS: tuple[str, ...] = ("auth", "api", "no_robots")
@@ -120,6 +111,7 @@ class DisplayState:
     - ``fault_code``: fault → ``PD``, ``OTF``, ``CSF`` or the raw code.
     - ``detail``: extra word for the kind: powering → ``"up"``/``"down"``; no_data → the reason
       (``"auth"``, ``"api"``, ``"no_robots"``, ``"timeout"``, ``"no_snapshot"``).
+    - ``laser_dirty``: the robot's ``is_laser_dirty`` (every kind but no_data).
     """
 
     kind: str
@@ -137,11 +129,8 @@ class DisplayState:
     visits_today: int | None = None
     pet_weight_lbs: float | None = None
     sleeping: bool = False
-    badges: frozenset[str] = field(default_factory=frozenset)
+    laser_dirty: bool = False
 
     def __post_init__(self) -> None:
         if self.kind not in KINDS:
             raise ValueError(f"unknown display kind {self.kind!r}")
-        unknown = set(self.badges) - set(BADGES)
-        if unknown:
-            raise ValueError(f"unknown badge(s): {sorted(unknown)}")

@@ -390,7 +390,6 @@ export function initLive({ control, getMeta }) {
     if (sh.kind) {
       showing.append("Mapped state ", el("b", { text: sh.kind }));
       if (sh.detail) showing.append(" ", el("span", { class: "chip", text: sh.detail }));
-      for (const b of sh.badges || []) showing.append(" ", el("span", { class: "chip", text: b }));
       if (sh.sim_time) showing.append(el("div", { class: "muted small", text: `source time ${sh.sim_time.replace("T", " ").replace("+00:00", "Z")}` }));
     }
     if (st.mode === "log") {

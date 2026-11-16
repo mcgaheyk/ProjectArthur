@@ -58,7 +58,7 @@ drawer    = "D"
 caution   = "U"
 
 [thresholds]
-drawer_warn_pct = 80  # drawer_nearly_full badge, and the drawer bar turns from orange to red
+drawer_warn_pct = 80  # the drawer bar turns from orange to red from here
 
 [timings]
 heartbeat_s = 30              # feeder re-pushes at least this often
@@ -76,8 +76,8 @@ idle_blink_every_s = 30       # idle Arthur blinks (or flicks his tail) once per
 # in use, headline beside the poop emoji, big font: up to 31 px (about 7 letters)
 in_use = ["PLOP?", "BUSY", "IN SESH", "NO PEEK", "POOPIN?", "PEEIN?", "BRB", "SHH!",
           "PRIVACY", "WORKIN", "THRONE", "VIP ONLY"]
-# waiting, label variant, top line: up to 31 px
-waiting = ["FLUSH IN", "CLEAN IN", "SPIN IN", "SCOOP IN", "SIFT IN"]
+# waiting, top line above the countdown: up to 31 px
+waiting = ["CLEAN IN"]
 # waiting while the robot sleeps: headline, up to 31 px in the big font
 waiting_sleep = ["ZZZ", "SNOOZE", "NAPPING", "SLEEPY", "LATER"]
 # cleaning, second line under the countdown: up to 31 px
