@@ -52,6 +52,10 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
 - On-device watchdog script for a louder stale screen. Review NG's Berry agent skill first.
 - Alert sounds (the TC002 has a speaker) and acknowledgement with its knob or buttons.
 - Health nudges: no visit in N hours, unusually many visits.
+- Food and water: show the PETLIBRO Granary's low-food flag and a PETLIBRO fountain's water
+  level. Researched on 2026-11-16, nothing built or run:
+  `docs/research/2026-11-16-petlibro-food-and-water.md`. Blocked on knowing which app the
+  Granary is paired with (PETLIBRO works, PETLIBRO Lite does not).
 - Experiment: the no-cloud ESPHome firmware for the robot itself.
 
 ## Known rough edges in the screens
