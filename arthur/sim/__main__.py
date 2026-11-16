@@ -1,8 +1,7 @@
 """Start the simulator and studio: ``uv run python -m arthur.sim [--port 7001] [--config PATH]``.
 
-Binds to 127.0.0.1 only. Open http://127.0.0.1:7001/ for the studio. The fake clocks answer at
-``/clock/32x8/api/v1/...`` and ``/clock/52x16/api/v1/...``; the bare ``/api/v1/...`` is the
-size set in the config.
+Binds to 127.0.0.1 only. Open http://127.0.0.1:7001/ for the studio. The fake 52x16 clock
+answers at ``/api/v1/...``, like a real one.
 """
 
 from __future__ import annotations

@@ -1,20 +1,19 @@
-"""Layouts: DisplayState + now + config → Frame, at 32x8 and 52x16.
+"""Layouts: DisplayState + now + config → Frame, at 52x16 (the Ulanzi TC002).
 
 A pure function of its inputs; knows nothing about AWTRIX. Every display kind has at least one
-layout at both sizes; some have named variants. The first variant registered for a
-(size, kind) is the default.
+layout; some have named variants. The first variant registered for a kind is the default.
 
 Arthur (an orange tabby) is the mascot; see design-screen section 0 for the direction.
 
 Canvas rules (docs/states.md, design-screen skill):
 
-- The clock's stale border covers row 0, the last row, column 0 and the last column, so
-  nothing is drawn there. One narrow exception: a 32x8 gauge on the bottom row
-  (:data:`BOTTOM_GAUGE_32`).
+- The clock's stale border covers row 0, row 15, column 0 and column 51, so nothing is drawn
+  there.
 - Every label goes through :func:`arthur.render.text.put_text` with the box it must fit, and
   nothing else may touch a label (the strict text check in the tests).
-- 32x8: 8x8 icon at x=0, text from x=9 to x=28 with capitals on rows 1-5, badges on column 30.
-- 52x16: 16x16 picture at x=0, content in x=17..47, badges in columns 49-50.
+- A 16x16 picture at x=0, content in x=17..47 (a big-font or small-font first line from row 1,
+  a small-font second line on rows 9-13 or the drawer gauge on rows 13-14), badges in
+  columns 49-50.
 - About one frame a second: animation phases are derived from ``now``. Live states change at
   most once a second; idle almost never (a blink or tail flick every
   ``idle_blink_every_s``).
@@ -40,17 +39,12 @@ from arthur.render.text import check_text, first_fitting, fits, is_strict, put_t
 Size = tuple[int, int]
 Layout = Callable[[DisplayState, datetime, Config], Frame]
 
-S32: Size = (32, 8)
+#: The one size: the Ulanzi TC002's 52x16 matrix.
 S52: Size = (52, 16)
+#: Width and height of the picture on the left (icons, hourglass, drum).
+PIC = 16
 
-# 32x8 geometry
-T32_X = 9  # text starts here (after the 8x8 icon and a 1-px gap)
-T32_R = 28  # last column text may use (29 is a gap, 30 holds badges, 31 is the border)
-T32_W = T32_R - T32_X + 1
-T32_Y = 1  # top row of 5-px capitals
-G32_Y = 7  # gauge row: the bottom row, under a 1-px gap (see BOTTOM_GAUGE_32)
-
-# 52x16 geometry
+# Geometry
 C52_X = 17  # content starts here (after the 16x16 picture and a 1-px gap)
 C52_R = 47  # last content column (48 is a gap, 49-50 hold badges, 51 is the border)
 C52_W = C52_R - C52_X + 1
@@ -60,23 +54,12 @@ GAUGE52_Y = 13  # the drawer gauge live screens share: rows 13-14
 
 _REGISTRY: dict[tuple[Size, str], dict[str, Layout]] = {}
 
-#: 32x8 (kind, variant) layouts that draw a gauge on the bottom row. That row is under the
-#: clock's stale border, which is accepted for a gauge: losing it while data is stale is fine,
-#: and it keeps a 1-px gap between the gauge and the text so it does not read as an underline.
-#: Nothing else may use the outer rows or columns.
-BOTTOM_GAUGE_32: set[tuple[str, str]] = set()
 
-
-def layout(
-    size: Size, kind: str, variant: str = "default", *, bottom_gauge: bool = False
-) -> Callable[[Layout], Layout]:
+def layout(size: Size, kind: str, variant: str = "default") -> Callable[[Layout], Layout]:
     """Register a layout function for (size, kind) under ``variant``."""
 
     def deco(fn: Layout) -> Layout:
         _REGISTRY.setdefault((size, kind), {})[variant] = fn
-        if bottom_gauge:
-            assert size == S32, "only 32x8 layouts may put a gauge on the bottom row"
-            BOTTOM_GAUGE_32.add((kind, variant))
         return fn
 
     return deco
@@ -180,24 +163,6 @@ def gauge(f: Frame, x: int, y: int, w: int, h: int, frac: float, role: str, cfg:
     f.rect(x, y, lit, h, cfg.rgb(role))
 
 
-def vgauge(f: Frame, x: int, y: int, w: int, h: int, frac: float, role: str, cfg: Config) -> None:
-    """A vertical bar filled from the bottom."""
-    frac = max(0.0, min(1.0, frac))
-    f.rect(x, y, w, h, cfg.rgb("dim"))
-    lit = round(frac * h)
-    if frac > 0 and lit == 0:
-        lit = 1
-    f.rect(x, y + h - lit, w, lit, cfg.rgb(role))
-
-
-def cycle_fraction(state: DisplayState, now: datetime) -> float:
-    if state.cycle_start is None or state.cycle_end is None:
-        return 0.0
-    total = (state.cycle_end - state.cycle_start).total_seconds()
-    done = (now - state.cycle_start).total_seconds()
-    return 0.0 if total <= 0 else max(0.0, min(0.99, done / total))
-
-
 def wait_fraction_left(state: DisplayState, now: datetime) -> float:
     if state.since is None or state.deadline is None:
         return 1.0
@@ -244,24 +209,12 @@ def caption(
 # --- drawing helpers ---------------------------------------------------------------------
 
 
-def _f32() -> Frame:
-    return Frame(*S32)
-
-
 def _f52() -> Frame:
     return Frame(*S52)
 
 
-def icon32(f: Frame, cfg: Config, name: str, accent: str = "text") -> None:
-    draw_icon(f, name, 0, 0, cfg, accent=accent)
-
-
 def icon52(f: Frame, cfg: Config, name: str, accent: str = "text") -> None:
-    draw_icon(f, name, 0, 0, cfg, size=16, accent=accent)
-
-
-def text32(f: Frame, cfg: Config, s: str, role: str, x: int = T32_X) -> None:
-    put_text(f, x, T32_Y, s, cfg.rgb(role), small_font(), right=T32_R)
+    draw_icon(f, name, 0, 0, cfg, size=PIC, accent=accent)
 
 
 def big52(f: Frame, cfg: Config, s: str, role: str, y: int = L1_Y, x: int = C52_X) -> None:
@@ -284,16 +237,9 @@ def drawer_gauge52(f: Frame, state: DisplayState, cfg: Config) -> None:
     gauge(f, C52_X, GAUGE52_Y, C52_W, 2, drawer_frac(state), drawer_role(state, cfg), cfg)
 
 
-def bottom_gauge32(f: Frame, frac: float, role: str, cfg: Config) -> None:
-    """A 32x8 gauge on the bottom row; only for layouts registered with bottom_gauge."""
-    gauge(f, T32_X, G32_Y, T32_W, 1, frac, role, cfg)
-
-
 # Tiny marks that label the idle gauges.
 BIN_MARK = ("..B..", ".BHB.", "BBBBB")  # a little poop: the waste drawer
 LITTER_MARK = ("s.s.s", ".s.s.", "sssss")  # a little sand pile: the litter
-BIN_MARK3 = (".B.", "BHB", "BBB")
-LITTER_MARK3 = ("s.s", ".s.", "sss")
 #: A 3x3 "z" for the sleeping moon.
 Z_ART = ("CCC", ".C.", "CCC")
 #: Stink lines beside the poop: two wiggle frames.
@@ -310,27 +256,26 @@ STINK_B = ("K..K.", ".K..K", "K..K.", ".K..K", "K..K.")
 class Rare:
     icon: str
     accent: str  # the icon's accent role
-    headline: str  # 52x16 big line
-    role: str  # headline colour (and the 32x8 word colour)
-    line2: str  # 52x16 small line, plain words
-    pages: tuple[str, ...]  # 32x8: one word at a time, every page_s
+    headline: str  # the big line
+    role: str  # headline colour
+    line2: str  # the small line, plain words
     blink_icon: bool = False
 
 
-_NO_DATA_REASON: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
-    # reason → (52x16 second-line options, 32x8 pages after "NO" "DATA")
-    "auth": (("LOGIN",), ("LOGIN",)),
-    "api": (("API ERROR", "API ERR"), ("API", "ERROR")),
-    "no_robots": (("NO ROBOT",), ("NO", "ROBOT")),
-    "timeout": (("TIMEOUT",), ("TIME", "OUT")),
-    "no_snapshot": (("WAITING",), ("WAIT",)),
+#: No-data reason → second-line options (the first that fits is used).
+_NO_DATA_REASON: dict[str, tuple[str, ...]] = {
+    "auth": ("LOGIN",),
+    "api": ("API ERROR", "API ERR"),
+    "no_robots": ("NO ROBOT",),
+    "timeout": ("TIMEOUT",),
+    "no_snapshot": ("WAITING",),
 }
 
-#: Fault code → (52x16 second-line options, 32x8 pages after "FAULT").
-FAULT_WORDS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
-    "PD": (("PINCH",), ("PINCH",)),
-    "OTF": (("JAMMED",), ("JAM",)),
-    "CSF": (("CAT SENSOR", "SENSOR"), ("CAT", "SENSOR")),
+#: Fault code → second-line options (the first that fits is used).
+FAULT_WORDS: dict[str, tuple[str, ...]] = {
+    "PD": ("PINCH",),
+    "OTF": ("JAMMED",),
+    "CSF": ("CAT SENSOR", "SENSOR"),
 }
 
 
@@ -338,34 +283,30 @@ def rare_for(state: DisplayState, now: datetime) -> Rare:
     sm = small_font()
     kind = state.kind
     if kind == "no_data":
-        line2s, pages = _NO_DATA_REASON.get(state.detail or "", (("WHISKER",), ("WHISKER",)))
-        return Rare("ghost_q", "text", "NO DATA", "alert", first_fitting(line2s, C52_W, sm),
-                    ("NO", "DATA", *pages))
+        line2s = _NO_DATA_REASON.get(state.detail or "", ("WHISKER",))
+        return Rare("ghost_q", "text", "NO DATA", "alert", first_fitting(line2s, C52_W, sm))
     if kind == "robot_offline":
         age = fmt_age(seconds_between(state.last_seen, now))
         return Rare("wifi_x", "alert", "OFFLINE", "alert",
-                    first_fitting([f"SEEN {age}", f"{age} AGO", age], C52_W, sm),
-                    ("LOST", age))
+                    first_fitting([f"SEEN {age}", f"{age} AGO", age], C52_W, sm))
     if kind == "robot_off":
-        return Rare("power", "attention", "ROBOT", "attention", "IS OFF", ("ROBOT", "IS", "OFF"))
+        return Rare("power", "attention", "ROBOT", "attention", "IS OFF")
     if kind == "fault":
         code = state.fault_code or "?"
-        line2s, pages = FAULT_WORDS.get(code, ((f"CODE {code}", code), (code,)))
+        line2s = FAULT_WORDS.get(code, (f"CODE {code}", code))
         return Rare("warning", "alert", "FAULT", "alert", first_fitting(line2s, C52_W, sm),
-                    ("FAULT", *pages), blink_icon=True)
+                    blink_icon=True)
     if kind == "bonnet_removed":
-        return Rare("bonnet", "attention", "BONNET", "attention", "IS OFF", ("LID", "OFF"))
+        return Rare("bonnet", "attention", "BONNET", "attention", "IS OFF")
     if kind == "paused":
         t = fmt_clock(seconds_between(state.since, now))
-        return Rare("pause", "attention", "PAUSED", "attention", t, ("PAUSE", t))
+        return Rare("pause", "attention", "PAUSED", "attention", t)
     if kind == "emptying":
-        return Rare("empty", "gold", "EMPTY", "gold", "CYCLE", ("DUMP", "CYCLE"))
+        return Rare("empty", "gold", "EMPTY", "gold", "CYCLE")
     if kind == "powering":
         if state.detail == "down":
-            return Rare("power", "gold", "POWER", "gold", "BYE BYE", ("SHUT", "DOWN"),
-                        blink_icon=True)
-        return Rare("power", "gold", "POWER", "gold", "STARTING", ("START", "UP"),
-                    blink_icon=True)
+            return Rare("power", "gold", "POWER", "gold", "BYE BYE", blink_icon=True)
+        return Rare("power", "gold", "POWER", "gold", "STARTING", blink_icon=True)
     raise KeyError(kind)
 
 
@@ -379,40 +320,14 @@ def _rare_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     return f
 
 
-def _rare_32(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    """Icon plus one word at a time. A word too wide to sit beside the icon gets the whole
-    width for its page (and the icon steps aside), rather than being abbreviated."""
-    r = rare_for(state, now)
-    f = _f32()
-    word = r.pages[phase(now, len(r.pages), cfg.timings.page_s)]
-    sm = small_font()
-    if fits(word, T32_W, sm):
-        if not r.blink_icon or blink(now):
-            icon32(f, cfg, r.icon, r.accent)
-        text32(f, cfg, word, r.role)
-    else:
-        x = 1 + max(0, T32_R - sm.width(word)) // 2
-        put_text(f, x, T32_Y, word, cfg.rgb(r.role), sm, right=T32_R)
-    return f
-
-
 for _kind in ("no_data", "robot_offline", "robot_off", "fault", "bonnet_removed", "paused",
               "emptying", "powering"):
-    layout(S32, _kind)(_rare_32)
     layout(S52, _kind)(_rare_52)
 
 
 # =========================================================================================
 # Drawer full: an overflowing pile, red, and it blinks for attention
 # =========================================================================================
-
-
-@layout(S32, "drawer_full")
-def _drawer_full_32(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    f = _f32()
-    icon32(f, cfg, "pile", "alert" if blink(now) else "dim")
-    text32(f, cfg, "FULL", "alert")
-    return f
 
 
 @layout(S52, "drawer_full")
@@ -485,45 +400,20 @@ def _in_use_timer_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     return f
 
 
-@layout(S32, "in_use", "duo")
-def _in_use_duo_32(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    """Arthur and the poop emoji take turns in the icon slot."""
-    f = _f32()
-    icon32(f, cfg, ("arthur_strain", "arthur_strain", "poop", "poop")[phase(now, 4)])
-    text32(f, cfg, _in_use_timer(state, now), "text")
-    return f
-
-
-@layout(S32, "in_use", "door")
-def _in_use_door_32(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    f = _f32()
-    icon32(f, cfg, "door", "alert")
-    text32(f, cfg, _in_use_timer(state, now), "alert")
-    return f
-
-
-@layout(S32, "in_use", "timer")
-def _in_use_timer_32(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    f = _f32()
-    icon32(f, cfg, "arthur_strain")
-    text32(f, cfg, _in_use_timer(state, now), "text")
-    return f
-
-
 # =========================================================================================
 # Waiting: cream hourglass, orange sand, gold digits. Sleeping: a moon and z's.
 # =========================================================================================
 
-#: Row of the hourglass neck at each icon size.
-_NECK = {16: 7, 8: 3}
+#: Row of the hourglass neck.
+_NECK = 7
 
 
-def hourglass(f: Frame, cfg: Config, size: int, left: float, now: datetime) -> None:
+def hourglass(f: Frame, cfg: Config, left: float, now: datetime) -> None:
     """The hourglass with ``left`` (0..1) of the sand still in the top bulb; a grain falls
     through the neck every other second."""
-    draw_icon(f, "hourglass", 0, 0, cfg, size=size)
-    neck = _NECK[size]
-    cells = icon_cells("hourglass", size, "%")
+    draw_icon(f, "hourglass", 0, 0, cfg, size=PIC)
+    neck = _NECK
+    cells = icon_cells("hourglass", PIC, "%")
     top = sorted((c for c in cells if c[1] < neck), key=lambda c: -c[1])
     bottom = sorted((c for c in cells if c[1] > neck), key=lambda c: -c[1])
     sand = cfg.rgb("sand")
@@ -557,19 +447,12 @@ def _sleep_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     return f
 
 
-def _sleep_32(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    f = _f32()
-    icon32(f, cfg, "moon")
-    text32(f, cfg, "Z" * (1 + phase(now, 3, 2)), "cream")
-    return f
-
-
 @layout(S52, "waiting", "countdown")
 def _waiting_countdown_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     if state.sleeping:
         return _sleep_52(state, now, cfg)
     f = _f52()
-    hourglass(f, cfg, 16, wait_fraction_left(state, now), now)
+    hourglass(f, cfg, wait_fraction_left(state, now), now)
     digits52(f, cfg, _wait_text(state, now), "gold")
     drawer_gauge52(f, state, cfg)
     return f
@@ -580,36 +463,10 @@ def _waiting_label_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     if state.sleeping:
         return _sleep_52(state, now, cfg)
     f = _f52()
-    hourglass(f, cfg, 16, wait_fraction_left(state, now), now)
+    hourglass(f, cfg, wait_fraction_left(state, now), now)
     cap = caption(state, cfg, "waiting", S52, C52_W, small_font(), fallback="CLEAN IN")
     small52(f, cfg, cap, "sand", y=L1_Y)
     big52(f, cfg, _wait_text(state, now), "gold", y=7)
-    return f
-
-
-@layout(S32, "waiting", "countdown")
-def _waiting_countdown_32(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    if state.sleeping:
-        return _sleep_32(state, now, cfg)
-    f = _f32()
-    hourglass(f, cfg, 8, wait_fraction_left(state, now), now)
-    text32(f, cfg, _wait_text(state, now), "gold")
-    return f
-
-
-@layout(S32, "waiting", "bar", bottom_gauge=True)
-def _waiting_bar_32(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    if state.sleeping:
-        return _sleep_32(state, now, cfg)
-    f = _f32()
-    left_frac = wait_fraction_left(state, now)
-    hourglass(f, cfg, 8, left_frac, now)
-    if state.deadline is None:
-        text32(f, cfg, "WAIT", "gold")
-        return f
-    left = (state.deadline - now).total_seconds()
-    text32(f, cfg, "DUE" if left <= 0 else f"{math.ceil(left / 60)}M", "gold")
-    bottom_gauge32(f, left_frac, "gold", cfg)
     return f
 
 
@@ -618,12 +475,10 @@ def _waiting_bar_32(state: DisplayState, now: datetime, cfg: Config) -> Frame:
 # =========================================================================================
 
 
-def drum(f: Frame, cfg: Config, size: int, now: datetime) -> None:
+def drum(f: Frame, cfg: Config, now: datetime) -> None:
     """The robot's globe: a mint ring whose opening turns a step every second, with litter
     lying in the bottom."""
-    if size == 8:
-        _drum8(f, cfg, now)
-        return
+    size = PIC
     steps = 8
     c = (size - 1) / 2
     r = 6.4
@@ -642,21 +497,6 @@ def drum(f: Frame, cfg: Config, size: int, now: datetime) -> None:
                 f.pixel(x, y, sand)
 
 
-#: The 8x8 drum's ring, clockwise from the top. A warm-white dot steps round it.
-_RING8 = ((3, 1), (4, 1), (5, 2), (6, 3), (6, 4), (5, 5), (4, 6), (3, 6), (2, 5), (1, 4),
-          (1, 3), (2, 2))
-
-
-def _drum8(f: Frame, cfg: Config, now: datetime) -> None:
-    """A closed mint ring with a dot (and a short trail) going round: a turning globe."""
-    mint, dot, trail = cfg.rgb("mint"), cfg.rgb("text"), cfg.rgb("sand")
-    for x, y in _RING8:
-        f.pixel(x, y, mint)
-    i = (phase(now, 4) * 3) % len(_RING8)
-    f.pixel(*_RING8[i], dot)
-    f.pixel(*_RING8[i - 1], trail)
-
-
 def _clean_left(state: DisplayState, now: datetime) -> str:
     if state.cycle_end is None:
         return "--"
@@ -666,7 +506,7 @@ def _clean_left(state: DisplayState, now: datetime) -> str:
 @layout(S52, "cleaning", "spin")
 def _cleaning_spin_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     f = _f52()
-    drum(f, cfg, 16, now)
+    drum(f, cfg, now)
     big52(f, cfg, _clean_left(state, now), "text")
     cap = caption(state, cfg, "cleaning", S52, C52_W, small_font(), fallback="CLEANING")
     small52(f, cfg, cap, "mint")
@@ -676,26 +516,9 @@ def _cleaning_spin_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
 @layout(S52, "cleaning", "gauge")
 def _cleaning_gauge_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     f = _f52()
-    drum(f, cfg, 16, now)
+    drum(f, cfg, now)
     digits52(f, cfg, _clean_left(state, now), "mint")
     drawer_gauge52(f, state, cfg)
-    return f
-
-
-@layout(S32, "cleaning", "countdown")
-def _cleaning_countdown_32(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    f = _f32()
-    drum(f, cfg, 8, now)
-    text32(f, cfg, _clean_left(state, now), "mint")
-    return f
-
-
-@layout(S32, "cleaning", "progress", bottom_gauge=True)
-def _cleaning_progress_32(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    f = _f32()
-    drum(f, cfg, 8, now)
-    text32(f, cfg, _clean_left(state, now), "mint")
-    bottom_gauge32(f, cycle_fraction(state, now), "mint", cfg)
     return f
 
 
@@ -714,15 +537,6 @@ def _just_cleaned_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     return f
 
 
-@layout(S32, "just_cleaned")
-def _just_cleaned_32(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    f = _f32()
-    icon32(f, cfg, "sparkle_a" if blink(now) else "sparkle_b")
-    word = caption(state, cfg, "just_cleaned_small", S32, T32_W, small_font(), fallback="FRESH")
-    text32(f, cfg, word, "mint")
-    return f
-
-
 # =========================================================================================
 # Interrupted: Arthur barges back in mid-cycle. Wide eyes, a big HEY!
 # =========================================================================================
@@ -735,15 +549,6 @@ def _interrupted_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     head = caption(state, cfg, "interrupted", S52, C52_W, large_font(), fallback="HEY!")
     big52(f, cfg, head, "attention")
     small52(f, cfg, "STOPPED", "text")
-    return f
-
-
-@layout(S32, "interrupted")
-def _interrupted_32(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    f = _f32()
-    icon32(f, cfg, "arthur_shock")
-    word = caption(state, cfg, "interrupted_small", S32, T32_W, small_font(), fallback="HEY!")
-    text32(f, cfg, word, "attention" if blink(now) else "text")
     return f
 
 
@@ -809,32 +614,6 @@ def _ready_numbers_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     return f
 
 
-@layout(S32, "ready", "face")
-def _ready_face_32(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    f = _f32()
-    icon32(f, cfg, "arthur_face_blink" if idle_pose(now, cfg) == "blink" else "arthur_face")
-    vgauge(f, T32_X, 1, 2, 6, drawer_frac(state), drawer_role(state, cfg), cfg)
-    vgauge(f, T32_X + 3, 1, 2, 6, litter_frac(state), litter_role(state), cfg)
-    age = fmt_age(seconds_between(state.last_visit_at, now)) if state.last_visit_at else "--"
-    text32(f, cfg, age, "text", x=T32_X + 7)
-    return f
-
-
-@layout(S32, "ready", "numbers")
-def _ready_numbers_32(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    f = _f32()
-
-    def two(v: float | None) -> str:
-        return "--" if v is None else str(min(99, round(max(0.0, v))))
-
-    sm = small_font()
-    draw_art(f, BIN_MARK3, 1, 2, cfg)
-    put_text(f, 5, T32_Y, two(state.drawer_pct), cfg.rgb(drawer_role(state, cfg)), sm, right=13)
-    draw_art(f, LITTER_MARK3, 16, 2, cfg)
-    put_text(f, 20, T32_Y, two(state.litter_pct), cfg.rgb(litter_role(state)), sm, right=T32_R)
-    return f
-
-
 # =========================================================================================
 # Badges: fixed slots so position as well as colour says which is which.
 # =========================================================================================
@@ -852,11 +631,7 @@ BADGE_STYLE: dict[str, tuple[int, str]] = {
 def draw_badges(f: Frame, badges: frozenset[str], cfg: Config) -> None:
     for badge in badges:
         slot, role = BADGE_STYLE[badge]
-        c = cfg.rgb(role)
-        if f.size == S32:
-            f.pixel(30, 1 + slot, c)
-        else:
-            f.rect(49, 1 + 3 * slot, 2, 2, c)
+        f.rect(49, 1 + 3 * slot, 2, 2, cfg.rgb(role))
 
 
 # =========================================================================================
@@ -870,7 +645,7 @@ def _norm_size(size: Size | str | None, cfg: Config) -> Size:
     if isinstance(size, str):
         return parse_size(size)
     s = (int(size[0]), int(size[1]))
-    if s not in (S32, S52):
+    if s not in list_sizes():
         raise ValueError(f"unsupported size {s}")
     return s
 
@@ -881,7 +656,8 @@ def list_kinds() -> tuple[str, ...]:
 
 
 def list_sizes() -> tuple[Size, ...]:
-    return (S32, S52)
+    """The sizes that have layouts: only 52x16."""
+    return (S52,)
 
 
 def list_variants(kind: str, size: Size | str) -> list[str]:

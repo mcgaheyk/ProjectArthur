@@ -4,8 +4,9 @@
 
 ProjectArthur is a small always-on display that shows what a Litter-Robot 4 is doing. (Arthur
 is the cat.) A Python service, the **feeder**, watches the robot through Whisker's cloud,
-decides what to show, draws the frame itself, and pushes it to a Ulanzi pixel clock running
-AWTRIX NG. A browser **studio** simulates the clock so screens can be designed without hardware.
+decides what to show, draws the frame itself, and pushes it to a Ulanzi TC002 pixel clock
+(52x16) running AWTRIX NG. The feeder will run on a Raspberry Pi 5. A browser **studio**
+simulates the clock so screens can be designed without the hardware on the desk.
 
 ## Read before working
 - `docs/STATUS.md` (imported above): what is done and what is next. Current state only.
@@ -29,7 +30,8 @@ AWTRIX NG. A browser **studio** simulates the clock so screens can be designed w
 ## Invariants
 - **The feeder draws every pixel.** The clock only shows a bitmap (D-0003). Do not move layout
   into AWTRIX text, icon or progress keys.
-- **Two sizes until a display is chosen** (D-0001). Every state has a 32x8 and a 52x16 layout.
+- **One size: 52x16**, the Ulanzi TC002 (D-0010). The 32x8 layouts were removed on purpose; do
+  not add a second size back without Kyle asking.
 - **One config file.** Colours, thresholds and timings live in `config/display.toml`.
 - **Credentials** come from the environment or a gitignored `.env` that Kyle fills in himself.
   Never read `.env` or `.whisker-token.json`, never print or log their contents.

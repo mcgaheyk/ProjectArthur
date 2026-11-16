@@ -2,7 +2,7 @@
 
 Kept verbatim as the record of what was first intended. **It has been superseded in places:**
 the firmware is AWTRIX NG, not AWTRIX 3 (D-0002); the feeder draws the pixels instead of
-sending AWTRIX text and icons (D-0003); the display may be a TC002 (D-0001); several pylitterbot
+sending AWTRIX text and icons (D-0003); the display is a TC002, 52x16 (D-0010); several pylitterbot
 details were corrected in [reference/pylitterbot.md](reference/pylitterbot.md). The AWTRIX 3
 API section below does not apply to NG.
 

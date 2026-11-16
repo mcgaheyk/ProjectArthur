@@ -2,9 +2,8 @@
 # captions. Loaded by arthur/config.py into frozen dataclasses.
 
 [display]
-# Frame size the feeder renders by default: "32x8" (Ulanzi TC001) or "52x16" (Ulanzi TC002).
-# Both are always available to the renderer and the studio (D-0001).
-size = "32x8"
+# Frame size: the Ulanzi TC002's 52x16 matrix (the only size the renderer supports).
+size = "52x16"
 
 # Semantic colour roles. Screens and icons refer to roles, never to hex values.
 # The scheme is warm (Kyle's office is reddish, Arthur is orange). Mint is the one cool accent
@@ -65,29 +64,24 @@ just_cleaned_s = 60           # READY within this long after CLEAN_CYCLE shows j
 clean_cycle_estimate_s = 150  # timed progress estimate for cleaning (library has no phases)
 no_data_after_s = 600         # no successful contact for this long shows no_data
 idle_blink_every_s = 30       # idle Arthur blinks (or flicks his tail) once per this many s
-page_s = 2                    # 32x8 rare states show one word at a time for this long
 
 # Captions are jokes. One is picked per visit (from when the state began), so it stays put for
 # the whole visit and changes between visits. Add your own; a caption too wide for its line
 # is skipped, never cut off (the tests list any that do not fit).
 # Rough widths: most letters are 4 px, M and W 6, I ! : and space 2.
 [captions]
-# 52x16 in use, headline beside the poop emoji, big font: up to 31 px (about 7 letters)
+# in use, headline beside the poop emoji, big font: up to 31 px (about 7 letters)
 in_use = ["PLOP?", "BUSY", "IN SESH", "NO PEEK", "POOPIN?", "PEEIN?", "BRB", "SHH!",
           "PRIVACY", "WORKIN", "THRONE", "VIP ONLY"]
-# 52x16 waiting, label variant, top line: up to 31 px
+# waiting, label variant, top line: up to 31 px
 waiting = ["FLUSH IN", "CLEAN IN", "SPIN IN", "SCOOP IN", "SIFT IN"]
-# waiting while the robot sleeps: 52x16 headline, up to 31 px in the big font
+# waiting while the robot sleeps: headline, up to 31 px in the big font
 waiting_sleep = ["ZZZ", "SNOOZE", "NAPPING", "SLEEPY", "LATER"]
-# 52x16 cleaning, second line under the countdown: up to 31 px
+# cleaning, second line under the countdown: up to 31 px
 cleaning = ["SPINNING", "FLUSHING", "WHEEE", "TUMBLE", "SIFTING", "SWOOSH", "DIZZY"]
-# 52x16 just cleaned headline, big font, up to 31 px
+# just cleaned headline, big font, up to 31 px
 just_cleaned = ["FRESH!", "SPARKLY", "SO FRESH", "SHINY", "SO NICE", "AHHH"]
-# 32x8 just cleaned, next to the sparkle: up to 20 px
-just_cleaned_small = ["FRESH", "NEAT!", "TIDY!", "CLEAN", "AHH"]
-# 52x16 interrupted headline, big font, up to 31 px
+# interrupted headline, big font, up to 31 px
 interrupted = ["HEY!", "OI!", "WAIT!", "HOLD UP", "NOPE!", "RUDE!", "UH OH"]
-# 32x8 interrupted, next to Arthur: up to 20 px
-interrupted_small = ["HEY!", "OI!", "WAIT!", "RUDE!", "OOPS"]
-# 52x16 drawer full, second line under FULL: up to 31 px
+# drawer full, second line under FULL: up to 31 px
 drawer_full = ["EMPTY IT", "HELP!", "TOO MUCH", "NO ROOM", "EMPTY!"]

@@ -10,6 +10,8 @@ Format: `D-NNNN — <title>` · date · the decision · why · what was rejected
 
 ## D-0001 — Design for both the TC001 and the TC002 until Kyle picks one
 
+_→ See D-0010_
+
 **2026-11-15.** The display is either a Ulanzi TC001 (32x8) or a TC002 (52x16). Every display
 state gets a layout at both sizes, and the studio shows them side by side.
 
@@ -116,3 +118,28 @@ at a glance. Idle stays nearly still, because every changed frame is a push to t
 cannot tell pee from poop, so nothing claims either.
 
 **Status.** A direction, not a finished design. Kyle expects to iterate over several days.
+
+## D-0010 — The display is a Ulanzi TC002 (52x16); the 32x8 size is removed
+
+**2026-11-16.** Supersedes D-0001. Kyle bought a Ulanzi TC002 and a Raspberry Pi 5. Screens are
+designed at 52x16 only. The 32x8 layouts, icons, golden images and the second fake clock were
+deleted; commit 91e4960 is the last one that has them.
+
+**Why.** The choice D-0001 was waiting for is made. A second layout family doubles the work of
+every design change, and the 32x8 screens were clearly the weaker ones.
+
+**Kept.** D-0003 stands: the feeder draws every pixel. `Frame` and `render()` still take a
+size, so a different display later would be a new layout family, not a rewrite.
+
+**Host.** The Pi is a Raspberry Pi 5, which settles D-0006's "a Raspberry Pi". Its RAM size is
+not recorded.
+
+**What the TC002 changes** (verified 2026-11-16; details in `docs/reference/awtrix-ng.md`):
+- NG draws pushed apps at double size on a 26x8 grid unless the `enlargeApps` setting is off.
+  The transport turns it off before pushing, and the fake clock starts with it on, as a real
+  clock does.
+- It has no light sensor and NG has no night schedule, so night dimming is the feeder's job.
+- It is a small Linux board, not an ESP32. The request body limit is 2 MiB, so frame size is no
+  longer a constraint.
+- NG support is a normal release (first in 1.2.2, current in 1.2.3), not a beta as the earlier
+  research said. The 1.2.3 pin stands (D-0002).

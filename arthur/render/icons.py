@@ -6,8 +6,8 @@ Characters are palette-role codes from ``[palette_chars]`` in config/display.tom
 - ``*`` the accent role the screen picks when drawing,
 - ``%`` a level-fill cell: filled from the bottom up to a given fraction, in the fill role.
 
-Lines starting with ``#`` are comments. A missing 16x16 icon falls back to its 8x8 art drawn
-at double size.
+Lines starting with ``#`` are comments. Screens draw icons at 16x16; an icon that only has
+8x8 art (``pause``, ``power``, ``empty``) is drawn at double size.
 """
 
 from __future__ import annotations
@@ -108,7 +108,7 @@ def draw_icon(
     y: int,
     cfg: Config,
     *,
-    size: int = 8,
+    size: int = 16,
     accent: str = "text",
     fill: float = 0.0,
     fill_role: str | None = None,

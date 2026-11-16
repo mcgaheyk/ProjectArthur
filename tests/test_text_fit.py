@@ -1,6 +1,6 @@
 """Every label fits its box, and nothing is drawn on or against a label.
 
-Renders every fixture x size x variant over a span of seconds (every blink, animation phase
+Renders every fixture x variant over a span of seconds (every blink, animation phase
 and caption page) with the strict text mode on. In strict mode ``put_text`` raises when a
 label is wider than its box, and ``render`` checks that no other pixel touches a label.
 """
@@ -39,12 +39,12 @@ def test_every_label_fits_and_stands_clear(name, size, variant):
 
 
 def test_strict_mode_catches_overflow():
-    f = Frame(32, 8)
+    f = Frame(52, 16)
     with strict_text(), pytest.raises(TextFitError):
-        put_text(f, 9, 1, "TOO LONG FOR THIS", (255, 255, 255), small_font(), right=29)
+        put_text(f, 17, 1, "MUCH TOO LONG FOR THIS", (255, 255, 255), small_font(), right=47)
 
 
 def test_non_strict_clips_to_the_box_not_beyond():
-    f = Frame(32, 8)
-    put_text(f, 9, 1, "TOO LONG FOR THIS", (255, 255, 255), small_font(), right=20)
-    assert all(f.get(x, y) == (0, 0, 0) for x in range(21, 32) for y in range(8))
+    f = Frame(52, 16)
+    put_text(f, 17, 1, "MUCH TOO LONG FOR THIS", (255, 255, 255), small_font(), right=30)
+    assert all(f.get(x, y) == (0, 0, 0) for x in range(31, 52) for y in range(16))

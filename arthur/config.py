@@ -41,8 +41,8 @@ REQUIRED_ROLES: tuple[str, ...] = (
     "stale",
 )
 
-#: Frame sizes the renderer supports (width, height).
-SIZES: tuple[tuple[int, int], ...] = ((32, 8), (52, 16))
+#: Frame sizes the renderer supports (width, height): the Ulanzi TC002's 52x16 only.
+SIZES: tuple[tuple[int, int], ...] = ((52, 16),)
 
 
 class ConfigError(ValueError):
@@ -63,11 +63,11 @@ def parse_hex(value: str) -> RGB:
 
 
 def parse_size(value: str) -> tuple[int, int]:
-    """``"32x8"`` → ``(32, 8)``; must be one of :data:`SIZES`."""
+    """``"52x16"`` → ``(52, 16)``; must be one of :data:`SIZES`."""
     try:
         w, h = (int(p) for p in value.lower().split("x"))
     except ValueError as exc:
-        raise ConfigError(f"size must look like 32x8, got {value!r}") from exc
+        raise ConfigError(f"size must look like 52x16, got {value!r}") from exc
     if (w, h) not in SIZES:
         raise ConfigError(f"size {value!r} not supported; use one of {format_sizes()}")
     return (w, h)
@@ -119,7 +119,6 @@ class Timings:
     clean_cycle_estimate_s: float = 150
     no_data_after_s: float = 600
     idle_blink_every_s: float = 30
-    page_s: float = 2
 
 
 #: An empty caption table, for configs without [captions].
@@ -180,7 +179,7 @@ def _captions(sec: Mapping[str, Any]) -> Mapping[str, tuple[str, ...]]:
 def config_from_dict(data: Mapping[str, Any], source: str = "<dict>") -> Config:
     """Build a :class:`Config` from already-parsed TOML data."""
     display = _section(data, "display")
-    size = parse_size(str(display.get("size", "32x8")))
+    size = parse_size(str(display.get("size", "52x16")))
 
     pal = _section(data, "palette")
     chars = _section(data, "palette_chars")

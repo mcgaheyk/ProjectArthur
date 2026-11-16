@@ -28,8 +28,8 @@ NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 STALE_RGB = (0x6E, 0x07, 0x00)
 MAX_NESTING = 16
 
-#: Body limit in bytes: 8192 on ESP32 builds (TC001, 32x8), 2 MiB on the TC002 (52x16).
-BODY_LIMITS: dict[tuple[int, int], int] = {(32, 8): 8192, (52, 16): 2 * 1024 * 1024}
+#: Body limit in bytes: 2 MiB on the Ulanzi TC002 (52x16).
+BODY_LIMIT = 2 * 1024 * 1024
 
 #: Pushed-app keys we simulate.
 SIMULATED_KEYS = frozenset({"draw", "lifetimeMs", "lifetimeExpiry", "durationMs"})
@@ -156,26 +156,13 @@ class Indicator:
     fade_ms: int = 0
 
 
-#: ASSUMPTION: indicator pixels on NG are not confirmed. At 32x8 these are AWTRIX 3's
-#: positions; at 52x16 the same shapes moved to the right edge, middle and bottom.
-INDICATOR_PIXELS: dict[tuple[int, int], dict[int, tuple[tuple[int, int], ...]]] = {
-    (32, 8): {
-        1: ((31, 0), (30, 0), (31, 1)),
-        2: ((31, 3), (31, 4)),
-        3: ((31, 7), (31, 6), (30, 7)),
-    },
-    (52, 16): {
-        1: ((51, 0), (50, 0), (51, 1)),
-        2: ((51, 7), (51, 8)),
-        3: ((51, 15), (51, 14), (50, 15)),
-    },
-}
-
-
 def _indicator_pixels(width: int, height: int) -> dict[int, tuple[tuple[int, int], ...]]:
-    known = INDICATOR_PIXELS.get((width, height))
-    if known:
-        return known
+    """Indicator pixels: AWTRIX 3's shapes at the top-right corner, the middle of the right
+    edge and the bottom-right corner. At 52x16: (51,0) (50,0) (51,1); (51,7) (51,8);
+    (51,15) (51,14) (50,15).
+
+    ASSUMPTION: indicator pixels on NG are not confirmed.
+    """
     r, mid, b = width - 1, height // 2, height - 1
     return {
         1: ((r, 0), (r - 1, 0), (r, 1)),
@@ -184,13 +171,23 @@ def _indicator_pixels(width: int, height: int) -> dict[int, tuple[tuple[int, int
     }
 
 
+#: Settings keys the fake clock simulates.
+SIMULATED_SETTINGS = frozenset({"enlargeApps"})
+
+
 @dataclass
 class FakeClock:
-    """One simulated clock of ``width`` x ``height`` LEDs."""
+    """One simulated clock of ``width`` x ``height`` LEDs.
+
+    ``enlarge_apps`` is the TC002's ``enlargeApps`` setting, on by default as on a freshly
+    installed clock: pushed apps are drawn at double size on a (width/2) x (height/2) grid
+    (docs/reference/awtrix-ng.md, "Double size on the TC002").
+    """
 
     width: int
     height: int
     time_fn: Callable[[], float] = time.monotonic
+    enlarge_apps: bool = True
     apps: dict[str, PushedApp] = field(default_factory=dict)
     indicators: dict[int, Indicator] = field(
         default_factory=lambda: {1: Indicator(), 2: Indicator(), 3: Indicator()}
@@ -205,8 +202,7 @@ class FakeClock:
 
     @property
     def body_limit(self) -> int:
-        # ASSUMPTION for any size other than the two real clocks: the ESP32 limit.
-        return BODY_LIMITS.get(self.size, 8192)
+        return BODY_LIMIT
 
     # --- pushed apps -------------------------------------------------------------------
 
@@ -344,6 +340,36 @@ class FakeClock:
             return None
         return max(self.apps.values(), key=lambda a: a.seq)
 
+    # --- settings ----------------------------------------------------------------------
+
+    def settings(self) -> dict[str, Any]:
+        """The body of ``GET /api/v1/settings``: only the keys the fake clock simulates."""
+        return {"enlargeApps": self.enlarge_apps}
+
+    def patch_settings(
+        self, raw: bytes, content_type: str | None = "application/json"
+    ) -> dict[str, Any]:
+        """``PATCH /api/v1/settings``: validates every key before applying any (all-or-nothing)
+        and answers with all settings, already updated."""
+        body = self._parse_body(raw, content_type)
+        if not isinstance(body, dict):
+            raise validation("body must be a JSON object", "body")
+        for key, value in body.items():
+            if key not in SIMULATED_SETTINGS:
+                # Real NG accepts its other settings keys and answers "unknown field" for keys
+                # it does not have; we cannot tell the two apart, so refuse them all loudly.
+                raise ClockError(
+                    422, "notSimulated",
+                    f"The settings key '{key}' is NOT SIMULATED by the ProjectArthur fake "
+                    "clock, which simulates only 'enlargeApps'.", key,
+                )
+            if not isinstance(value, bool):
+                raise validation("enlargeApps must be true or false", key)
+        # ASSUMPTION: an empty object is a valid "subset" that changes nothing.
+        if "enlargeApps" in body:
+            self.enlarge_apps = body["enlargeApps"]
+        return self.settings()
+
     # --- indicators --------------------------------------------------------------------
 
     @staticmethod
@@ -421,12 +447,23 @@ class FakeClock:
         pushed (its built-in apps, a clock face, ...) is unknown and not simulated.
         ASSUMPTION: indicators are drawn on top of everything, including the mark ("drawn
         above apps" is not stated in the spec).
+
+        With ``enlarge_apps`` on, the app's pixels at x < width/2, y < height/2 are each drawn
+        as a 2x2 block and the rest of the app shows nothing. It is applied here, at render
+        time, so flipping the setting changes the screen at once.
+        ASSUMPTION: the stale border and the indicators stay at native 1-px size in both modes
+        (the docs do not say whether they are doubled).
         """
         now = self.time_fn() if now is None else now
         f = Frame(self.width, self.height)
         app = self.current_app(now)
         if app is not None:
-            f.pixels = [c if c is not None else (0, 0, 0) for c in app.layer]
+            layer = app.layer
+            if self.enlarge_apps:
+                w = self.width
+                layer = [layer[(y // 2) * w + x // 2]
+                         for y in range(self.height) for x in range(self.width)]
+            f.pixels = [c if c is not None else (0, 0, 0) for c in layer]
             if self._expired(app, now) and app.expiry == "mark":
                 f.rect(0, 0, self.width, self.height, STALE_RGB, filled=False)
         pixels = _indicator_pixels(self.width, self.height)
@@ -457,6 +494,7 @@ class FakeClock:
             "lifetime_remaining_s": None,
             "expiry": None,
             "marked": False,
+            "enlarge_apps": self.enlarge_apps,
             "indicators": {
                 str(n): {"on": i.on, "color": "#{:02X}{:02X}{:02X}".format(*i.color),
                          "blinkMs": i.blink_ms, "fadeMs": i.fade_ms}

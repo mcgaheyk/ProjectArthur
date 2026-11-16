@@ -1,4 +1,4 @@
-"""Golden text snapshots of every fixture at both sizes and every variant.
+"""Golden text snapshots of every fixture in every variant.
 
 Each file in ``tests/golden/`` is ``<fixture>__<WxH>__<variant>.txt``: the preview legend line
 followed by the frame, one character per pixel (see ``arthur.render.preview``).

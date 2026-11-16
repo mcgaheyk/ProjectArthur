@@ -1,5 +1,8 @@
 # Hardware and firmware deep dive (2026-11-15)
 
+_Outcome (2026-11-16): Kyle bought the Ulanzi TC002 and a Raspberry Pi 5. See D-0010. The rest
+of this file is the research as it stood on the 15th._
+
 The question: is a Ulanzi TC001 running AWTRIX 3, fed by a Raspberry Pi 5, the right way to
 build this display? Three research passes covered display hardware, firmware, and the host and
 data source. Prices are US street prices found that day. Items marked _unverified_ had no

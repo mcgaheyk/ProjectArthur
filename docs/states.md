@@ -1,7 +1,7 @@
 # What the display shows
 
 This is the product spec. Each display state says what triggers it and what the screen must
-get across. How it looks at 32x8 and 52x16 is worked out in the studio, not here.
+get across. How it looks on the 52x16 clock is worked out in the studio, not here.
 
 "Source" names are verified against pylitterbot 2025.8.0; see
 [reference/pylitterbot.md](reference/pylitterbot.md). The ids in `code` are the names the

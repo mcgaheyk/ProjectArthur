@@ -56,5 +56,4 @@ def test_every_scenario_renders_each_second():
         for t in range(0, int(sc.duration_s) + 1, 1):
             snap, health, now = sc.at(t)
             state = to_display_state(snap, health, now, CFG)
-            for size in ((32, 8), (52, 16)):
-                render(state, now, CFG, size=size)
+            render(state, now, CFG)

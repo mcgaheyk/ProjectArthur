@@ -4,8 +4,8 @@ The studio reaches mapping and rendering only through a :class:`Pipeline`, never
 module-level imports, so a live reload can swap in freshly imported modules as one unit.
 
 Reload strategy: the watched modules are removed from ``sys.modules`` and imported again as
-*new* module objects. The candidate is then checked by rendering every fixture at every size
-and variant. If the import, the config or any render fails, the old module objects are put
+*new* module objects. The candidate is then checked by rendering every fixture in every
+variant. If the import, the config or any render fails, the old module objects are put
 back in ``sys.modules`` and the old :class:`Pipeline` keeps serving; the error is reported.
 Old module objects are never mutated, so a half-finished reload cannot leave a mix behind.
 """
@@ -107,7 +107,7 @@ class Pipeline:
         return self.render(st, now, size, variant)
 
     def validate(self) -> None:
-        """Render every fixture at every size and variant; raise on the first failure."""
+        """Render every fixture in every variant; raise on the first failure."""
         for name, fx in self.fixtures.FIXTURES.items():
             for size in self.sizes():
                 st = self.state(fx.snapshot, fx.health, fx.now)

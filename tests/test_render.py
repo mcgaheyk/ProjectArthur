@@ -12,14 +12,7 @@ from arthur.model import KINDS, DisplayState
 from arthur.render import Frame, list_kinds, list_sizes, list_variants, overlay_stale, render
 from arthur.render.font import large_font, small_font
 from arthur.render.icons import get_icon, icon_names
-from arthur.render.screens import (
-    BOTTOM_GAUGE_32,
-    T32_R,
-    T32_X,
-    fmt_age,
-    fmt_clock,
-    fmt_countdown,
-)
+from arthur.render.screens import fmt_age, fmt_clock, fmt_countdown
 
 CFG = default_config()
 SIZES = list(list_sizes())
@@ -56,15 +49,15 @@ def test_frame_encoders():
 
 
 def test_png_is_valid():
-    f = Frame(32, 8)
+    f = Frame(52, 16)
     f.pixel(1, 1, (10, 20, 30))
     png = f.to_png(scale=3)
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
     w, h = struct.unpack(">II", png[16:24])
-    assert (w, h) == (96, 24)
+    assert (w, h) == (156, 48)
     idat_len = struct.unpack(">I", png[33:37])[0]
     raw = zlib.decompress(png[41 : 41 + idat_len])
-    assert len(raw) == 24 * (1 + 96 * 3)
+    assert len(raw) == 48 * (1 + 156 * 3)
 
 
 def test_blit_and_lines():
@@ -82,8 +75,8 @@ def test_blit_and_lines():
 
 
 def test_stale_overlay():
-    f = overlay_stale(Frame(32, 8), CFG.rgb("stale"))
-    assert f.get(0, 0) == f.get(31, 7) == (0x6E, 0x07, 0x00)
+    f = overlay_stale(Frame(52, 16), CFG.rgb("stale"))
+    assert f.get(0, 0) == f.get(51, 15) == (0x6E, 0x07, 0x00)
     assert f.get(1, 1) == (0, 0, 0)
 
 
@@ -100,8 +93,7 @@ def test_fonts_have_needed_glyphs():
 
 
 def test_icons_load():
-    # Every icon has 16x16 art (its own, or its 8x8 drawn at double size). Some poses exist
-    # only at 16x16 because they are only used at 52x16.
+    # Every icon has 16x16 art (its own, or its 8x8 drawn at double size).
     for name in icon_names():
         icon, scale = get_icon(name, 16)
         assert icon.size * scale == 16
@@ -125,7 +117,11 @@ def test_time_formats():
 # --- registry ----------------------------------------------------------------------------
 
 
-def test_every_kind_has_layouts_at_both_sizes():
+def test_only_52x16():
+    assert SIZES == [(52, 16)]
+
+
+def test_every_kind_has_layouts():
     assert list_kinds() == KINDS
     for kind in KINDS:
         for size in SIZES:
@@ -141,15 +137,16 @@ def test_variant_kinds_have_two_or_more(kind):
 def test_unknown_variant_falls_back_to_default():
     fx = FIXTURES["ready"]
     s = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
-    assert render(s, NOW, CFG, "32x8", "nope") == render(s, NOW, CFG, "32x8")
+    assert render(s, NOW, CFG, "52x16", "nope") == render(s, NOW, CFG, "52x16")
 
 
 def test_size_defaults_to_config_and_accepts_strings():
     s = DisplayState(kind="robot_off")
     assert render(s, NOW, CFG).size == CFG.size
     assert render(s, NOW, CFG, size="52x16").size == (52, 16)
-    with pytest.raises(ValueError):
-        render(s, NOW, CFG, size=(64, 32))
+    for bad in ((64, 32), "64x32"):
+        with pytest.raises(ValueError):
+            render(s, NOW, CFG, size=bad)
 
 
 # --- every fixture, size and variant ---------------------------------------------------------
@@ -164,15 +161,10 @@ def test_renders_cleanly(name, size, variant):
         w, h = size
         assert f.size == size
         assert len(f.to_rgb888()) == w * h * 3
-        assert len(base64.b64encode(f.to_rgb888())) == {32: 1024, 52: 3328}[w]
-        # Nothing may be drawn where the clock's stale border goes. One narrow exception: a
-        # 32x8 layout registered in BOTTOM_GAUGE_32 may put a gauge on the bottom row, inside
-        # the text columns (losing it to the stale border is accepted).
+        assert len(base64.b64encode(f.to_rgb888())) == 3328
+        # Nothing may be drawn where the clock's stale border goes.
         off = CFG.rgb("off")
-        bottom_gauge = size == (32, 8) and (fx.kind, variant) in BOTTOM_GAUGE_32
-        bottom = [f.get(x, h - 1) for x in range(w)
-                  if not (bottom_gauge and T32_X <= x <= T32_R)]
-        border = [f.get(x, 0) for x in range(w)] + bottom
+        border = [f.get(x, 0) for x in range(w)] + [f.get(x, h - 1) for x in range(w)]
         border += [f.get(0, y) for y in range(h)] + [f.get(w - 1, y) for y in range(h)]
         assert all(p == off for p in border), f"{name} draws on the border"
         # Only palette colours are used.
@@ -197,7 +189,7 @@ def test_interrupted_differs_from_cleaning_in_shape():
 def test_countdown_ticks():
     fx = FIXTURES["waiting"]
     s = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
-    frames = {render(s, fx.now + timedelta(seconds=t), CFG, size=(32, 8)).to_rgb888()
+    frames = {render(s, fx.now + timedelta(seconds=t), CFG, variant="countdown").to_rgb888()
               for t in range(3)}
     assert len(frames) == 3
 

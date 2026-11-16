@@ -1,8 +1,8 @@
-// The live view: both fake clocks at the same LED pitch, and the control panel.
+// The live view: the fake clock (Ulanzi TC002, 52x16) and the control panel.
 
 import { LedMatrix } from "./led.js";
 
-const CLOCK_NAMES = { "32x8": "Ulanzi TC001", "52x16": "Ulanzi TC002" };
+const CLOCK_NAME = "Ulanzi TC002";
 const MANUAL_FIELDS = [
   // [key, label, type]
   ["status", "Status", "status"],
@@ -53,7 +53,7 @@ function idle(e) {
 }
 
 export function initLive({ control, getMeta }) {
-  const clocks = {}; // size -> { matrix, nodes }
+  const clocks = {}; // size key ("52x16", the only one) -> { matrix, nodes }
   let lastState = null;
 
   // --- clocks ---------------------------------------------------------------------
@@ -65,29 +65,30 @@ export function initLive({ control, getMeta }) {
       const [w, h] = size.split("x").map(Number);
       const canvas = el("canvas", { "aria-label": `${size} clock` });
       const stale = el("span", { class: "stale-label", text: "STALE", hidden: true });
-      const tag = el("span", { class: "tag", text: `/clock/${size}` });
-      const alias = el("span", { class: "tag", text: "default /api/v1", hidden: true });
+      const tag = el("span", { class: "tag", text: "/api/v1" });
       const kind = el("span", { class: "mono" });
       const push = el("span", { class: "mono" });
       const bar = el("span", { class: "lifebar" }, el("i"));
       const life = el("span", { class: "mono" });
+      const scale = el("span", { class: "scale" });
       const err = el("div", { class: "clock-err", hidden: true });
       const card = el(
         "div",
         { class: "clock" },
         el("div", { class: "clock-head" },
-          el("h3", { text: `${CLOCK_NAMES[size] || "Clock"} · ${size}` }), tag, alias, stale),
+          el("h3", { text: `${CLOCK_NAME} · ${size}` }), tag, stale),
         el("div", { class: "canvas-wrap" }, canvas),
         el("div", { class: "clock-info" },
           el("span", {}, "Showing ", kind),
           el("span", {}, "Last push ", push),
           el("span", {}, bar, life),
+          scale,
           err),
       );
       host.append(card);
       clocks[size] = {
         matrix: new LedMatrix(canvas, w, h, 10),
-        nodes: { stale, alias, kind, push, bar, life, err },
+        nodes: { stale, kind, push, bar, life, scale, err },
         w, h,
       };
     }
@@ -97,12 +98,10 @@ export function initLive({ control, getMeta }) {
   function relayout() {
     const host = $("clocks");
     const avail = Math.max(200, host.clientWidth - 26);
-    let widest = 0;
-    for (const c of Object.values(clocks)) widest = Math.max(widest, c.w);
-    if (!widest) return;
-    // Same pitch for every clock, so their relative size is honest.
-    const pitch = Math.max(4, Math.min(22, Math.floor(avail / (widest + 1.2))));
-    for (const c of Object.values(clocks)) c.matrix.resize(c.w, c.h, pitch);
+    for (const c of Object.values(clocks)) {
+      const pitch = Math.max(4, Math.min(22, Math.floor(avail / (c.w + 1.2))));
+      c.matrix.resize(c.w, c.h, pitch);
+    }
   }
 
   function onClocks(data) {
@@ -204,20 +203,17 @@ export function initLive({ control, getMeta }) {
     const host = $("variant-pickers");
     host.textContent = "";
     let any = false;
+    // The variants map is keyed by size; there is one size.
     for (const size of meta.sizes || []) {
       const kinds = (meta.variants && meta.variants[size]) || {};
-      const rows = [];
       for (const kind of meta.kinds || []) {
         const names = kinds[kind] || [];
         if (names.length < 2) continue;
         const sel = el("select", { "data-size": size, "data-kind": kind });
         names.forEach((n, i) => sel.append(el("option", { value: n, text: i === 0 ? `${n} (default)` : n })));
         sel.onchange = () => control({ variants: { [size]: { [kind]: sel.value } } });
-        rows.push(el("div", { class: "vrow" }, el("span", { text: kind }), sel));
-      }
-      if (rows.length) {
+        host.append(el("div", { class: "vrow" }, el("span", { text: kind }), sel));
         any = true;
-        host.append(el("div", { class: "vsize" }, el("h3", { text: size }), ...rows));
       }
     }
     if (!any) host.append(el("p", { class: "muted small", text: "No state has more than one variant." }));
@@ -314,7 +310,6 @@ export function initLive({ control, getMeta }) {
     for (const [size, c] of Object.entries(clocks)) {
       const cs = st.clocks && st.clocks[size];
       const n = c.nodes;
-      n.alias.hidden = st.default_size !== size;
       if (!cs) continue;
       n.stale.hidden = !cs.marked;
       n.kind.textContent = cs.kind ? `${cs.kind} / ${cs.variant}` : (cs.app ? `app ${cs.app}` : "nothing pushed");
@@ -331,6 +326,12 @@ export function initLive({ control, getMeta }) {
         bar.classList.remove("low", "out");
         n.life.textContent = cs.app ? "no lifetime" : "no app";
       }
+      // The clock's enlargeApps setting: on, pushed apps are drawn doubled (top-left quarter).
+      n.scale.textContent = cs.enlarge_apps ? "double size (enlargeApps on)" : "native size";
+      n.scale.classList.toggle("warn", !!cs.enlarge_apps);
+      n.scale.title = cs.enlarge_apps
+        ? "The clock draws pushed apps at double size on a 26x8 grid; the feeder's transport turns this off before it pushes."
+        : "enlargeApps is off: pushed apps use all 52x16 pixels.";
       const err = cs.feeder_error;
       n.err.hidden = !err;
       n.err.textContent = err ? `Last push failed: ${err}` : "";

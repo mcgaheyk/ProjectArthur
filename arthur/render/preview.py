@@ -1,13 +1,13 @@
 """Print screens as text (and optionally write PNGs).
 
     uv run python -m arthur.render.preview --all
-    uv run python -m arthur.render.preview waiting --size 52x16 --variant bar --stale
+    uv run python -m arthur.render.preview waiting --variant label --stale
     uv run python -m arthur.render.preview --all --png /tmp/screens
     uv run python -m arthur.render.preview --sheet /tmp/sheets             # every fixture
     uv run python -m arthur.render.preview in_use --sheet /tmp/s --frames 8 --step 1
 
-``--sheet DIR`` writes contact sheets instead of text: one PNG per size with every fixture x
-variant (or just the named one), each tile labelled in the project's own font. With
+``--sheet DIR`` writes a contact sheet instead of text: one PNG with every fixture x variant
+(or just the named one), each tile labelled in the project's own font. With
 ``--frames N`` each tile becomes a strip of N frames ``--step`` seconds apart, so an
 animation can be read side by side.
 
@@ -27,7 +27,7 @@ from arthur.fixtures import FIXTURES, Fixture
 from arthur.mapping import to_display_state
 from arthur.render.font import small_font
 from arthur.render.frame import RGB, Frame, overlay_stale
-from arthur.render.screens import list_kinds, list_sizes, list_variants, render
+from arthur.render.screens import list_kinds, list_variants, render
 
 
 def legend_for(cfg: Config) -> dict[RGB, str]:
@@ -48,7 +48,7 @@ def frame_text(frame: Frame, cfg: Config) -> str:
 
 
 def render_fixture(
-    fx: Fixture, cfg: Config, size: tuple[int, int], variant: str | None, stale: bool
+    fx: Fixture, cfg: Config, size: tuple[int, int] | None, variant: str | None, stale: bool
 ) -> Frame:
     state = to_display_state(fx.snapshot, fx.health, fx.now, cfg)
     frame = render(state, fx.now, cfg, size=size, variant=variant)
@@ -103,50 +103,37 @@ def contact_sheet(
     return canvas
 
 
-def write_sheets(
-    names: list[str], cfg: Config, sizes: list[tuple[int, int]], out: Path, *,
+def write_sheet(
+    names: list[str], cfg: Config, out: Path, *,
     variant: str | None, frames: int, step: float, stale: bool, led: int | None,
-) -> list[Path]:
-    """Write one contact sheet per size; returns the paths written."""
+) -> Path:
+    """Write one contact sheet; returns its path."""
     from datetime import timedelta
 
     out.mkdir(parents=True, exist_ok=True)
-    written = []
-    for size in sizes:
-        tiles: list[tuple[str, list[tuple[str, Frame]]]] = []
-        for name in names:
-            fx = FIXTURES[name]
-            available = list_variants(fx.kind, size)
-            vs = available if variant in (None, "all") else [variant if variant in available
-                                                            else available[0]]
-            state = to_display_state(fx.snapshot, fx.health, fx.now, cfg)
-            for v in vs:
-                strip = []
-                for k in range(frames):
-                    t = k * step
-                    fr = render(state, fx.now + timedelta(seconds=t), cfg, size=size, variant=v)
-                    if stale:
-                        fr = overlay_stale(fr, cfg.rgb("stale"))
-                    strip.append((f"+{t:g}s" if frames > 1 else "", fr))
-                tiles.append((f"{name} / {v}", strip))
-        led_px = led or (8 if size[0] == 32 else 6)
-        cols = 1 if frames > 1 else (4 if size[0] == 32 else 3)
-        sheet = contact_sheet(tiles, led_px, cols)
-        tag = names[0] if len(names) == 1 else "all"
-        suffix = f"__frames{frames}" if frames > 1 else ""
-        path = out / f"sheet__{tag}__{format_size(size)}{suffix}.png"
-        path.write_bytes(sheet.to_png(1))
-        written.append(path)
-    return written
-
-
-def _sizes(arg: str) -> list[tuple[int, int]]:
-    if arg == "both":
-        return list(list_sizes())
-    w, h = (int(p) for p in arg.lower().split("x"))
-    if (w, h) not in list_sizes():
-        raise SystemExit(f"--size must be 32x8, 52x16 or both, not {arg!r}")
-    return [(w, h)]
+    tiles: list[tuple[str, list[tuple[str, Frame]]]] = []
+    for name in names:
+        fx = FIXTURES[name]
+        available = list_variants(fx.kind, cfg.size)
+        vs = available if variant in (None, "all") else [variant if variant in available
+                                                        else available[0]]
+        state = to_display_state(fx.snapshot, fx.health, fx.now, cfg)
+        for v in vs:
+            strip = []
+            for k in range(frames):
+                t = k * step
+                fr = render(state, fx.now + timedelta(seconds=t), cfg, variant=v)
+                if stale:
+                    fr = overlay_stale(fr, cfg.rgb("stale"))
+                strip.append((f"+{t:g}s" if frames > 1 else "", fr))
+            tiles.append((f"{name} / {v}", strip))
+    cols = 1 if frames > 1 else 3
+    sheet = contact_sheet(tiles, led or 6, cols)
+    tag = names[0] if len(names) == 1 else "all"
+    suffix = f"__frames{frames}" if frames > 1 else ""
+    path = out / f"sheet__{tag}__{format_size(cfg.size)}{suffix}.png"
+    path.write_bytes(sheet.to_png(1))
+    return path
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -155,14 +142,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("name", nargs="?", help="display kind or fixture name")
     p.add_argument("--all", action="store_true", help="every display kind")
     p.add_argument("--fixtures", action="store_true", help="every fixture, not just one per kind")
-    p.add_argument("--size", default="both", help="32x8, 52x16 or both (default)")
     p.add_argument("--variant", help="variant name; 'all' shows every variant")
     p.add_argument("--stale", action="store_true", help="overlay the clock's stale border")
     p.add_argument("--png", metavar="DIR", help="also write PNGs (scale 12) into DIR")
     p.add_argument("--sheet", metavar="DIR", help="write contact-sheet PNGs into DIR")
     p.add_argument("--frames", type=int, default=1, help="frames per tile in a sheet")
     p.add_argument("--step", type=float, default=1.0, help="seconds between sheet frames")
-    p.add_argument("--led", type=int, help="pixels per LED in a sheet (default 8 or 6)")
+    p.add_argument("--led", type=int, help="pixels per LED in a sheet (default 6)")
     p.add_argument("--config", help="path to display.toml")
     p.add_argument("--list", action="store_true", help="list kinds, variants and fixtures")
     args = p.parse_args(argv)
@@ -171,10 +157,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.list:
         for kind in list_kinds():
-            vs = "; ".join(
-                f"{format_size(s)}: {', '.join(list_variants(kind, s))}" for s in list_sizes()
-            )
-            print(f"{kind:15} {vs}")
+            print(f"{kind:15} {', '.join(list_variants(kind, cfg.size))}")
         print("\nfixtures: " + ", ".join(FIXTURES))
         return 0
 
@@ -193,41 +176,39 @@ def main(argv: list[str] | None = None) -> int:
         p.print_help()
         return 2
 
-    sizes = _sizes(args.size)
     if args.sheet:
-        for path in write_sheets(names, cfg, sizes, Path(args.sheet), variant=args.variant,
-                                 frames=max(1, args.frames), step=args.step, stale=args.stale,
-                                 led=args.led):
-            print(path)
+        print(write_sheet(names, cfg, Path(args.sheet), variant=args.variant,
+                          frames=max(1, args.frames), step=args.step, stale=args.stale,
+                          led=args.led))
         return 0
     png_dir = Path(args.png) if args.png else None
     if png_dir:
         png_dir.mkdir(parents=True, exist_ok=True)
 
     print(legend_text(cfg))
+    size = format_size(cfg.size)
     for name in names:
         fx = FIXTURES[name]
         kind = fx.kind
-        for size in sizes:
-            available = list_variants(kind, size)
-            if args.variant == "all":
-                variants: list[str | None] = list(available)
-            elif args.variant and args.variant in available:
-                variants = [args.variant]
-            else:
-                variants = [available[0]]
-            for v in variants:
-                frame = render_fixture(fx, cfg, size, v, args.stale)
-                tag = f"{name} [{kind}] {format_size(size)} variant={v}"
-                if len(available) > 1:
-                    tag += f" (of {', '.join(available)})"
-                if args.stale:
-                    tag += " +stale"
-                print(f"\n{tag}")
-                print(frame_text(frame, cfg))
-                if png_dir:
-                    fn = f"{name}__{format_size(size)}__{v}{'__stale' if args.stale else ''}.png"
-                    (png_dir / fn).write_bytes(frame.to_png(12, gap=2))
+        available = list_variants(kind, cfg.size)
+        if args.variant == "all":
+            variants: list[str | None] = list(available)
+        elif args.variant and args.variant in available:
+            variants = [args.variant]
+        else:
+            variants = [available[0]]
+        for v in variants:
+            frame = render_fixture(fx, cfg, None, v, args.stale)
+            tag = f"{name} [{kind}] {size} variant={v}"
+            if len(available) > 1:
+                tag += f" (of {', '.join(available)})"
+            if args.stale:
+                tag += " +stale"
+            print(f"\n{tag}")
+            print(frame_text(frame, cfg))
+            if png_dir:
+                fn = f"{name}__{size}__{v}{'__stale' if args.stale else ''}.png"
+                (png_dir / fn).write_bytes(frame.to_png(12, gap=2))
     return 0
 
 

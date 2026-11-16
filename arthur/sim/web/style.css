@@ -101,7 +101,7 @@ input[type="checkbox"] { accent-color: var(--accent); }
 
 main { padding: 16px; max-width: 1400px; margin: 0 auto; }
 
-/* --- live clocks ------------------------------------------------------------------- */
+/* --- live clock -------------------------------------------------------------------- */
 .clocks { display: flex; flex-direction: column; gap: 16px; margin-bottom: 16px; }
 .clock {
   background: var(--panel);
@@ -148,6 +148,8 @@ canvas { display: block; border-radius: 6px; }
 .lifebar > i { position: absolute; inset: 0 auto 0 0; background: var(--ok); width: 0; }
 .lifebar.low > i { background: var(--warn); }
 .lifebar.out > i { background: var(--stale); }
+.clock-info .scale { font-size: 12px; color: var(--muted); }
+.clock-info .scale.warn { color: var(--warn); font-weight: 600; }
 .clock-err { color: var(--err); font-size: 12px; width: 100%; word-break: break-word; }
 
 /* --- panel -------------------------------------------------------------------------- */
@@ -241,8 +243,6 @@ canvas { display: block; border-radius: 6px; }
 .errors { list-style: none; padding: 0; margin: 6px 0 0; font: 11px/1.35 var(--mono); color: var(--err); max-height: 9em; overflow: auto; }
 .errors li { margin-bottom: 4px; word-break: break-word; }
 
-.vsize { margin: 8px 0 12px; }
-.vsize h3 { font-size: 12px; margin: 0 0 6px; color: var(--text); font-weight: 600; }
 .vrow { display: grid; grid-template-columns: minmax(90px, 0.8fr) 1fr; gap: 8px; align-items: center; margin: 4px 0; font-size: 13px; }
 .vrow span { font-family: var(--mono); font-size: 12px; color: var(--muted); }
 
@@ -258,9 +258,6 @@ canvas { display: block; border-radius: 6px; }
 .grow-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; margin-bottom: 8px; }
 .grow-head b { font-family: var(--mono); }
 .grow-head .desc { color: var(--muted); font-size: 12px; }
-.gsizes { display: flex; flex-wrap: wrap; gap: 10px 24px; }
-.gsize { min-width: 0; }
-.gsize > .lbl { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
 .tiles { display: flex; flex-wrap: wrap; gap: 8px; }
 .tile {
   margin: 0;

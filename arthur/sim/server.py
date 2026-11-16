@@ -1,27 +1,33 @@
-"""The simulator's HTTP server: two fake AWTRIX NG clocks, the studio API and the studio page.
+"""The simulator's HTTP server: one fake AWTRIX NG clock (a 52x16 Ulanzi TC002), the studio
+API and the studio page.
 
-Routes (``{size}`` is ``32x8`` or ``52x16``; the bare ``/api/v1/...`` aliases the size set in
-``config/display.toml``, so ``CLOCK_URL=http://localhost:7001`` works):
+Routes (the clock answers at the bare paths, like a real one, so
+``CLOCK_URL=http://localhost:7001`` works):
 
 Clock (AWTRIX NG 1.2.3 subset)
-  PUT     [/clock/{size}]/api/v1/apps/pushed/{name}   other methods → 405 methodNotAllowed
-  DELETE  [/clock/{size}]/api/v1/apps/{name}
-  PUT     [/clock/{size}]/api/v1/indicators/{id}
-  DELETE  [/clock/{size}]/api/v1/indicators/{id}
-  GET     [/clock/{size}]/api/v1/display/screen
-  *       [/clock/{size}]/api/v1/...                  → 501 notSimulated
+  PUT     /api/v1/apps/pushed/{name}   other methods → 405 methodNotAllowed
+  DELETE  /api/v1/apps/{name}
+  PUT     /api/v1/indicators/{id}
+  DELETE  /api/v1/indicators/{id}
+  GET     /api/v1/display/screen
+  GET     /api/v1/settings             only {"enlargeApps"}; other methods → 405
+  PATCH   /api/v1/settings             only enlargeApps; other keys → 422 notSimulated
+  *       /api/v1/...                  → 501 notSimulated (including settings/reset)
 
 Studio
   GET  /                      the page
   GET  /static/{path}         page scripts and styles
   GET  /studio/meta           kinds, sizes, variants, fixtures, scenarios, palette, timings
-  GET  /studio/gallery        every fixture x size x variant (?stale=1 overlays the border)
-  GET  /studio/state          what is showing, feeder pushes and errors, each clock's lifetime
+  GET  /studio/gallery        every fixture x variant (?stale=1 overlays the border)
+  GET  /studio/state          what is showing, feeder pushes and errors, the clock's lifetime
   POST /studio/control        change the source, playback, variants, feeder switches
   GET  /studio/png            ?fixture=&size=&variant=&scale=&gap=&stale=
-  GET  /studio/ws             WebSocket: both clocks' pixels and the state when they change
+  GET  /studio/ws             WebSocket: the clock's pixels and the state when they change
 
 The server binds to 127.0.0.1 only (see ``__main__``).
+
+Some studio plumbing (the ``clocks`` map, ``variants``, gallery ``tiles``) is still keyed by the
+size string, "52x16", with that one entry.
 """
 
 from __future__ import annotations
@@ -55,7 +61,7 @@ from arthur.sim.pipeline import ReloadingPipeline, size_key
 log = logging.getLogger("arthur.sim")
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
-MAX_BODY = 3 * 1024 * 1024  # above the largest clock limit (2 MiB) so the clock decides
+MAX_BODY = 3 * 1024 * 1024  # above the clock's limit (2 MiB) so the clock decides
 
 PIPE = web.AppKey("pipe", ReloadingPipeline)
 CLOCKS = web.AppKey("clocks", dict)
@@ -85,15 +91,9 @@ def _clock_error(err: ClockError) -> web.Response:
 
 
 def _clock_for(request: web.Request) -> FakeClock:
+    """The one simulated clock."""
     clocks: dict[str, FakeClock] = request.app[CLOCKS]
-    size = request.match_info.get("size")
-    if size is None:
-        size = size_key(request.app[PIPE].current.cfg.size)
-    clock = clocks.get(size)
-    if clock is None:
-        raise ClockError(404, "notFound",
-                         f"no simulated clock of size {size!r}; use one of {', '.join(clocks)}")
-    return clock
+    return next(iter(clocks.values()))
 
 
 async def _read_body(request: web.Request, clock: FakeClock) -> bytes:
@@ -181,32 +181,45 @@ async def h_screen(request: web.Request) -> web.Response:
     return _json(clock.screen_json(), headers=CORS)
 
 
-async def h_not_simulated(request: web.Request) -> web.Response:
+async def h_settings(request: web.Request) -> web.Response:
     if (r := _preflight(request)) is not None:
         return r
     try:
-        _clock_for(request)
+        clock = _clock_for(request)
+        if request.method == "GET":
+            return _json(clock.settings(), headers=CORS)
+        if request.method != "PATCH":
+            raise _method_not_allowed("GET and PATCH")
+        raw = await _read_body(request, clock)
+        result = clock.patch_settings(raw, request.headers.get("Content-Type"))
     except ClockError as err:
         return _clock_error(err)
+    return _json(result, headers=CORS)
+
+
+async def h_not_simulated(request: web.Request) -> web.Response:
+    if (r := _preflight(request)) is not None:
+        return r
     err = ClockError(
         501, "notSimulated",
         f"{request.method} {request.path} is NOT SIMULATED by the ProjectArthur fake clock "
         "(it may or may not exist on a real AWTRIX NG 1.2.3 clock). Simulated: PUT "
         "/api/v1/apps/pushed/{name}, DELETE /api/v1/apps/{name}, PUT|DELETE "
-        "/api/v1/indicators/{id}, GET /api/v1/display/screen.",
+        "/api/v1/indicators/{id}, GET /api/v1/display/screen, GET|PATCH /api/v1/settings "
+        "(enlargeApps only).",
     )
     return _clock_error(err)
 
 
 def _add_clock_routes(app: web.Application) -> None:
     r = app.router
-    for prefix in ("/clock/{size}", ""):
-        r.add_route("*", prefix + "/api/v1/apps/pushed/{name}", h_pushed)
-        r.add_route("*", prefix + "/api/v1/apps/{name}", h_app)
-        r.add_route("*", prefix + "/api/v1/indicators/{id}", h_indicator)
-        r.add_route("*", prefix + "/api/v1/display/screen", h_screen)
-        r.add_route("*", prefix + "/api/v1", h_not_simulated)
-        r.add_route("*", prefix + "/api/v1/{tail:.*}", h_not_simulated)
+    r.add_route("*", "/api/v1/apps/pushed/{name}", h_pushed)
+    r.add_route("*", "/api/v1/apps/{name}", h_app)
+    r.add_route("*", "/api/v1/indicators/{id}", h_indicator)
+    r.add_route("*", "/api/v1/display/screen", h_screen)
+    r.add_route("*", "/api/v1/settings", h_settings)
+    r.add_route("*", "/api/v1", h_not_simulated)
+    r.add_route("*", "/api/v1/{tail:.*}", h_not_simulated)
 
 
 # =========================================================================================
@@ -441,7 +454,7 @@ async def h_ws(request: web.Request) -> web.WebSocketResponse:
 
 async def _wait_until_listening(base_url: str | None, timeout_s: float = 10) -> None:
     """aiohttp runs the startup context before it binds the socket; wait for the bind so the
-    feeder's first pushes to its own clocks do not fail."""
+    feeder's first pushes to its own clock do not fail."""
     if not base_url:
         return
     from urllib.parse import urlsplit
@@ -563,8 +576,9 @@ def create_app(
     """Build the simulator app.
 
     ``feeder_base_url`` is this server's own address (``http://127.0.0.1:7001``); the feeder
-    pushes to ``{feeder_base_url}/clock/{size}`` and does nothing until it is set.
-    ``time_fn`` drives the fake clocks' lifetimes and the feeder's heartbeat (tests inject it).
+    pushes to the clock there (``{feeder_base_url}/api/v1/...``) and does nothing until it is
+    set.
+    ``time_fn`` drives the fake clock's lifetime and the feeder's heartbeat (tests inject it).
     """
     app = web.Application(client_max_size=MAX_BODY)
     pipe = ReloadingPipeline(Path(config_path) if config_path else None)

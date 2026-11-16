@@ -1,4 +1,4 @@
-// The "All states" view: one row per fixture, every variant at both sizes.
+// The "All states" view: one row per fixture, every variant.
 
 import { LedMatrix } from "./led.js";
 import { getJSON } from "./net.js";
@@ -51,23 +51,20 @@ export function initGallery({ control, toast }) {
     host.textContent = "";
     tiles = [];
     const pitch = pitchFor();
-    const sizeFilter = $("gallery-sizes").value;
     for (const row of data.rows || []) {
-      const sizesBox = el("div", { class: "gsizes" });
       const r = el("div", { class: "grow" },
         el("div", { class: "grow-head" },
           el("b", { text: row.fixture }),
           el("span", { class: "chip", text: row.kind }),
-          el("span", { class: "desc", text: row.description || "" })),
-        sizesBox);
+          el("span", { class: "desc", text: row.description || "" })));
       if (row.error) r.append(el("div", { class: "clock-err", text: row.error }));
+      // Tiles are keyed by size; there is one size.
       for (const size of data.sizes || Object.keys(row.tiles || {})) {
-        if (sizeFilter !== "both" && sizeFilter !== size) continue;
         const [w, h] = size.split("x").map(Number);
         const box = el("div", { class: "tiles" });
         for (const t of (row.tiles && row.tiles[size]) || []) {
           const fig = el("figure", { class: "tile", role: "button", tabindex: "0",
-            title: `Send ${row.fixture} / ${t.variant} (${size}) to the live clocks` });
+            title: `Send ${row.fixture} / ${t.variant} to the live clock` });
           let matrix = null;
           if (t.error) {
             fig.append(el("div", { class: "terr", text: t.error }));
@@ -87,7 +84,7 @@ export function initGallery({ control, toast }) {
           tiles.push(info);
           box.append(fig);
         }
-        sizesBox.append(el("div", { class: "gsize" }, el("div", { class: "lbl", text: size }), box));
+        r.append(box);
       }
       host.append(r);
     }
@@ -99,7 +96,7 @@ export function initGallery({ control, toast }) {
     if (res && res.ok) {
       selected = { fixture: t.fixture, size: t.size, variant: t.variant };
       markSelected();
-      toast(`Live clocks: ${t.fixture}, ${t.size} variant "${t.variant}"`);
+      toast(`Live clock: ${t.fixture}, variant "${t.variant}"`);
     }
   }
 
@@ -122,7 +119,6 @@ export function initGallery({ control, toast }) {
   }
 
   $("gallery-stale").addEventListener("change", () => load(true));
-  $("gallery-sizes").addEventListener("change", () => load(true));
   setInterval(() => {
     if (!$("tab-gallery").hidden) step();
   }, 1000);

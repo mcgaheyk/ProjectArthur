@@ -22,8 +22,8 @@ layer.
 - An unknown top-level key → **422** `validationFailed` naming the `field`. Validation is
   all-or-nothing: on error nothing is saved. (Confirmed against payload.md, "Unknown top-level
   key".)
-- Body limit **8192 bytes on ESP32 builds (TC001), 2 MiB on the TC002** (413; confirmed against
-  payload.md). JSON nesting limit 16 (400).
+- Body limit on the TC002: **2 MiB** for any request body (413 `payloadTooLarge`; confirmed
+  against `docs/reference/limits.md`). ESP32 builds take 8192 bytes. JSON nesting limit 16 (400).
 - Keys are camelCase; durations are milliseconds with an `Ms` suffix.
 - Colours: `"#RRGGBB"`, `"RGB"`, `[r,g,b]`, or an integer. Read back as `#RRGGBB`.
 - HTTP Basic auth is off by default. CORS is open.
@@ -46,12 +46,26 @@ Keys we send:
 | `lifetimeExpiry` | `"remove"` (default) or `"mark"`: the app stays in the rotation with a 1-pixel dark-red `#6E0700` frame. **Confirmed against payload.md** |
 | `durationMs` | How long the app shows per turn; irrelevant with a single app |
 
-- Frame sizes: 32x8 → 768 bytes → 1024 base64 characters. 52x16 → 2496 bytes → 3328 characters.
+- Frame size: 52x16 → 2496 bytes → 3328 base64 characters.
 - Other `draw` commands exist (`pixel`, `pixels`, `line`, `rect`, `rectFill`, `circle`,
   `circleFill`, `text`) but we do not use them (D-0003).
 - Keys that exist but we do not send: `text`, `textColor`, `icon`, `progress`,
   `progressColor`, `backgroundColor`, `effect`, `overlay`, `barChart`, `lineChart`, `scroll`,
   `font`, and others. The simulator should refuse them loudly rather than pretend.
+
+### Double size on the TC002: `enlargeApps` must be off
+**Found 2026-11-16; our first notes missed it.** On a TC002, a pushed app or notification is
+drawn **at double size on a 26x8 grid** by default: each of its pixels lights a 2x2 square, its
+bottom-right corner is `(25, 7)`, and "a larger position lies outside the grid and shows
+nothing". So a 52x16 bitmap pushed to a freshly installed clock shows only its top-left
+quarter, doubled.
+
+The setting `enlargeApps` (boolean, default `true`) controls it. With it off, a pushed app
+"uses all 52 × 16 pixels". Scripts, layouts and built-in apps are never enlarged. **Confirmed
+against** `docs/guides/display.md`, `docs/guides/graphics.md` and `docs/reference/settings.md`
+at `v1.2.3`. Not stated: whether the stale border is also doubled while the setting is on.
+
+The transport therefore sets `enlargeApps: false` before it pushes; see Settings below.
 
 ### Render order **[docs]**
 Background → text and drawings → **stale border** → icon → extra icons → overlay. So the border
@@ -72,8 +86,9 @@ Not confirmed: that re-pushing clears the mark (inferred from the code's structu
   changes on/off (a `color` of 0 or `null` turns it off and keeps the stored colour; a body
   without `color` leaves on/off untouched); `{}` is 422; an id outside 1..3 is 404. "Drawn above
   apps" is not stated in the spec.
-- Exact pixels at each clock size are not confirmed for NG. (On AWTRIX 3 at 32x8 they were
-  (31,0),(30,0),(31,1) / (31,3),(31,4) / (31,7),(31,6),(30,7).)
+- Exact pixels on the 52x16 matrix are not documented. NG's Home Assistant guide describes 1 and
+  3 as corners and 2 as "a short bar in the middle" of the right edge. (AWTRIX 3 on a 32x8 clock
+  used a 3-pixel corner, a 2-pixel bar and a 3-pixel corner.)
 
 ## Reading the screen back
 `GET /api/v1/display/screen` → `{width, height, pixels[]}`, row-major from the top left,
@@ -82,14 +97,26 @@ simulator will be compared with the real clock. **Partly confirmed against opena
 shape `{width: int, height: int, pixels: [int]}` with each item "packed 0xRRGGBB" is confirmed.
 Row-major order and "before brightness/gamma" are **not stated** in the spec.
 
+## Settings (the transport uses one key)
+**Confirmed against** `docs/reference/settings.md` at `v1.2.3`.
+- `GET /api/v1/settings` returns every settings key. `PATCH /api/v1/settings` takes any subset;
+  keys left out stay as they are. A successful `PATCH` answers `200` with all settings, already
+  updated, and takes effect at once.
+- Validation is all-or-nothing. A bad value is `422 validationFailed` naming the `field`; an
+  unknown key is `422` with `"message": "unknown field"`.
+- **Settings survive a restart.** `POST /api/v1/settings/reset` deletes them and restarts the
+  clock, which would turn `enlargeApps` back on.
+- Keys we use or will use: `enlargeApps` (see above); `brightness` 0–255.
+- **Brightness on the TC002:** it has no light sensor, so `autoBrightness` "is accepted and
+  saved" but changes nothing (`docs/guides/brightness.md`). There is **no built-in night
+  schedule** (requested in issue #98 and declined; the maintainer points to scripts). Night
+  dimming is therefore ours to do: the feeder sets `brightness` on a timer.
+
 ## For later features
 - **Notifications:** `POST /api/v1/notifications` (`hold`, `stack`, `wakeup`, `sound`, `name`);
   `DELETE /api/v1/notifications/active` dismisses the one showing.
 - **Rotation and built-in apps:** `PUT /api/v1/apps/order {"order":[…],"disabled":[…]}`
   persists; `PUT /api/v1/apps/active {"name","fast":true}` shows an app now.
-- **Settings:** `GET`/`PATCH /api/v1/settings`. `brightness` 0–255, `autoBrightness`,
-  `minBrightness`, `maxBrightness`. There is **no built-in night schedule**; the maintainer
-  points to scripts, or the feeder can set brightness on a timer.
 - **Buttons:** a `buttonCallback` URL receives `{"button","state","uid"}` over plain HTTP.
 - **Scripts (Berry):** run on the clock, survive reboot, can draw at about 40 fps, make
   HTTP(S) requests and read `now_ms()`. The official `Doorstate` recipe turns the screen grey
@@ -112,21 +139,58 @@ OFL-1.1; `THIRD-PARTY-NOTICES.md` lists the Matrix-Fonts as OFL-1.1 with notices
 full OFL-1.1 text, and the combined fonts are OFL-1.1). Keep the notice with any vendored font.
 
 ## Hardware
-- **TC001:** 32x8, three buttons, buzzer, light sensor, battery. Flashed from a desktop Chrome
-  or Edge browser. Open reports: reboot loop on some units (#105), scripting disabled after a
-  battery-depletion shutdown (#145).
-- **TC002:** 52x16, knob, speaker. NG arrived as a beta in late September 2026 and uses a USB
-  installer. Light sensor, chip and current status are unverified.
-- 2.4 GHz Wi-Fi only.
+Our clock is a **Ulanzi TC002** (D-0010). Checked 2026-11-16 against the NG repo at `v1.2.3` and
+Ulanzi's product page. Earlier notes here called NG on the TC002 "a beta from late September
+2026"; nothing in today's sources supports that.
+
+- **Firmware status.** 1.2.3 (2026-11-03) is the latest release and ships TC002 files
+  (`usb-awtrix-ng-tc002.zip`, `awtrix-ng-tc002.awup`). The release index gives 1.2.2
+  (2026-10-06) as the TC002's first release. No beta or experimental label was found; only the
+  "Hey AWTRIX" wake word is marked experimental.
+- **Not an ESP32.** NG runs as a Linux program (`awtrix-linux --board tc002`) on the
+  manufacturer's SigmaStar kernel, ARMv7 (`docs/developers/tc002/`). The exact chip is not
+  named. HTTP is always on port 80.
+- **Display and controls:** 52x16 (832 LEDs), three buttons and a knob, speaker and microphone.
+  **No light sensor.** Timed sleep is not supported.
+- **Power and size (Ulanzi):** USB-C 5 V 3 A or the magnetic dock; 3600 mAh battery;
+  20.5 x 3.3 x 8.5 cm; 380 g.
+- **Network:** 2.4 GHz Wi-Fi only.
+- **Scripts (Berry)** are available on it.
+
+### Installing NG on the TC002 (`docs/getting-started/tc002.md`)
+- A desktop **TC002 USB installer** (graphical or terminal) for Windows, macOS 13.5+ and Linux.
+  There is no browser flasher. Installers downloaded before 1.2.3 refuse the 1.2.3 firmware.
+- Needs a USB-C **data** cable and only one clock connected. Open the installer, wait for
+  "Ready when you are.", then switch the clock off and on once: it accepts the connection only
+  briefly after power-on.
+- Installing removes the Ulanzi app's saved Wi-Fi and cloud login. Do not unplug, close the
+  installer or press reset while it writes.
+- **Getting back** (`docs/guides/reset-recovery.md`): holding the reset button for 5 s erases NG
+  and reinstalls the Ulanzi firmware kept on the clock, which may be older than the one it
+  shipped with. A damaged install shows "USB RECOVERY" and can be reinstalled.
+
+### Open reports that mention the TC002 (2026-11-16)
+- #141: the order of apps changes after a reboot. #142: a disabled Status app turns itself
+  back on after a reboot. Neither matters with a single pushed app, but check that the built-in
+  apps stay out of the rotation after a reboot.
+- Closed: #86 the clock never rejoined Wi-Fi after a router restart (fixed in 1.2.3); #85 the
+  battery would not charge past about 80 %.
+- No open report of flicker, crashes or pushed bitmaps misbehaving was found.
 
 ## Where our fake clock guesses (`arthur/sim/clock.py`)
 The simulator follows this file, but these points are assumptions about the real firmware.
-Check each one when a clock is flashed, by comparing `GET /api/v1/display/screen` on both.
+Check each one once NG is on the TC002, by comparing `GET /api/v1/display/screen` on both.
 - Re-pushing an app clears the stale mark and restarts its lifetime.
 - With no app pushed, the screen is black.
-- Indicator pixels: AWTRIX 3's positions at 32x8, the same shapes at the right edge at 52x16,
-  drawn above everything including the stale mark. Blink is on for the first half of the
-  period; fade is a cosine over one period.
+- Indicator pixels: AWTRIX 3's corner, bar and corner shapes moved to the right edge of the
+  52x16 matrix, drawn above everything including the stale mark. Blink is on for the first half
+  of the period; fade is a cosine over one period.
+- Settings: only `enlargeApps` is simulated, and `GET /api/v1/settings` returns only that key
+  where a real clock returns them all. It starts on, as documented. While it is on, the fake
+  clock doubles the top-left 26x8 of what was pushed and still draws the stale border and the
+  indicators at normal size; NG does not say what it does with the border. An empty `PATCH`
+  body is accepted and changes nothing, which the docs do not cover. Every other settings key is
+  refused as not simulated, including real ones such as `brightness`.
 - A base64 bitmap of the wrong length is refused with 422. NG's behaviour is not documented.
 - The fake clock answers "not simulated" (422 for keys, 501 for routes) for anything real in NG
   that it does not render. A real clock would accept those.

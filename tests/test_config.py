@@ -17,7 +17,7 @@ from arthur.config import (
 
 def test_repo_config_loads_with_documented_defaults():
     cfg = load_config()
-    assert cfg.size == (32, 8)
+    assert cfg.size == (52, 16)
     t = cfg.timings
     assert (t.heartbeat_s, t.ttl_s, t.just_cleaned_s) == (30, 90, 60)
     assert (t.clean_cycle_estimate_s, t.no_data_after_s) == (150, 600)
@@ -49,10 +49,18 @@ def _data():
         return tomllib.load(fh)
 
 
-def test_size_override():
+def test_size_defaults_to_52x16():
     d = _data()
-    d["display"]["size"] = "52x16"
+    del d["display"]["size"]
     assert config_from_dict(d).size == (52, 16)
+
+
+def test_32x8_config_rejected():
+    # The TC001's 32x8 size was dropped when the TC002 (52x16) was bought.
+    d = _data()
+    d["display"]["size"] = "32x8"
+    with pytest.raises(ConfigError, match="not supported; use one of 52x16"):
+        config_from_dict(d)
 
 
 @pytest.mark.parametrize("bad", ["64x32", "big", "32"])

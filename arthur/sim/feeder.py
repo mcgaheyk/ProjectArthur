@@ -1,4 +1,4 @@
-"""The studio's in-process feeder: source → mapping → render → AwtrixNgTransport → fake clocks.
+"""The studio's in-process feeder: source → mapping → render → AwtrixNgTransport → fake clock.
 
 It runs the real pipeline end to end. The source is one of:
 
@@ -8,10 +8,13 @@ It runs the real pipeline end to end. The source is one of:
   alternate (``now`` and ``now + 1 s``) so blinking states blink;
 - ``manual``: a snapshot built from hand-set fields at the real current time.
 
-For each clock size it renders a frame and pushes it over HTTP through the real
+It renders a 52x16 frame and pushes it over HTTP through the real
 :class:`~arthur.transports.awtrix_ng.AwtrixNgTransport` when the frame changes or when the
 heartbeat is due, with ``lifetimeMs`` = ttl. Switched "dead", it stops pushing, so the clock's
-own stale mark appears once the lifetime runs out. The fake clocks' lifetimes run on real time.
+own stale mark appears once the lifetime runs out. The fake clock's lifetime runs on real time.
+
+Variants, push bookkeeping and frames are keyed by the size string ("52x16"), which has one
+entry; the control API takes variants as ``{"52x16": {kind: variant}}``.
 """
 
 from __future__ import annotations
@@ -34,7 +37,7 @@ SPEEDS = (1, 10, 60)
 #: Heartbeat and ttl with "fast expiry" on: the stale mark shows 6 s after the feeder dies.
 FAST_HEARTBEAT_S = 2.0
 FAST_TTL_S = 6.0
-#: After a failed push, wait this long before trying that clock again.
+#: After a failed push, wait this long before trying the clock again.
 RETRY_AFTER_S = 1.0
 
 MANUAL_DEFAULTS: dict[str, Any] = {
@@ -63,7 +66,7 @@ class ControlError(ValueError):
 
 
 class _Push:
-    """Push bookkeeping for one clock size."""
+    """Push bookkeeping for the clock."""
 
     def __init__(self) -> None:
         self.last_bytes: bytes | None = None
@@ -333,7 +336,7 @@ class StudioFeeder:
         return snap, health, now
 
     def compute(self) -> dict[str, Any]:
-        """Map and render the current source at every size."""
+        """Map and render the current source."""
         p = self.pipe.current
         snap, health, now, label = self.source()
         state = p.state(snap, health, now)
@@ -355,12 +358,12 @@ class StudioFeeder:
 
     def _transport(self, sk: str) -> AwtrixNgTransport:
         assert self.base_url is not None
-        base = f"{self.base_url.rstrip('/')}/clock/{sk}"
+        base = self.base_url.rstrip("/")
         t = self._transports.get(sk)
         if t is None or t.base_url != base:
             if self._session is None or self._session.closed:
                 self._session = aiohttp.ClientSession()
-            t = AwtrixNgTransport(base, session=self._session)
+            t = AwtrixNgTransport(base, session=self._session, time_fn=self.time_fn)
             self._transports[sk] = t
         return t
 
