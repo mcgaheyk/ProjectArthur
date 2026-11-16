@@ -1,0 +1,44 @@
+# ProjectArthur display configuration. The one place for colours, thresholds and timings.
+# Loaded by arthur/config.py into frozen dataclasses.
+
+[display]
+# Frame size the feeder renders by default: "32x8" (Ulanzi TC001) or "52x16" (Ulanzi TC002).
+# Both are always available to the renderer and the studio (D-0001).
+size = "32x8"
+
+# Semantic colour roles. Screens and icons refer to roles, never to hex values.
+[palette]
+off       = "#000000"  # unlit
+text      = "#FFFFFF"  # neutral text and digits
+dim       = "#383838"  # gauge tracks, secondary marks
+ok        = "#00D040"  # idle and healthy: ready, just cleaned, drawer level below the warning
+attention = "#FFA000"  # needs a look soon: interrupted, bonnet, nearly-full drawer, badges
+alert     = "#FF1818"  # needs a person now: drawer full, faults
+activity  = "#2080FF"  # Arthur is in the box
+cycle     = "#00C8C8"  # the robot is moving or about to: waiting, cleaning, emptying
+trust     = "#B040FF"  # cannot reach Whisker (no data)
+stale     = "#6E0700"  # the clock's own out-of-date border (AWTRIX NG lifetimeExpiry "mark")
+
+# One character per role. Icon text-art files and the text preview use these.
+# "." is also "transparent" in icons; "*" in an icon means "the accent role the screen picks".
+[palette_chars]
+off       = "."
+text      = "W"
+dim       = ":"
+ok        = "G"
+attention = "Y"
+alert     = "R"
+activity  = "B"
+cycle     = "C"
+trust     = "P"
+stale     = "x"
+
+[thresholds]
+drawer_warn_pct = 80   # drawer_nearly_full badge and the gauge turns attention-coloured
+
+[timings]
+heartbeat_s = 30              # feeder re-pushes at least this often
+ttl_s = 90                    # lifetimeMs sent with each push (three heartbeats, D-0004)
+just_cleaned_s = 60           # READY within this long after CLEAN_CYCLE shows just_cleaned
+clean_cycle_estimate_s = 150  # timed progress estimate for cleaning (library has no phases)
+no_data_after_s = 600         # no successful contact for this long shows no_data

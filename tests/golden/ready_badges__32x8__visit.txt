@@ -1,0 +1,9 @@
+legend: .=off  W=text  :=dim  G=ok  Y=attention  R=alert  B=activity  C=cycle  P=trust  x=stale
+................................
+.G....G..WWW.W.W..............Y.
+.GG..GG....W.W.W..............W.
+.GGGGGG..WWW.WWW..............C.
+.GWGGWG..W...W.W..............R.
+.GGGGGG..WWW.W.W..............P.
+..GGGG...Y.Y.Y..................
+................................
