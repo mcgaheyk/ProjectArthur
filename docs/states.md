@@ -52,7 +52,7 @@ loops `cleaning → interrupted → waiting → cleaning`.
 
 | id | Trigger | Must convey |
 |---|---|---|
-| `ready` | Status `READY` and nothing above applies. | Waste drawer level (`waste_drawer_level`, 0–100) as a number and a gauge. Variants to try: litter level, time since the last visit, visits today. |
+| `ready` | Status `READY` and nothing above applies. | Bin level (`waste_drawer_level`, 0–100) and litter level (`litter_level`, 0–100), plus one more thing: currently the time since the last visit. Visits today is a candidate. |
 
 ## Badges
 
