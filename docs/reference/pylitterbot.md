@@ -107,7 +107,7 @@ building the spike logger. Corrections and additions from that pass are marked
 | `pet_weight` | `float`, **pounds** | `catWeight` |
 | `is_sleeping` | `bool` | `sleepStatus != "WAKE"` |
 | `sleep_mode_enabled`, `sleep_mode_start_time`, `sleep_mode_end_time` | | |
-| `clean_cycle_wait_time_minutes` | `int` | 3, 7, 15, 25 or 30; default 7 |
+| `clean_cycle_wait_time_minutes` | `int` | 3, 7, 15, 25 or 30; default 7. **Kyle's robot reports 8** (spike log, 2026-11-16), so do not validate against that list |
 | `is_laser_dirty` | `bool` | |
 | `power_type` | `"AC"`/`"DC"`/`"NC"` | `power_status` is a deprecated alias |
 | `hopper_status`, `is_hopper_removed` | | Litter hopper accessory |
@@ -136,6 +136,27 @@ building the spike logger. Corrections and additions from that pass are marked
   payload: `unitId`, `serial`, `userId`, `name`, `sessionId`. The library's own key list for
   redaction is `REDACT_FIELDS` in `utils.py` (`utils.redact()`).
 - Methods: `refresh()`, `get_activity_history(limit=100, start=None)`, `get_insight(days=30)`.
+
+## Litter and drawer levels: what they mean
+Checked 2026-11-16 against the installed source and Kyle's spike log.
+
+- **`litter_level_state` is Whisker's own word.** The library passes the raw `litterLevelState`
+  through `to_enum` (`litterrobot4.py`, `litter_level_state`); it computes nothing. It is the
+  same word the phone app shows. Whisker does not publish the cut-offs between `OVERFILL`,
+  `OPTIMAL`, `REFILL`, `LOW` and `EMPTY`. Observed: 76–82 % read `OPTIMAL`.
+- `litter_level` is `litterLevelPercentage * 100`. The raw `litterLevel` is a distance in
+  millimetres from the sensor at the top of the globe (`utils.calculate_litter_level`: about
+  441 full, 451 nominal, 461 low, 471 very low; 500 counts as empty). Observed 459–462 mm while
+  the state read `OPTIMAL`, so those millimetre labels do not match the state word. Use the
+  state word.
+- **The drawer has a percentage and a full flag, nothing in between.** `waste_drawer_level` is
+  `DFILevelPercent`; `is_waste_drawer_full` is `isDFIFull`, which also makes the status
+  `DRAWER_FULL`. Any "nearly full" warning is our own threshold.
+- **The drawer percentage is rough.** It read 67, 68, 63 and then 60 across three clean cycles
+  with nothing emptied. Whisker's support pages treat "within 5 %" as accurate, and owners
+  report it jumping from about 70 % to full.
+- Raw `isDFIPartialFull` was `true` the whole time (60–68 %). The library does not expose it
+  and its meaning is unknown. `cycle_capacity` read 16, not the default 30.
 
 ## How `status` is derived
 In order: not online → `OFFLINE`; not on → `OFF`; `displayCode` in the fault map; then

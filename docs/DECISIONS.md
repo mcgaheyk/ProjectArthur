@@ -143,3 +143,33 @@ not recorded.
   longer a constraint.
 - NG support is a normal release (first in 1.2.2, current in 1.2.3), not a beta as the earlier
   research said. The 1.2.3 pin stands (D-0002).
+
+## D-0011 — Level bars follow the robot's states; drawer-full gets a flashing edge ring
+
+**2026-11-16.** Kyle's direction after watching the studio follow his real robot.
+- **Litter** is coloured by the robot's own state word, not by a percentage: green `OPTIMAL`,
+  yellow `REFILL` and `OVERFILL`, red `LOW` and `EMPTY`. The screen therefore always agrees
+  with the phone app.
+- **The drawer** bar is orange and turns red at `drawer_warn_pct` (80). The green and amber
+  steps are gone.
+- On idle, the two badges those bars replace are not drawn.
+- **`drawer_full`:** the bin under the poop is gone, a 1-pixel red ring flashes on the outermost
+  pixels once a second, and the words are "FULL" and "EMPTY NOW".
+
+**Why.** On his robot both bars came out orange and said nothing. Whisker does not publish the
+cut-offs behind the litter word, and the drawer percentage is rough (it read 68, 63 and 60
+across three cycles), so the word is the better signal for litter and one threshold is enough
+for the drawer.
+
+**Exception accepted.** The ring uses the outer row and column, which every other screen
+leaves to the clock's dark-red stale border (D-0004). If the feeder dies while the drawer is
+full, the clock paints its steady dark-red border over the ring. The two differ in brightness
+and in flashing. If they prove confusable on the LEDs, move the ring one pixel in, which costs
+text room.
+
+**Costs.** "EMPTY NOW" only fits with narrower M and W letters, drawn for that line. The ring
+means a push every second for as long as the drawer stays full.
+
+**Rejected.** Our own percentage cut-offs for litter (they would disagree with the app). Orange
+for `REFILL`, which Kyle suggested: orange is the drawer's colour, so yellow was used. Green
+for a drawer with room (Kyle prefers orange throughout).

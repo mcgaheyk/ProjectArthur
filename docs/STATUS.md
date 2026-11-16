@@ -9,12 +9,15 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
   (D-0010); commit 91e4960 is the last one that has them.
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
-- **Built and tested (405 tests):**
+- **Built and tested (467 tests):**
   - Pipeline: `arthur/model.py`, `arthur/mapping.py`, `arthur/render/`, with variants for
     ready, in_use, waiting and cleaning.
   - Screens: second design pass done on 2026-11-16 to Kyle's direction (D-0009): orange
     Arthur, warm palette, poop emoji, joke captions in `config/display.toml`. **Kyle has not
     reacted to this pass yet.** It is a starting point for iteration, not a final design.
+    Since then, to his direction (D-0011): the level bars are coloured by state (litter by the
+    robot's own word, drawer orange then red), and drawer-full is a poop emoji, "FULL",
+    "EMPTY NOW" and a flashing red ring.
   - Transport: `arthur/transports/awtrix_ng.py`. Before pushing, it turns off the TC002's
     double-size drawing (`enlargeApps`); without that the clock shows a quarter of the frame.
     Only ever run against the fake clock.
@@ -103,7 +106,13 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
 - **Captions** are capped at about seven letters, so "SPIN CYCLE" and "EMPTY ME" do not fit.
   "POOPIN?" and "PEEIN?" carry question marks because we cannot tell which; Kyle may prefer
   them without.
-- **Badges** are still small coloured marks that do not explain themselves.
+- **Badges** are still small coloured marks that do not explain themselves. Idle no longer
+  draws the two that the bars replace, and drawer-full draws none.
+- **Drawer full:** the narrow M and W in "EMPTY NOW" and the flashing ring have only been
+  judged on a monitor. The ring means a push to the clock every second for as long as the
+  drawer stays full.
+- **The drawer bar turns red at 80 %**, which is a guess. The robot's percentage is rough and
+  some owners report it jumping from about 70 % to full.
 - Idle shows the last-visit time but not visits today.
 - Brown and the dim shades have only been judged on a monitor, not on LEDs.
 - In the studio's fixture mode, time is frozen, so timers do not count; scenario and manual

@@ -39,6 +39,8 @@ REQUIRED_ROLES: tuple[str, ...] = (
     "stink",
     "ghost",
     "stale",
+    "drawer",
+    "caution",
 )
 
 #: Frame sizes the renderer supports (width, height): the Ulanzi TC002's 52x16 only.
@@ -107,7 +109,6 @@ class Palette:
 
 @dataclass(frozen=True)
 class Thresholds:
-    drawer_amber_pct: float = 60
     drawer_warn_pct: float = 80
 
 

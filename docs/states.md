@@ -28,7 +28,7 @@ The highest layer with something to say wins. Badges are added on top of whateve
 
 | id | Trigger | Must convey |
 |---|---|---|
-| `drawer_full` | Status `DRAWER_FULL` (the robot's own full flag). | Empty the drawer. Held until it clears. |
+| `drawer_full` | Status `DRAWER_FULL` (the robot's own full flag). | Empty the drawer. Held until it clears. A red ring flashes on the outer edge once a second, with "FULL" and "EMPTY NOW". |
 | `fault` | Status `PINCH_DETECT`, `OVER_TORQUE_FAULT`, `CAT_SENSOR_FAULT`, or `UNKNOWN`. | Something is wrong, with the short code (`PD`, `OTF`, `CSF`, or the raw code). |
 | `bonnet_removed` | Status `BONNET_REMOVED`. | The bonnet is off. |
 
@@ -52,9 +52,20 @@ loops `cleaning → interrupted → waiting → cleaning`.
 
 | id | Trigger | Must convey |
 |---|---|---|
-| `ready` | Status `READY` and nothing above applies. | Bin level (`waste_drawer_level`, 0–100) and litter level (`litter_level`, 0–100), plus one more thing: currently the time since the last visit. Visits today is a candidate. |
+| `ready` | Status `READY` and nothing above applies. | Bin level (`waste_drawer_level`, 0–100) and litter level (`litter_level`, 0–100), plus one more thing: currently the time since the last visit. Visits today is a candidate. Both bars carry meaning by colour; see Level colours. |
+
+## Level colours
+The same rules apply wherever a level is drawn: the idle bars and digits, and the drawer bar on
+the live screens (D-0011).
+
+| Level | Rule |
+|---|---|
+| Litter | Follows the robot's own word, `litter_level_state`, which is what the phone app shows. `OPTIMAL` green; `REFILL` and `OVERFILL` yellow; `LOW` and `EMPTY` red; no word, sand. |
+| Drawer | Orange below `drawer_warn_pct`; red from there, and on `drawer_full`. The robot reports only a percentage and a full flag, so "nearly full" is our own threshold. |
 
 ## Badges
+On `ready`, `drawer_nearly_full` and `litter_low` are not drawn, because the bars already say
+it. `drawer_full` and `no_data` draw no badges.
 
 | id | Trigger |
 |---|---|

@@ -8,12 +8,20 @@ Arthur (an orange tabby) is the mascot; see design-screen section 0 for the dire
 Canvas rules (docs/states.md, design-screen skill):
 
 - The clock's stale border covers row 0, row 15, column 0 and column 51, so nothing is drawn
-  there.
+  there. One deliberate exception: a layout registered with ``edge_ring=True`` (listed in
+  :data:`EDGE_RING`; today only ``drawer_full``) may draw a 1-pixel ring on exactly those
+  pixels. The stale overlay paints over the whole ring, so a stale frame still reads as
+  stale, and such a layout keeps its other content one pixel clear of the ring (rows 2-13,
+  columns 2-49).
 - Every label goes through :func:`arthur.render.text.put_text` with the box it must fit, and
   nothing else may touch a label (the strict text check in the tests).
 - A 16x16 picture at x=0, content in x=17..47 (a big-font or small-font first line from row 1,
   a small-font second line on rows 9-13 or the drawer gauge on rows 13-14), badges in
-  columns 49-50.
+  columns 49-50. Idle screens leave out the drawer and litter badges (the bars say it);
+  ``drawer_full`` draws no badges (its ring and second line use those columns).
+- Level colours: the drawer bar is ``drawer`` (orange) below ``drawer_warn_pct`` and
+  ``alert`` from there or when full; the litter bar follows the robot's own litter word
+  (OPTIMAL ``ok``, REFILL/OVERFILL ``caution``, LOW/EMPTY ``alert``, else ``sand``).
 - About one frame a second: animation phases are derived from ``now``. Live states change at
   most once a second; idle almost never (a blink or tail flick every
   ``idle_blink_every_s``).
@@ -31,7 +39,7 @@ from datetime import datetime
 
 from arthur.config import Config, parse_size
 from arthur.model import KINDS, DisplayState
-from arthur.render.font import Font, large_font, small_font
+from arthur.render.font import Font, condensed_small_font, large_font, small_font
 from arthur.render.frame import Frame
 from arthur.render.icons import draw_art, draw_icon, icon_cells
 from arthur.render.text import check_text, first_fitting, fits, is_strict, put_text, strict_text
@@ -54,15 +62,33 @@ GAUGE52_Y = 13  # the drawer gauge live screens share: rows 13-14
 
 _REGISTRY: dict[tuple[Size, str], dict[str, Layout]] = {}
 
+#: (size, kind, variant) of every layout allowed to draw on the outermost rows and columns,
+#: where the clock's stale border goes: see the module docstring. The border test consults it.
+EDGE_RING: set[tuple[Size, str, str]] = set()
 
-def layout(size: Size, kind: str, variant: str = "default") -> Callable[[Layout], Layout]:
-    """Register a layout function for (size, kind) under ``variant``."""
+
+def layout(
+    size: Size, kind: str, variant: str = "default", *, edge_ring: bool = False
+) -> Callable[[Layout], Layout]:
+    """Register a layout function for (size, kind) under ``variant``. ``edge_ring=True``
+    registers it as allowed to draw a ring on the outermost pixels (:data:`EDGE_RING`)."""
 
     def deco(fn: Layout) -> Layout:
         _REGISTRY.setdefault((size, kind), {})[variant] = fn
+        if edge_ring:
+            EDGE_RING.add((size, kind, variant))
         return fn
 
     return deco
+
+
+def has_edge_ring(kind: str, size: Size, variant: str | None = None) -> bool:
+    """Whether the layout ``render`` would pick for these draws on the outermost pixels."""
+    variants = _REGISTRY.get((size, kind), {})
+    if not variants:
+        return False
+    v = variant if variant in variants else next(iter(variants))
+    return (size, kind, v) in EDGE_RING
 
 
 # --- time --------------------------------------------------------------------------------
@@ -138,19 +164,27 @@ def litter_frac(state: DisplayState) -> float:
 
 
 def drawer_role(state: DisplayState, cfg: Config) -> str:
-    """Green with room, amber filling, red nearly full or full."""
+    """Orange while the drawer has room; red from ``drawer_warn_pct`` and when it is full."""
     pct = state.drawer_pct or 0
     if state.kind == "drawer_full" or pct >= cfg.thresholds.drawer_warn_pct:
         return "alert"
-    if pct >= cfg.thresholds.drawer_amber_pct:
-        return "attention"
-    return "ok"
+    return "drawer"
+
+
+#: The robot's own litter word (Whisker's ``litterLevelState``) → the litter bar's role.
+LITTER_ROLES: dict[str, str] = {
+    "OPTIMAL": "ok",
+    "REFILL": "caution",
+    "OVERFILL": "caution",
+    "LOW": "alert",
+    "EMPTY": "alert",
+}
 
 
 def litter_role(state: DisplayState) -> str:
-    """Sand-coloured, red when the robot says the litter is low."""
-    st = (state.litter_state or "").upper()
-    return "alert" if st in ("LOW", "EMPTY") else "sand"
+    """Follows the robot's litter word, as the phone app does: green when OPTIMAL, yellow to
+    top up or when overfilled, red when LOW or EMPTY, neutral sand when there is no word."""
+    return LITTER_ROLES.get((state.litter_state or "").upper(), "sand")
 
 
 def gauge(f: Frame, x: int, y: int, w: int, h: int, frac: float, role: str, cfg: Config) -> None:
@@ -222,9 +256,13 @@ def big52(f: Frame, cfg: Config, s: str, role: str, y: int = L1_Y, x: int = C52_
     put_text(f, x, y, s, cfg.rgb(role), large_font(), right=C52_R)
 
 
-def small52(f: Frame, cfg: Config, s: str, role: str, y: int = L2_Y, x: int = C52_X) -> None:
-    """A line in the small font (5 rows from ``y``)."""
-    put_text(f, x, y, s, cfg.rgb(role), small_font(), right=C52_R)
+def small52(
+    f: Frame, cfg: Config, s: str, role: str, y: int = L2_Y, x: int = C52_X, *,
+    right: int = C52_R, condensed: bool = False,
+) -> None:
+    """A line in the small font (5 rows from ``y``); ``condensed`` uses 3-px M and W."""
+    font = condensed_small_font() if condensed else small_font()
+    put_text(f, x, y, s, cfg.rgb(role), font, right=right)
 
 
 def digits52(f: Frame, cfg: Config, s: str, role: str) -> None:
@@ -326,17 +364,39 @@ for _kind in ("no_data", "robot_offline", "robot_off", "fault", "bonnet_removed"
 
 
 # =========================================================================================
-# Drawer full: an overflowing pile, red, and it blinks for attention
+# Drawer full: the poop emoji, bold FULL, EMPTY NOW, and a red ring flashing round the edge
 # =========================================================================================
 
+#: Content inside the ring keeps a 1-pixel gap from it: rows 2-13, columns 2-49.
+RING_X = 16  # text starts here, right of the emoji (columns 2-14) and a 1-px gap
+RING_R = 49  # last content column inside the ring
+#: FULL in 6-row bold lettering (the big font's 7 rows do not fit inside the ring), rows 2-7.
+FULL_ART = (
+    "RRRRRR..RR...RR..RR......RR....",
+    "RRRRRR..RR...RR..RR......RR....",
+    "RR......RR...RR..RR......RR....",
+    "RRRRR...RR...RR..RR......RR....",
+    "RR......RRRRRRR..RRRRRR..RRRRRR",
+    "RR.......RRRRR...RRRRRR..RRRRRR",
+)
 
-@layout(S52, "drawer_full")
+
+def edge_ring(f: Frame, cfg: Config, role: str) -> None:
+    """A 1-pixel ring on the outermost pixels: only for layouts registered ``edge_ring``."""
+    f.rect(0, 0, f.width, f.height, cfg.rgb(role), filled=False)
+
+
+@layout(S52, "drawer_full", edge_ring=True)
 def _drawer_full_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     f = _f52()
-    icon52(f, cfg, "pile", "alert" if blink(now) else "dim")
-    big52(f, cfg, "FULL", "alert")
-    sub = caption(state, cfg, "drawer_full", S52, C52_W, small_font(), fallback="EMPTY IT")
-    small52(f, cfg, sub, "text")
+    if blink(now):
+        edge_ring(f, cfg, "alert")
+    icon52(f, cfg, "poop_full")
+    draw_art(f, FULL_ART, RING_X, 2, cfg)
+    width = RING_R - RING_X + 1
+    sub = caption(state, cfg, "drawer_full", S52, width, condensed_small_font(),
+                  fallback="EMPTY IT")
+    small52(f, cfg, sub, "text", y=9, x=RING_X, right=RING_R, condensed=True)
     return f
 
 
@@ -669,10 +729,25 @@ def list_variants(kind: str, size: Size | str) -> list[str]:
         raise KeyError(f"no layout for {kind!r} at {s}") from None
 
 
+#: Badges idle screens leave out: the drawer and litter bars already say these, by colour.
+IDLE_HIDDEN_BADGES = frozenset({"drawer_nearly_full", "litter_low"})
+#: Kinds that draw no badges at all: no_data (nothing is known), drawer_full (its ring and
+#: its EMPTY NOW line use the badge columns).
+NO_BADGE_KINDS = frozenset({"no_data", "drawer_full"})
+
+
+def badges_to_draw(state: DisplayState) -> frozenset[str]:
+    """The badges a screen for ``state`` draws (the mapping still computes them all)."""
+    if state.kind in NO_BADGE_KINDS:
+        return frozenset()
+    if state.kind == "ready":
+        return state.badges - IDLE_HIDDEN_BADGES
+    return state.badges
+
+
 def _draw(fn: Layout, state: DisplayState, now: datetime, cfg: Config) -> Frame:
     frame = fn(state, now, cfg)
-    if state.kind != "no_data":
-        draw_badges(frame, state.badges, cfg)
+    draw_badges(frame, badges_to_draw(state), cfg)
     return frame
 
 

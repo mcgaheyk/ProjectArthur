@@ -12,8 +12,8 @@ size = "52x16"
 off       = "#000000"  # unlit
 text      = "#FFE4C4"  # warm white: words and digits
 dim       = "#3A2E26"  # gauge tracks, secondary marks
-ok        = "#00D040"  # drawer gauge while it has room
-attention = "#FFA000"  # amber: needs a look soon (interrupted, bonnet, paused, filling drawer)
+ok        = "#00D040"  # green: litter level OPTIMAL (the robot's own word); the vacant door
+attention = "#FFA000"  # amber: needs a look soon (interrupted, bonnet, paused)
 alert     = "#FF1818"  # red: trouble (faults, drawer full, no data, offline)
 fur       = "#FF7A00"  # Arthur: bright orange body
 stripe    = "#8C2000"  # Arthur: darker orange tabby stripes, closed eyes
@@ -23,11 +23,13 @@ eye       = "#38E038"  # Arthur: green eyes
 poop      = "#683010"  # the poop emoji: brown (kept dark so it never reads as Arthur's orange)
 poop_hi   = "#A86028"  # the poop emoji: lighter highlight
 gold      = "#FFC828"  # waiting digits, power and emptying
-sand      = "#E09020"  # hourglass sand and the litter gauge
+sand      = "#E09020"  # hourglass sand; the litter bar when the robot gives no litter word
 mint      = "#30FFB0"  # the one cool accent: cleaning and "fresh"
 stink     = "#A8D020"  # stink lines: a sickly yellow-green, used for nothing else
 ghost     = "#686868"  # grey ghost Arthur: we do not know what he is doing
 stale     = "#6E0700"  # the clock's own out-of-date border (AWTRIX NG lifetimeExpiry "mark")
+drawer    = "#FF9800"  # the waste-drawer bar while it has room (red from drawer_warn_pct)
+caution   = "#FFE020"  # yellow: litter needs topping up (REFILL), or is overfilled (OVERFILL)
 
 # One character per role. Icon text-art files and the text preview use these.
 # "." is also "transparent" in icons; "*" in an icon means "the accent role the screen picks";
@@ -52,10 +54,11 @@ mint      = "M"
 stink     = "K"
 ghost     = "g"
 stale     = "x"
+drawer    = "D"
+caution   = "U"
 
 [thresholds]
-drawer_amber_pct = 60  # drawer gauge turns amber from here
-drawer_warn_pct = 80   # drawer_nearly_full badge, and the drawer gauge turns red
+drawer_warn_pct = 80  # drawer_nearly_full badge, and the drawer bar turns from orange to red
 
 [timings]
 heartbeat_s = 30              # feeder re-pushes at least this often
@@ -83,5 +86,6 @@ cleaning = ["SPINNING", "FLUSHING", "WHEEE", "TUMBLE", "SIFTING", "SWOOSH", "DIZ
 just_cleaned = ["FRESH!", "SPARKLY", "SO FRESH", "SHINY", "SO NICE", "AHHH"]
 # interrupted headline, big font, up to 31 px
 interrupted = ["HEY!", "OI!", "WAIT!", "HOLD UP", "NOPE!", "RUDE!", "UH OH"]
-# drawer full, second line under FULL: up to 31 px
-drawer_full = ["EMPTY IT", "HELP!", "TOO MUCH", "NO ROOM", "EMPTY!"]
+# drawer full, small line under FULL, inside the flashing ring: up to 34 px, drawn with narrow
+# 3-px M and W (so here M and W count 4 px, like most letters)
+drawer_full = ["EMPTY NOW"]

@@ -125,7 +125,16 @@ _LIST: list[Fixture] = [
         status="READY", status_code="RDY", status_since=ago(20), previous_status="CLEAN_CYCLE",
         waste_drawer_level=44.0),
     # --- layer 4: idle
-    _fx("ready", "ready", "Idle, drawer 42%"),
+    _fx("ready", "ready", "Idle, drawer 42%, litter OPTIMAL (green)",
+        litter_level_state="OPTIMAL"),
+    _fx("ready_refill", "ready", "Idle, litter 55% and the robot says REFILL (yellow)",
+        litter_level=55.0, litter_level_state="REFILL"),
+    _fx("ready_litter_low", "ready", "Idle, litter 35% and the robot says LOW (red)",
+        litter_level=35.0, litter_level_state="LOW"),
+    _fx("ready_overfill", "ready", "Idle, litter 100% and the robot says OVERFILL (yellow)",
+        litter_level=100.0, litter_level_state="OVERFILL"),
+    _fx("ready_drawer_high", "ready", "Idle, drawer 85% (red), litter OPTIMAL",
+        waste_drawer_level=85.0, litter_level_state="OPTIMAL"),
     _fx("ready_badges", "ready", "Idle with every badge: drawer 85%, litter low, laser dirty, "
         "on battery, WebSocket down",
         health=FeederHealth(last_contact_at=ago(60), ws_connected=False),

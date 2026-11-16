@@ -17,6 +17,9 @@ and still readable in one glance from across a room. Clear first, funny second.
 - **Waiting:** the hourglass and countdown layout is liked; it uses the warm scheme.
 - **Idle** must show the **bin level and the litter level**, plus one more thing (last visit,
   visits today).
+- **Level bars carry meaning by colour** (D-0011). Litter follows the robot's own state word:
+  green optimal, yellow refill or overfill, red low or empty. The drawer is orange and turns
+  red when nearly full.
 - **Rare states** (faults, no data, offline) share a template: icon, headline, and a line of
   text saying what is going on. **No data is red-family, not purple.**
 - **Captions are jokes** and live in `config/display.toml` so Kyle can add his own.
@@ -35,7 +38,8 @@ and still readable in one glance from across a room. Clear first, funny second.
   content beside it, and room for the live state and the drawer gauge together. There is no
   32x8 version to keep in step.
 - The clock draws a 1-pixel dark-red border over the outermost row and column when data is
-  stale. Keep anything essential readable with that border on.
+  stale. Keep anything essential readable with that border on, and draw nothing there. The
+  one deliberate exception is the flashing red ring on `drawer_full` (D-0011).
 - Plan for about one frame a second. No smooth animation. Each changed frame is an HTTP push
   to the clock, so live states may change every second, but **idle must stay nearly still**
   (a blink or tail flick a couple of times a minute at most).

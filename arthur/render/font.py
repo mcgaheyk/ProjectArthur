@@ -7,6 +7,8 @@ Font License 1.1; see ``fonts/NOTICE.md``.
   advance, 2-pixel space.
 - :func:`large_font`: ``MatrixChunky8.bdf`` (AWTRIX NG's ``large`` base): 7-pixel capitals,
   4-pixel advance.
+- :func:`condensed_small_font`: the small font with 3-pixel-wide M and W (drawn here, not
+  vendored), for a line that is a couple of pixels too long in the plain small font.
 
 Text is positioned by the top row of its capitals.
 """
@@ -150,3 +152,22 @@ def small_font() -> Font:
 @cache
 def large_font() -> Font:
     return load_bdf(FONT_DIR / "MatrixChunky8.bdf")
+
+
+#: Narrow M and W for :func:`condensed_small_font`: 3 pixels wide, 5 rows, 4-pixel advance.
+CONDENSED_GLYPHS: dict[str, tuple[str, ...]] = {
+    "M": ("101", "111", "111", "101", "101"),
+    "W": ("101", "101", "111", "111", "101"),
+}
+
+
+@cache
+def condensed_small_font() -> Font:
+    """The small font with 3-pixel-wide M and W, so a line saves 2 px per M or W."""
+    base = small_font()
+    glyphs = dict(base.glyphs)
+    for ch, art in CONDENSED_GLYPHS.items():
+        ref = base.glyph(ch)
+        rows = tuple(int(r, 2) for r in art)
+        glyphs[ord(ch)] = Glyph(3, len(rows), 0, ref.yoff, 4, rows)
+    return Font(base.name + "-condensed", glyphs, base.ascent, base.descent)
