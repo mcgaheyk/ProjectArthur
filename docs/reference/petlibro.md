@@ -103,7 +103,7 @@ The calls below take `{"id": "<deviceSn>", "deviceSn": "<deviceSn>"}`.
 | `runningState` | `"IDLE"` | `RUNNING` while dispensing, per the integration |
 | `errorState`, `deviceStoppedWorking`, `barnDoorError` | `false` | Fault flags |
 | `exceptionMessage` | `""` | Fault text (`/data/data/realInfo` only) |
-| `batteryState` | `"low"` | Backup batteries. With `electricQuantity: 0` and `powerMode: 1` this most likely means no batteries are fitted and it is on mains. Not confirmed |
+| `batteryState` | `"low"` | Backup batteries. **`low` with `electricQuantity: 0` is what "no batteries fitted" looks like:** Kyle's Granary switches off when unplugged. Do not show it as a warning |
 | `electricQuantity` | `0` | Backup battery percent |
 | `powerMode`, `powerType` | `1`, `1` | On mains, by the integration's notes for `powerMode` |
 | `remainingDesiccantDays` | `10` | Days until the desiccant is due. It is here, not in `baseInfo` |
@@ -153,6 +153,6 @@ variants (0; they belong to the Granary 2's bowl sensor), `cameraAuthInfo`.
 - Anything about a fountain.
 - What `surplusGrain`, `warehouseSurplusGrain` and `grainOutletState` read when food is low or
   the outlet jams, and how quickly they follow the device. The spike is running to catch this.
-- What `batteryState: low` means on a Granary with no batteries fitted.
+- What `batteryState` and `electricQuantity` read with backup batteries fitted.
 - How long a token lasts.
 - Whether the copied headers are required, and whether PETLIBRO rate-limits.

@@ -77,8 +77,6 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
    `docs/reference/petlibro.md`.
 7. Kyle: buy a fountain, a plug-in model, PLWF105 or PLWF106 (see the research note), and
    share it to the same second account. The running spike picks it up within the hour.
-8. Kyle: say whether the Granary has backup batteries in. It reports `batteryState: low` with
-   0% charge while on mains, which probably just means none are fitted.
 
 ## Later
 - Pi 5 deployment: Raspberry Pi OS Lite (64-bit), systemd unit, reconnect with backoff, log
