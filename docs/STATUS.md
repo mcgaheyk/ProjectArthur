@@ -21,13 +21,15 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
   - Simulator: `arthur/sim/`. One fake TC002 that starts with `enlargeApps` on, as a real
     clock does, and a studio page (live clock, all-states grid, scenario playback,
     kill-the-feeder switch) with live reload of screens and config.
-  - Spike: `scripts/spike_log.py`. Tested against fakes only; never run on the real robot.
+  - Spike: `scripts/spike_log.py`. **Running on Kyle's Mac since the evening of 2026-11-15**,
+    so the real login and live connection work. By the morning of the 16th it had logged two
+    complete visits in `logs/spike-*.jsonl`. Nothing reads those logs yet.
 - **Not built:** the feeder service itself (`arthur/sources/`, the run loop). The studio has
   its own in-process stand-in that plays fixtures and scenarios.
 
 ## Next
-1. Kyle: copy `.env.example` to `.env`, add the Whisker login, and leave the spike running for a
-   few days. Its first run is also the first test of the real login and live connection.
+1. Kyle: leave the spike running for a few days. A studio mode that follows or replays its log
+   would let the screens be tested against real visits; it does not exist yet.
 2. Kyle: react to the redesigned screens in the studio's All states view: which jokes land,
    which art does not read, which variants to keep. Regenerate a one-page overview any time
    with `uv run python -m arthur.render.preview --sheet DIR`.
@@ -39,7 +41,15 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
    the hardware here it is the main missing piece.
 5. Feed spike findings back into `docs/states.md` and `config/display.toml` (phase durations,
    cat-detected latency, what the raw fields add), and add a way to replay a spike log in the
-   studio.
+   studio. First look at two visits, not yet analysed or acted on:
+   - In one visit `status` went to `CAT_SENSOR_TIMING` after 6 s. In the other it stayed
+     `CAT_DETECTED` for 9 minutes, right up to the clean cycle, with raw `robotStatus` at
+     `ROBOT_CAT_DETECT` instead of `ROBOT_CAT_DETECT_DELAY`. The in-use screen would have shown
+     the whole time.
+   - The clean cycle began about 9.3 minutes after detection both times and took about 2 min
+     5 s. `clean_cycle_wait_time_minutes` reads 8, which is not one of the documented values.
+   - Raw `robotCycleStatus` does show cycle phases: `CYCLE_DUMP`, `CYCLE_DFI`, `CYCLE_LEVEL`,
+     `CYCLE_HOME`. Raw `catDetect` never left `CAT_DETECT_CLEAR`.
 
 ## Later
 - Pi 5 deployment: Raspberry Pi OS Lite (64-bit), systemd unit, reconnect with backoff, log
