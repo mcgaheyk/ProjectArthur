@@ -1,0 +1,36 @@
+---
+name: design-screen
+description: Design or change what the clock shows for a display state (layout, colours, icons, wording) at 32x8 or 52x16, and check the result in the simulator. Use for any request to add, restyle, compare or fix a screen.
+---
+
+# Design a screen
+
+## 1. Decide which layer the change belongs to
+- **What triggers a state, or what data it carries** → `arthur/mapping.py` and
+  `arthur/model.py`, then update `docs/states.md`. The mapping never mentions pixels.
+- **How a state looks** → `arthur/render/`. The renderer never mentions AWTRIX.
+- **A colour, threshold or timing** → `config/display.toml` only. Do not hard-code them.
+
+## 2. Know the canvas
+- Two sizes until a display is chosen: **32x8** (states take turns) and **52x16** (live state
+  and drawer gauge can share the screen). A change to one size's layout usually needs the
+  matching change to the other.
+- The clock draws a 1-pixel dark-red border over the outermost row and column when data is
+  stale. Keep anything essential readable with that border on.
+- Plan for about one frame a second. No smooth animation.
+- A person reads this from across a room. Prefer one clear thing over three small ones, and
+  make states differ by shape as well as colour.
+- Dim colours look different on real LEDs. Avoid relying on subtle shades.
+
+## 3. Loop
+1. Edit the layout, icon (text-art under `arthur/render/icons/`) or config.
+2. Print it: `uv run python -m arthur.render.preview --all` (or name one state).
+3. Look at it in the studio: start the "studio" server and open the All states view in the
+   browser pane. Check both sizes, then play a visit in the Scenario view to see transitions.
+4. When offering alternatives, add them as variants so they appear side by side, and let Kyle
+   choose. Remove the losers afterwards.
+
+## 4. Done means
+- It reads correctly at both sizes, with and without the stale border.
+- `uv run pytest` passes; golden renders are updated on purpose, not by accident.
+- `docs/states.md` still describes what the screen conveys.

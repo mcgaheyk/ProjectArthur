@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv sync:*)",
+      "Bash(uv run pytest:*)",
+      "Bash(uv run ruff:*)",
+      "Bash(uv run python -m arthur.render.preview:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(curl -s http://localhost:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.whisker-token.json)"
+    ]
+  }
+}

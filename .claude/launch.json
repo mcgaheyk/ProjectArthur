@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "studio",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "uv run python -m arthur.sim --port ${PORT:-7001}"],
+      "port": 7001,
+      "autoPort": true
+    }
+  ]
+}
