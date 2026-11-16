@@ -334,6 +334,9 @@ def test_just_cleaned_is_soapy_blue():
     for dt in (0, 1):
         f = render(state, now + timedelta(seconds=dt), CFG)
         sparkle = {f.get(x, y) for x in range(16) for y in range(16)}
-        head = {f.get(x, y) for x in range(17, 48) for y in range(1, 8)} - {CFG.rgb("off")}
+        off = {CFG.rgb("off")}
+        top = {f.get(x, y) for x in range(17, 48) for y in range(1, 6)} - off
+        word = {f.get(x, y) for x in range(17, 48) for y in range(7, 14)} - off
         assert CFG.rgb("soap") in sparkle
-        assert head == {CFG.rgb("soap")}
+        assert top == {CFG.rgb("soap_hi")}  # FRESHLY
+        assert word == {CFG.rgb("soap")}  # CLEANED

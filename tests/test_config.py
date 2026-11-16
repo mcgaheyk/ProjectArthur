@@ -19,7 +19,7 @@ def test_repo_config_loads_with_documented_defaults():
     cfg = load_config()
     assert cfg.size == (52, 16)
     t = cfg.timings
-    assert (t.heartbeat_s, t.ttl_s, t.just_cleaned_s) == (30, 90, 60)
+    assert (t.heartbeat_s, t.ttl_s, t.just_cleaned_s) == (30, 90, 5)
     assert (t.clean_cycle_estimate_s, t.no_data_after_s) == (150, 600)
     assert cfg.thresholds.drawer_warn_pct == 80
     for role in REQUIRED_ROLES:
@@ -91,5 +91,5 @@ def test_bad_colour_rejected():
 
 def test_load_from_path(tmp_path):
     p = tmp_path / "d.toml"
-    p.write_text(DEFAULT_PATH.read_text().replace("just_cleaned_s = 60", "just_cleaned_s = 5"))
-    assert load_config(p).timings.just_cleaned_s == 5
+    p.write_text(DEFAULT_PATH.read_text().replace("just_cleaned_s = 5 ", "just_cleaned_s = 12"))
+    assert load_config(p).timings.just_cleaned_s == 12

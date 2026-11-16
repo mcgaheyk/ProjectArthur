@@ -25,6 +25,7 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
     gestures (D-0013, D-0014): blinks, looks, an ear twitch, a squint, a small tail wag in
     the gap beside him, and a yawn every five minutes. **Kyle has not reacted to pass 4 or the idle script
     yet.**
+    Just cleaned is now five seconds of "FRESHLY CLEANED" (D-0015).
   - Transport: `arthur/transports/awtrix_ng.py`. Before pushing, it turns off the TC002's
     double-size drawing (`enlargeApps`); without that the clock shows a quarter of the frame.
     Only ever run against the fake clock.
@@ -61,7 +62,8 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
    wipes the Ulanzi app's Wi-Fi and login. Then push a frame to it and compare its screen
    read-back with the simulator's. The guesses to check are listed at the end of that file.
 4. Build the feeder service: `arthur/sources/whisker.py` and the run loop with heartbeat. With
-   the hardware here it is the main missing piece.
+   the hardware here it is the main missing piece. Just cleaned now lasts 5 s (D-0015), so the
+   feeder must date a status change from when it saw it.
 5. Decide with Kyle how to fix what the first two real visits showed, then change
    `arthur/mapping.py`, `docs/states.md` and `config/display.toml`. Nothing has been changed
    yet. Replayed through the real mapping:

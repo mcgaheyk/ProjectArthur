@@ -140,9 +140,9 @@ def _ready_after_clean(seconds_ago):
 
 
 def test_just_cleaned_inside_window():
-    s = state(_ready_after_clean(10))
+    s = state(_ready_after_clean(2))
     assert s.kind == "just_cleaned"
-    assert s.deadline == ago(10) + timedelta(seconds=CFG.timings.just_cleaned_s)
+    assert s.deadline == ago(2) + timedelta(seconds=CFG.timings.just_cleaned_s)
 
 
 def test_just_cleaned_window_edges():

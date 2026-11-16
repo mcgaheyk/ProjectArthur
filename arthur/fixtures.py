@@ -121,8 +121,8 @@ _LIST: list[Fixture] = [
         status="POWER_UP", status_code="PWRU", status_since=ago(10), previous_status="OFF"),
     _fx("powering_down", "powering", "Powering down",
         status="POWER_DOWN", status_code="PWRD", status_since=ago(5), previous_status="READY"),
-    _fx("just_cleaned", "just_cleaned", "Ready 20 s after a clean cycle",
-        status="READY", status_code="RDY", status_since=ago(20), previous_status="CLEAN_CYCLE",
+    _fx("just_cleaned", "just_cleaned", "Ready 2 s after a clean cycle",
+        status="READY", status_code="RDY", status_since=ago(2), previous_status="CLEAN_CYCLE",
         waste_drawer_level=44.0),
     # --- layer 4: idle
     _fx("ready", "ready", "Idle, drawer 42%, litter OPTIMAL (green)",
@@ -236,7 +236,7 @@ def _visit(
     done_at = clean_at + 150
     add(done_at, "just_cleaned", "READY", "RDY", "CLEAN_CYCLE", waste_drawer_level=44.0)
     # just_cleaned turns into ready by itself after just_cleaned_s; a final step marks it.
-    steps.append(Step(done_at + 60, "ready", steps[-1].snapshot))
+    steps.append(Step(done_at + 5, "ready", steps[-1].snapshot))
     return Scenario(name, description, SCENARIO_START, tuple(steps), done_at + 120)
 
 

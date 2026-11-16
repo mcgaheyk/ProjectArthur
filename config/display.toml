@@ -65,7 +65,7 @@ drawer_warn_pct = 80  # the drawer bar turns from orange to red from here
 [timings]
 heartbeat_s = 30              # feeder re-pushes at least this often
 ttl_s = 90                    # lifetimeMs sent with each push (three heartbeats, D-0004)
-just_cleaned_s = 60           # READY within this long after CLEAN_CYCLE shows just_cleaned
+just_cleaned_s = 5            # READY within this long after CLEAN_CYCLE shows just_cleaned
 clean_cycle_estimate_s = 150  # timed progress estimate for cleaning (library has no phases)
 no_data_after_s = 600         # no successful contact for this long shows no_data
 in_use_joke_s = 6             # in use: seconds of the joke page (poop emoji, joke, IN USE)
@@ -86,8 +86,8 @@ waiting = ["CLEAN IN"]
 waiting_sleep = ["ZZZ", "SNOOZE", "NAPPING", "SLEEPY", "LATER"]
 # cleaning, small line under the countdown, inside the soapy ring: up to 34 px
 cleaning = ["CLEANING"]
-# just cleaned headline, big font, up to 31 px
-just_cleaned = ["FRESH!", "SPARKLY", "SO FRESH", "SHINY", "SO NICE", "AHHH"]
+# just cleaned, big word under a small "FRESHLY", up to 31 px
+just_cleaned = ["CLEANED"]
 # interrupted headline, big font, up to 31 px
 interrupted = ["HEY!", "OI!", "WAIT!", "HOLD UP", "NOPE!", "RUDE!", "UH OH"]
 # drawer full, small line under FULL, inside the flashing ring: up to 34 px, drawn with narrow

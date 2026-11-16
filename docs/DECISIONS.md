@@ -227,3 +227,18 @@ or passing through the text. The wag is now a small lift in the space between Ar
 the bars and text (columns 15–18), and every tail pose has the same number of pixels, so it
 reads as one tail bending. The tint colour and the text-check exception that the through-text
 effect needed are removed; nothing draws on or against a label.
+
+## D-0015 — Just cleaned is a five-second "FRESHLY CLEANED"
+
+**2026-11-16.** Kyle felt the just-cleaned screen stayed up too long (60 s). `just_cleaned_s`
+is now 5, and the screen reads "FRESHLY" small over "CLEANED" big, in soapy blue beside the
+sparkle; the rotating jokes and the drawer bar are gone from it. The idle screen, which shows
+the drawer, follows within seconds.
+
+**Consequence for the feeder.** A five-second window is only shown if the feeder sees the
+change to `READY` promptly and dates it from when it saw it. `status_since` must be the time
+the feeder learned of the change, not a robot timestamp that may arrive late.
+
+**Studio.** Fixtures are now mapped once, at the fixture's own time, while the render clock
+runs (gallery tiles and fixture mode). Otherwise the just-cleaned tile turned into idle after a
+few seconds of its loop.

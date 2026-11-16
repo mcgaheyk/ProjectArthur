@@ -536,7 +536,10 @@ class StudioFeeder:
         """Map and render the current source."""
         p = self.pipe.current
         snap, health, now, label = self.source()
-        state = p.state(snap, health, now)
+        # A fixture is one state: map it at the fixture's own time and let only the render
+        # clock run, as the gallery does, so a short-lived state does not turn into the next.
+        fx = p.fixtures.FIXTURES.get(self.fixture) if self.mode == "fixture" else None
+        state = p.state(snap, health, fx.now if fx is not None else now)
         frames = {}
         for size in p.sizes():
             sk = size_key(size)

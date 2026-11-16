@@ -44,7 +44,7 @@ at a time.
 | `paused` | Status `PAUSED`. | The cycle is paused. |
 | `emptying` | Status `EMPTY_CYCLE`. | A person started an empty cycle. |
 | `powering` | Status `POWER_UP` or `POWER_DOWN`. | Starting up or shutting down. |
-| `just_cleaned` | Synthetic: status `READY` within `just_cleaned_s` of leaving `CLEAN_CYCLE`. | A brief "done" before returning to idle. |
+| `just_cleaned` | Synthetic: status `READY` within `just_cleaned_s` (5 s) of leaving `CLEAN_CYCLE`. | A brief "done" before returning to idle: "FRESHLY CLEANED" in soapy blue (D-0015). |
 
 A normal visit: `ready → in_use → waiting → cleaning → just_cleaned → ready`. An interruption
 loops `cleaning → interrupted → waiting → cleaning`.

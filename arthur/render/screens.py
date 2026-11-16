@@ -700,7 +700,7 @@ def _cleaning_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
 
 
 # =========================================================================================
-# Just cleaned: a twinkling soapy-blue sparkle and FRESH!
+# Just cleaned: a twinkling soapy-blue sparkle and FRESHLY CLEANED, for a few seconds.
 # =========================================================================================
 
 
@@ -708,9 +708,9 @@ def _cleaning_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
 def _just_cleaned_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     f = _f52()
     icon52(f, cfg, "sparkle_a" if blink(now) else "sparkle_b")
-    head = caption(state, cfg, "just_cleaned", S52, C52_W, large_font(), fallback="FRESH!")
-    big52(f, cfg, head, "soap")
-    drawer_gauge52(f, state, cfg)
+    small52(f, cfg, "FRESHLY", "soap_hi", y=L1_Y)
+    head = caption(state, cfg, "just_cleaned", S52, C52_W, large_font(), fallback="CLEANED")
+    big52(f, cfg, head, "soap", y=7)
     return f
 
 

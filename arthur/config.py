@@ -117,7 +117,7 @@ class Thresholds:
 class Timings:
     heartbeat_s: float = 30
     ttl_s: float = 90
-    just_cleaned_s: float = 60
+    just_cleaned_s: float = 5
     clean_cycle_estimate_s: float = 150
     no_data_after_s: float = 600
     in_use_joke_s: float = 6

@@ -108,7 +108,9 @@ class Pipeline:
 
         fx = self.fixtures.FIXTURES[name]
         now = fx.now + timedelta(seconds=offset_s)
-        st = self.state(fx.snapshot, fx.health, now)
+        # The state is mapped once, at the fixture's own time, and held while the clock runs:
+        # a fixture shows one state, so a short-lived one (just cleaned) keeps its tile.
+        st = self.state(fx.snapshot, fx.health, fx.now)
         return self.render(st, now, size, variant)
 
     def fixture_loop(
