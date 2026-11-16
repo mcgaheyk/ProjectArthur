@@ -98,3 +98,21 @@ is pushed.
 
 **Why.** Claude Code has no setting for "plan on Fable, execute on Opus"; a written rule is the
 only mechanism. An `@` import needs no hook script.
+
+## D-0009 — Screens are playful, warm-coloured, and built around an orange Arthur
+
+**2026-11-16.** Kyle's direction after seeing the first-draft screens: this is a fun project,
+so screens should be engaging and funny. Arthur is an orange cat and is the mascot. The office
+is reddish, so the palette is warm (oranges, golds, warm white), with one cool accent (mint)
+kept for the robot cleaning. "In use" is the funny moment: Arthur with a poop emoji. Idle shows
+bin level, litter level and one more thing. Rare error states share a template with a line of
+text saying what is going on; "no data" is red-family, not purple. Captions are jokes kept in
+`config/display.toml`.
+
+**Why.** The first draft was clear but clinical: a blue cat, cyan timers, purple errors.
+
+**Constraints kept.** Clear first, funny second: states must still differ by shape and colour
+at a glance. Idle stays nearly still, because every changed frame is a push to the clock. We
+cannot tell pee from poop, so nothing claims either.
+
+**Status.** A direction, not a finished design. Kyle expects to iterate over several days.

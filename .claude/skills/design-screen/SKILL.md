@@ -5,6 +5,25 @@ description: Design or change what the clock shows for a display state (layout, 
 
 # Design a screen
 
+## 0. The direction (from Kyle, 2026-11-16; see D-0009)
+This is a fun project about a cat pooping and peeing. Screens should be **engaging and funny**,
+and still readable in one glance from across a room. Clear first, funny second.
+
+- **Arthur is an orange cat.** He is the mascot: draw him orange, give him poses, let him react.
+- **Kyle's office has a reddish theme.** The palette is warm: oranges, golds, warm white. Avoid
+  cool blues and purples as main colours. One cool accent (mint) is reserved for the robot
+  cleaning and "fresh", so that state still stands apart.
+- **In use is the funny moment.** Arthur and a poop emoji, alternating or together.
+- **Waiting:** the hourglass and countdown layout is liked; it uses the warm scheme.
+- **Idle** must show the **bin level and the litter level**, plus one more thing (last visit,
+  visits today).
+- **Rare states** (faults, no data, offline) share a template: icon, headline, and a line of
+  text saying what is going on. **No data is red-family, not purple.**
+- **Captions are jokes** and live in `config/display.toml` so Kyle can add his own.
+- We cannot tell pee from poop. Do not claim either as fact; the poop emoji is just the mascot.
+- Kyle expects to iterate on these over several days. Offer variants; do not treat any screen
+  as final.
+
 ## 1. Decide which layer the change belongs to
 - **What triggers a state, or what data it carries** → `arthur/mapping.py` and
   `arthur/model.py`, then update `docs/states.md`. The mapping never mentions pixels.
@@ -17,7 +36,10 @@ description: Design or change what the clock shows for a display state (layout, 
   matching change to the other.
 - The clock draws a 1-pixel dark-red border over the outermost row and column when data is
   stale. Keep anything essential readable with that border on.
-- Plan for about one frame a second. No smooth animation.
+- Plan for about one frame a second. No smooth animation. Each changed frame is an HTTP push
+  to the clock, so live states may change every second, but **idle must stay nearly still**
+  (a blink or tail flick a couple of times a minute at most).
+- Every label must fit its box. Text that runs off is a bug; the tests check it.
 - A person reads this from across a room. Prefer one clear thing over three small ones, and
   make states differ by shape as well as colour.
 - Dim colours look different on real LEDs. Avoid relying on subtle shades.
