@@ -282,6 +282,7 @@ canvas { display: block; border-radius: 6px; }
 .tile.selected { border-color: var(--accent); }
 .tile figcaption { font-size: 11px; color: var(--muted); margin-top: 3px; font-family: var(--mono); }
 .tile figcaption em { color: var(--text); font-style: normal; }
+.tile.on-clock figcaption { color: var(--text); }
 .tile .terr { color: var(--err); font: 11px var(--mono); max-width: 260px; word-break: break-word; }
 
 .toast {

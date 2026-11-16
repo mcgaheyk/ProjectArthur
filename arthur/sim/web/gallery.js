@@ -90,8 +90,13 @@ export function initGallery({ control, toast }) {
             matrix = new LedMatrix(canvas, w, h, pitch);
             matrix.setPixels(frames[0]);
           }
-          const cap = el("figcaption", {}, el("em", { text: t.variant }), t.default && t.variant !== "default" ? " · default" : "",
+          // With several variants in a row, say which one the clock shows: only that one
+          // is the real screen, and the alternatives can look like it for seconds at a time.
+          const several = ((row.tiles && row.tiles[size]) || []).length > 1;
+          const role = !several ? "" : t.default ? " · on the clock" : " · alternative";
+          const cap = el("figcaption", {}, el("em", { text: t.variant }), role,
             frames.length > 1 ? " · animates" : "");
+          if (several && t.default) fig.classList.add("on-clock");
           fig.append(cap);
           const info = { matrix, frames, fixture: row.fixture, size, variant: t.variant, kind: row.kind, node: fig };
           const send = () => pick(info);
