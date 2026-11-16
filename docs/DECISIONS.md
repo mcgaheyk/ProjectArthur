@@ -201,6 +201,8 @@ already caused. The laser notice only has room for the word "LASER".
 
 ## D-0013 — Idle Arthur is alive: a one-minute script of gestures
 
+_→ See D-0014 for the tail._
+
 **2026-11-16.** Changes D-0009's "idle stays nearly still". Kyle asked for the idle cat to have
 life: blinks, looks, tail wags, the tail passing through the text.
 - Idle runs a 60-second script, one pose a second, about two thirds of it at rest: uneven
@@ -217,3 +219,11 @@ Linux board on the LAN, and every live state already pushes once a second.
 since it is on screen most of the day in the corner of the eye.
 
 **Cost.** About 27 pushes a minute while idle, up from two.
+
+## D-0014 — The idle tail stays in the gap and never changes length
+
+**2026-11-16.** Supersedes the tail part of D-0013. Kyle did not like the tail getting longer
+or passing through the text. The wag is now a small lift in the space between Arthur's body and
+the bars and text (columns 15–18), and every tail pose has the same number of pixels, so it
+reads as one tail bending. The tint colour and the text-check exception that the through-text
+effect needed are removed; nothing draws on or against a label.

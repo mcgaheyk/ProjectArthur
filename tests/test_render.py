@@ -22,7 +22,6 @@ from arthur.render.screens import (
     IDLE_X,
     LASER_WORDS,
     POOP_FACE_LOOP,
-    TAIL_OUT,
     TAIL_REST,
     TAIL_X,
     TAIL_Y,
@@ -418,93 +417,67 @@ def test_idle_is_still_most_of_the_minute():
         assert still >= 30, still
 
 
+def _tail_px(art):
+    return [ch for row in art for ch in row if ch != "."]
+
+
 def test_tail_art_shapes():
+    """One tail bending, never growing: every pose has the rest pose's pixel count and dark
+    tip, and stays in the gap between Arthur's body and the content (columns up to 18)."""
+    rest = _tail_px(TAIL_REST)
     for pose in IDLE_POSES:
         art = idle_tail(pose)
         assert len(art) == 14 and len({len(r) for r in art}) == 1
-    assert idle_tail("rest") == TAIL_REST
-    assert idle_tail("out") == TAIL_OUT
-    for pose in IDLE_POSES:
+        px = _tail_px(art)
+        assert len(px) == len(rest), pose
+        assert px.count("S") == rest.count("S") == 1, pose
         cells = _tail_cells(pose)
         assert max(x for x, _ in cells) > 15  # it reaches beyond the 16x16 icon
-        assert all(1 <= x <= 50 and 1 <= y <= 14 for x, y in cells)
-        if pose != "out":
-            assert max(x for x, _ in cells) < IDLE_X - 1  # gap column before the content
+        assert all(x <= IDLE_X - 2 and 1 <= y <= 14 for x, y in cells), pose
+    assert idle_tail("rest") == TAIL_REST
+    assert len({idle_tail(p) for p in IDLE_WAG} | {TAIL_REST}) >= 2  # the wag moves
 
 
-def _bars_and_marks(f):
-    """Lit pixels of the two marks and bars (rows 1-7 of the content columns)."""
+def _content(f):
+    """Lit pixels of the marks, bars and bottom line."""
     off = CFG.rgb("off")
-    return {(x, y) for x in range(IDLE_X, 51) for y in range(1, 8) if f.get(x, y) != off}
-
-
-LAST_VISITS = [None, 0, 45 * 60, 2 * 3600, 10 * 3600, 47 * 3600, 9 * 86400]
+    return {(x, y) for x in range(IDLE_X, 51) for y in range(1, 15) if f.get(x, y) != off}
 
 
 @pytest.mark.parametrize("laser", [False, True])
 @pytest.mark.parametrize("drawer", [0, 42, 100])
-def test_tail_never_touches_the_bars_or_marks(laser, drawer):
+def test_tail_never_touches_the_marks_bars_or_text(laser, drawer):
     s = DisplayState(**{**READY.__dict__, "laser_dirty": laser, "drawer_pct": drawer})
     off = CFG.rgb("off")
     for pose, now in _pose_times().items():
-        f, _ = _labels(s, now)  # strict: nothing else drawn against a label
+        f, _ = _labels(s, now)  # strict: nothing drawn against a label
         tail = _tail_cells(pose)
-        bars = _bars_and_marks(f)
-        assert bars
+        content = _content(f)
+        assert content
         for tx, ty in tail:
-            for cx, cy in bars:
+            assert f.get(tx, ty) != off
+            for cx, cy in content:
                 assert max(abs(cx - tx), abs(cy - ty)) >= 2, (pose, (tx, ty), (cx, cy))
-        # Outside the bottom line the tail is drawn; inside it, it hides behind the letters.
-        for tx, ty in tail:
-            if not (IDLE_X <= tx and 9 <= ty <= 13):
-                assert f.get(tx, ty) != off
-
-
-def _bottom_line(state, now):
-    f, labels = _labels(state, now)
-    (line,) = [r for r in labels if r.y == 9]
-    return f, line
 
 
 @pytest.mark.parametrize("laser", [False, True])
-def test_tail_swings_through_the_text_and_tints_it(laser):
-    tint = CFG.rgb("fur_tint")
-    for ago in LAST_VISITS:
-        last = None if ago is None else NOW - timedelta(seconds=ago)
-        s = DisplayState(**{**READY.__dict__, "last_visit_at": last, "laser_dirty": laser})
-        now = NOW + timedelta(seconds=IDLE_SCRIPT.index("out"))
-        f, line = _bottom_line(s, now)
-        tinted = {p for p in line.ink if f.get(*p) == tint}
-        assert len(tinted) >= 3, (line.text, len(tinted))
-        # Letters keep their shapes: no pixel inside the line's ink box changes from dark.
-        xs = [x for x, _ in line.ink]
-        ref = render(s, NOW, CFG, variant="arthur")  # a resting frame
-        for x in range(min(xs), max(xs) + 1):
-            for y in range(9, 14):
-                assert (f.get(x, y) == CFG.rgb("off")) == (ref.get(x, y) == CFG.rgb("off"))
-
-
-@pytest.mark.parametrize("laser", [False, True])
-def test_letters_stay_intact_for_ten_minutes(laser):
-    tint = CFG.rgb("fur_tint")
-    normal = CFG.rgb("attention" if laser else "text")
+def test_gap_column_and_border_stay_empty_for_ten_minutes(laser):
     off = CFG.rgb("off")
-    for ago in [None, 45 * 60, 2 * 3600, 9 * 86400]:
-        last = None if ago is None else NOW - timedelta(seconds=ago)
-        s = DisplayState(**{**READY.__dict__, "last_visit_at": last, "laser_dirty": laser})
-        for dt in range(600):
-            f, line = _bottom_line(s, NOW + timedelta(seconds=dt))
-            assert all(f.get(*p) in (normal, tint) for p in line.ink), (line.text, dt)
-            border = [f.get(x, y) for x in range(52) for y in (0, 15)]
-            border += [f.get(x, y) for x in (0, 51) for y in range(16)]
-            assert all(p == off for p in border)
+    s = DisplayState(**{**READY.__dict__, "laser_dirty": laser})
+    for dt in range(600):
+        f = render(s, NOW + timedelta(seconds=dt), CFG, variant="arthur")
+        assert all(f.get(IDLE_X - 1, y) == off for y in range(16)), dt
+        border = [f.get(x, y) for x in range(52) for y in (0, 15)]
+        border += [f.get(x, y) for x in (0, 51) for y in range(16)]
+        assert all(p == off for p in border), dt
 
 
-def test_tint_is_only_used_by_the_tail():
-    tint = CFG.rgb("fur_tint")
-    for pose, now in _pose_times().items():
-        f = render(READY, now, CFG, variant="arthur")
-        assert (tint in f.pixels) == (pose == "out"), pose
+def test_no_tint_role_is_left():
+    assert "fur_tint" not in CFG.palette.colors
+    old_tint = (0xFF, 0xB8, 0x68)
+    for dt in range(300):
+        f = render(READY, NOW + timedelta(seconds=dt), CFG, variant="arthur")
+        assert old_tint not in f.pixels
 
 
 def test_idle_bars_keep_length_and_colours():

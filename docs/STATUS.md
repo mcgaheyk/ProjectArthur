@@ -9,7 +9,7 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
   (D-0010); commit 91e4960 is the last one that has them.
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
-- **Built and tested (532 tests):**
+- **Built and tested (529 tests):**
   - Pipeline: `arthur/model.py`, `arthur/mapping.py`, `arthur/render/`, with variants for
     ready, in_use, waiting and cleaning.
   - Screens: second design pass done on 2026-11-16 to Kyle's direction (D-0009): orange
@@ -22,8 +22,8 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
     turns between the poop emoji with a cycling joke and "IN USE", and a smug Arthur with the
     timer; cleaning and just-cleaned are soapy blue with a moving border on cleaning; idle has
     more room and a longer tail; badges are gone. Idle Arthur then got a one-minute script of
-    gestures (D-0013): blinks, looks, an ear twitch, a squint, a tail wag that passes behind the
-    text, and a yawn every five minutes. **Kyle has not reacted to pass 4 or the idle script
+    gestures (D-0013, D-0014): blinks, looks, an ear twitch, a squint, a small tail wag in
+    the gap beside him, and a yawn every five minutes. **Kyle has not reacted to pass 4 or the idle script
     yet.**
   - Transport: `arthur/transports/awtrix_ng.py`. Before pushing, it turns off the TC002's
     double-size drawing (`enlargeApps`); without that the clock shows a quarter of the frame.
@@ -112,9 +112,9 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
   rising stink lines have only been judged on a monitor.
 - **Jokes** are capped at about seven letters. "POOPIN?" and "PEEIN?" carry question marks
   because we cannot tell which.
-- **Idle tail through the text:** the swing only reaches the first two letters and the tint
-  is subtle; over the amber laser notice it barely shows. The ear twitch is the faintest
-  gesture. Idle now changes about 27 times a minute, each one a push to the clock.
+- **Idle gestures:** the tail wag is a small lift (the tip moves two rows) and the ear twitch
+  is faint; both may not show from across the room. Idle changes about 27 times a minute, each
+  one a push to the clock.
 - **Idle laser notice** can only say "LASER": "WIPE LASER" and "LASER DIRTY" are too wide for
   the line. It does not say what to do.
 - **Cleaning:** the countdown is still an estimate (150 s against real cycles of about 125 s).

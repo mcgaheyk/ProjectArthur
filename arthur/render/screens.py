@@ -45,15 +45,7 @@ from arthur.model import KINDS, DisplayState
 from arthur.render.font import Font, condensed_small_font, large_font, small_font
 from arthur.render.frame import Frame
 from arthur.render.icons import draw_art, draw_icon, icon_cells
-from arthur.render.text import (
-    check_text,
-    draw_behind_text,
-    first_fitting,
-    fits,
-    is_strict,
-    put_text,
-    strict_text,
-)
+from arthur.render.text import check_text, first_fitting, fits, is_strict, put_text, strict_text
 
 Size = tuple[int, int]
 Layout = Callable[[DisplayState, datetime, Config], Frame]
@@ -768,9 +760,10 @@ def _levels_52(
 IDLE_X = C52_X + 3
 IDLE_R = IDLE_X + 7 + LEVEL_BAR_W - 1  # 50: the last column inside the border
 #: Arthur's long tail, drawn over the 16x16 icon from (TAIL_X, TAIL_Y). It continues the
-#: little tail already in the icon art (bottom right of every arthur_sit pose) out to the
-#: right. Solid orange (stripe bands on a 1-px tail read as gaps) with a dark tip. Each art is
-#: 14 rows (rows 1-14); widths differ.
+#: little tail already in the icon art (bottom right of every arthur_sit pose) out into
+#: columns 15-18, the gap between his body and the content (column 19 stays empty). Solid
+#: orange (stripe bands on a 1-px tail read as gaps) with a dark tip. Every pose is the same
+#: tail bending: the same number of pixels and the same dark tip, so it never grows.
 TAIL_X = 13
 TAIL_Y = 1
 #: At rest: along the floor, then up and curled back at the tip, beside the bottom line.
@@ -790,8 +783,24 @@ TAIL_REST = (
     "....O.",
     "..OO..",  # row 14: along the floor
 )
-#: The wag, lifting (and coming back): the tail raised tall beside the bottom line, the tip
-#: curled back. Stays in columns 15-18, clear of the litter mark.
+#: The wag, halfway: off the floor and leaning up, the tip a row higher.
+TAIL_HALF = (
+    "......",  # row 1
+    "......",
+    "......",
+    "......",
+    "......",
+    "......",
+    "......",
+    "......",
+    "....S.",  # row 9: the dark tip
+    ".....O",
+    ".....O",
+    "....O.",
+    "...O..",
+    "..O...",  # row 14
+)
+#: The wag, lifted: raised up beside the bottom line, the tip curled back at row 8.
 TAIL_LIFT = (
     "......",  # row 1
     "......",
@@ -799,34 +808,14 @@ TAIL_LIFT = (
     "......",
     "......",
     "......",
-    "....S.",  # row 7: the dark tip
-    ".....O",
+    "......",
+    "....S.",  # row 8: the dark tip
     ".....O",
     "....O.",
     "....O.",
     "...O..",
     "..O...",
     "......",  # row 14
-)
-#: The wag, swung out: low and lazy to the right, behind the bottom line. Inside the line's
-#: box only the letters it crosses show it, turning ``fur_tint`` (see
-#: :func:`idle_tail_through`); there it is two rows thick, so enough ink changes colour to
-#: read as a tail. It stays on rows 9-14, two rows clear of the litter bar.
-TAIL_OUT = (
-    ".....................",  # row 1
-    ".....................",
-    ".....................",
-    ".....................",
-    ".....................",
-    ".....................",
-    ".....................",
-    ".....................",
-    "....................S",  # row 9: the dark tip, turned up
-    "...............OOOOO.",
-    ".........OOOOOOOOOOO.",
-    "......OOOOOOOOO......",
-    "....OO...............",
-    "..OO.................",  # row 14: off the floor
 )
 
 #: Idle Arthur's poses: name → (icon, tail art).
@@ -838,11 +827,12 @@ IDLE_POSES: dict[str, tuple[str, tuple[str, ...]]] = {
     "ear": ("arthur_sit_ear", TAIL_REST),
     "squint": ("arthur_sit_squint", TAIL_REST),
     "yawn": ("arthur_sit_yawn", TAIL_REST),
+    "half": ("arthur_sit", TAIL_HALF),
     "lift": ("arthur_sit", TAIL_LIFT),
-    "out": ("arthur_sit", TAIL_OUT),
 }
-#: The frames of one tail wag, in order: lift, swing out through the text (held), lift back.
-IDLE_WAG: tuple[str, ...] = ("lift", "out", "out", "lift")
+#: The frames of one tail wag, in order: up, dipping halfway down, up again and held; the
+#: next second (a rest) brings it back down to the floor.
+IDLE_WAG: tuple[str, ...] = ("lift", "half", "lift", "lift")
 
 _R, _W = "rest", IDLE_WAG
 #: Idle Arthur, one pose per second of the wall-clock minute. Alive, not busy: about two
@@ -884,37 +874,18 @@ def idle_tail(pose: str) -> tuple[str, ...]:
 LASER_WORDS = ("WIPE LASER", "LASER DIRTY", "LASER")
 
 
-def idle_tail_through(
-    f: Frame, cfg: Config, art: tuple[str, ...], line: str
-) -> set[tuple[int, int]]:
-    """Draw the tail after the bottom line ``line``, as if behind it: outside the line it is
-    Arthur's orange (dark tip); within the line's box the letters hide it, and the ink it
-    crosses turns ``fur_tint``, every letter keeping its shape. Returns the tinted pixels."""
-    pal = cfg.palette
-    cells = [
-        (TAIL_X + x, TAIL_Y + y, pal.rgb(pal.role_for_char(ch)))
-        for y, row in enumerate(art)
-        for x, ch in enumerate(row)
-        if ch != "."
-    ]
-    w = min(small_font().width(line), IDLE_R - IDLE_X + 1)
-    box = (IDLE_X, L2_Y, IDLE_X + w - 1, L2_Y + 4)
-    return draw_behind_text(f, cells, cfg.rgb("fur_tint"), box=box)
-
-
 @layout(S52, "ready", "arthur")
 def _ready_arthur_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     f = _f52()
     icon, tail = IDLE_POSES[idle_pose(now)]
     icon52(f, cfg, icon)
+    draw_art(f, tail, TAIL_X, TAIL_Y, cfg)
     _levels_52(f, state, cfg, 1, 5, x=IDLE_X)
     if state.laser_dirty:
         line = first_fitting(LASER_WORDS, IDLE_R - IDLE_X + 1, small_font())
         small52(f, cfg, line, "attention", x=IDLE_X, right=IDLE_R)
     else:
-        line = _last_visit(state, now)
-        small52(f, cfg, line, "text", x=IDLE_X, right=IDLE_R)
-    idle_tail_through(f, cfg, tail, line)
+        small52(f, cfg, _last_visit(state, now), "text", x=IDLE_X, right=IDLE_R)
     return f
 
 

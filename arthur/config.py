@@ -27,7 +27,6 @@ REQUIRED_ROLES: tuple[str, ...] = (
     "attention",
     "alert",
     "fur",
-    "fur_tint",
     "stripe",
     "cream",
     "nose",

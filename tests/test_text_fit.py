@@ -14,13 +14,7 @@ from arthur.fixtures import FIXTURES
 from arthur.mapping import to_display_state
 from arthur.render import Frame, list_sizes, list_variants, render
 from arthur.render.font import small_font
-from arthur.render.text import (
-    TextFitError,
-    check_text,
-    draw_behind_text,
-    put_text,
-    strict_text,
-)
+from arthur.render.text import TextFitError, check_text, put_text, strict_text
 
 CFG = default_config()
 
@@ -65,31 +59,16 @@ def _label():
 LINE = [(x, 11, (255, 122, 0)) for x in range(14, 45)]  # a line across the label's middle
 
 
+def test_check_text_has_no_exemptions():
+    from arthur.render import text
+
+    assert not hasattr(text, "draw_behind_text")
+    assert not hasattr(text, "BehindRecord")
+
+
 def test_a_line_through_a_label_is_still_caught():
     with strict_text() as records, pytest.raises(TextFitError):
         f = _label()
         for x, y, c in LINE:
             f.pixel(x, y, c)
-        check_text(f, records)
-
-
-def test_draw_behind_text_tints_ink_hides_gaps_and_is_allowed():
-    tint = (1, 2, 3)
-    with strict_text() as records:
-        f = _label()
-        ink = set(records[0].ink)
-        w = small_font().width("2H AGO")
-        tinted = draw_behind_text(f, LINE, tint, box=(20, 9, 20 + w - 1, 13))
-        check_text(f, records)  # allowed: no error
-    assert tinted and tinted <= ink
-    assert all(f.get(x, 11) == (tint if (x, 11) in ink else (0, 0, 0))
-               for x in range(20, 20 + w))
-    assert f.get(14, 11) == f.get(19, 11) == (255, 122, 0)  # drawn outside the label
-
-
-def test_draw_behind_text_exempts_only_its_own_pixels():
-    with strict_text() as records, pytest.raises(TextFitError):
-        f = _label()
-        draw_behind_text(f, LINE[:3], (1, 2, 3), box=(20, 9, 42, 13))
-        f.pixel(19, 12, (9, 9, 9))  # something else against the label
         check_text(f, records)
