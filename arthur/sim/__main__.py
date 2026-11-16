@@ -1,4 +1,5 @@
-"""Start the simulator and studio: ``uv run python -m arthur.sim [--port 7001] [--config PATH]``.
+"""Start the simulator and studio:
+``uv run python -m arthur.sim [--port 7001] [--config PATH] [--log-dir logs]``.
 
 Binds to 127.0.0.1 only. Open http://127.0.0.1:7001/ for the studio. The fake 52x16 clock
 answers at ``/api/v1/...``, like a real one.
@@ -25,11 +26,14 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="python -m arthur.sim", description=__doc__)
     ap.add_argument("--port", type=int, default=7001)
     ap.add_argument("--config", default=None, help="display config (default config/display.toml)")
+    ap.add_argument("--log-dir", default="logs",
+                    help="the spike's logs, read by the Robot log source (default logs)")
     args = ap.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
-    app = create_app(args.config, feeder_base_url=f"http://{HOST}:{args.port}")
+    app = create_app(args.config, feeder_base_url=f"http://{HOST}:{args.port}",
+                     log_dir=args.log_dir)
     print(f"ProjectArthur studio: http://{HOST}:{args.port}/", flush=True)
     web.run_app(app, host=HOST, port=args.port, print=None)
 

@@ -20,7 +20,9 @@ Studio
   GET  /studio/meta           kinds, sizes, variants, fixtures, scenarios, palette, timings
   GET  /studio/gallery        every fixture x variant (?stale=1 overlays the border)
   GET  /studio/state          what is showing, feeder pushes and errors, the clock's lifetime
-  POST /studio/control        change the source, playback, variants, feeder switches
+  POST /studio/control        change the source, playback, variants, feeder switches, and the
+                              robot log ({"mode": "log", "log": {"sub_mode": "follow"|"replay",
+                              "visit", "position", "speed", "playing"}})
   GET  /studio/png            ?fixture=&size=&variant=&scale=&gap=&stale=
   GET  /studio/ws             WebSocket: the clock's pixels and the state when they change
 
@@ -48,6 +50,7 @@ from arthur.sim.feeder import (
     FAST_HEARTBEAT_S,
     FAST_TTL_S,
     LITTER_STATES,
+    LOG_SUB_MODES,
     MANUAL_DEFAULTS,
     MODES,
     POWER_TYPES,
@@ -254,6 +257,7 @@ def _meta(app: web.Application) -> dict[str, Any]:
         litter_states=list(LITTER_STATES),
         power_types=list(POWER_TYPES),
         wait_minutes=list(WAIT_MINUTES),
+        log_sub_modes=list(LOG_SUB_MODES),
         reload_error=pipe.error,
     )
     return meta
@@ -572,6 +576,7 @@ def create_app(
     time_fn: Callable[[], float] = time.monotonic,
     feeder_base_url: str | None = None,
     start_tasks: bool = True,
+    log_dir: str | Path | None = None,
 ) -> web.Application:
     """Build the simulator app.
 
@@ -579,13 +584,16 @@ def create_app(
     pushes to the clock there (``{feeder_base_url}/api/v1/...``) and does nothing until it is
     set.
     ``time_fn`` drives the fake clock's lifetime and the feeder's heartbeat (tests inject it).
+    ``log_dir`` is where the "Robot log" source reads the spike's logs (default ``logs``). It
+    is only read, and only once that source is chosen.
     """
     app = web.Application(client_max_size=MAX_BODY)
     pipe = ReloadingPipeline(Path(config_path) if config_path else None)
     app[PIPE] = pipe
     app[CLOCKS] = {size_key(s): FakeClock(s[0], s[1], time_fn=time_fn)
                    for s in pipe.current.sizes()}
-    app[FEEDER] = StudioFeeder(pipe, time_fn=time_fn, base_url=feeder_base_url)
+    app[FEEDER] = StudioFeeder(pipe, time_fn=time_fn, base_url=feeder_base_url,
+                               log_dir=log_dir)
     app[SOCKETS] = set()
     app[GALLERY_CACHE] = {}
     app[OPTIONS] = {"start_tasks": start_tasks, "broadcast": _Broadcast()}

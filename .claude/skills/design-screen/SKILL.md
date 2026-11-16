@@ -48,7 +48,8 @@ and still readable in one glance from across a room. Clear first, funny second.
 1. Edit the layout, icon (text-art under `arthur/render/icons/`) or config.
 2. Print it: `uv run python -m arthur.render.preview --all` (or name one state).
 3. Look at it in the studio: start the "studio" server and open the All states view in the
-   browser pane, then play a visit in the Scenario view to see transitions.
+   browser pane, then play a visit in the Scenario view to see transitions. To see a screen
+   against what the robot really did, pick the Robot log source and replay a recorded visit.
 4. When offering alternatives, add them as variants so they appear side by side, and let Kyle
    choose. Remove the losers afterwards.
 

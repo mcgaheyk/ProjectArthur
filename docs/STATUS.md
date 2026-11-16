@@ -9,7 +9,7 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
   (D-0010); commit 91e4960 is the last one that has them.
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
-- **Built and tested (373 tests):**
+- **Built and tested (405 tests):**
   - Pipeline: `arthur/model.py`, `arthur/mapping.py`, `arthur/render/`, with variants for
     ready, in_use, waiting and cleaning.
   - Screens: second design pass done on 2026-11-16 to Kyle's direction (D-0009): orange
@@ -20,21 +20,26 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
     Only ever run against the fake clock.
   - Simulator: `arthur/sim/`. One fake TC002 that starts with `enlargeApps` on, as a real
     clock does, and a studio page (live clock, all-states grid, scenario playback,
-    kill-the-feeder switch) with live reload of screens and config.
+    kill-the-feeder switch) with live reload of screens and config. Its **Robot log** source
+    drives the clock from the spike's log: Follow shows the real robot live, Replay plays a
+    recorded visit at 1x, 10x or 60x, and both show the robot's raw fields beside the mapped
+    state.
+  - Log source: `arthur/sources/logfile.py` turns the spike's log lines into `RobotSnapshot`s
+    (read only; it never talks to Whisker).
   - Spike: `scripts/spike_log.py`. **Running on Kyle's Mac since the evening of 2026-11-15**,
     so the real login and live connection work. By the morning of the 16th it had logged two
-    complete visits in `logs/spike-*.jsonl`. Nothing reads those logs yet.
+    complete visits in `logs/spike-*.jsonl`. The studio's Robot log source reads them.
   - PETLIBRO spike: `scripts/spike_petlibro.py` (logic in `arthur/petlibro_spike.py`, 39
     tests). Logs what the Granary and a fountain report through PETLIBRO's cloud, read only.
     Kyle's Granary is the reachable kind (paired with the PETLIBRO app, not PETLIBRO Lite).
     **Tested against a fake server only; never run against PETLIBRO.** API notes, unconfirmed:
     `docs/reference/petlibro.md`.
-- **Not built:** the feeder service itself (`arthur/sources/`, the run loop). The studio has
-  its own in-process stand-in that plays fixtures and scenarios.
+- **Not built:** the feeder service itself (`arthur/sources/whisker.py`, the run loop). The
+  studio has its own in-process stand-in that plays fixtures, scenarios and the spike's log.
 
 ## Next
-1. Kyle: leave the spike running for a few days. A studio mode that follows or replays its log
-   would let the screens be tested against real visits; it does not exist yet.
+1. Kyle: leave the spike running for a few days, and watch real visits in the studio (Live
+   view, Source: Robot log). Follow only works while the spike is running.
 2. Kyle: react to the redesigned screens in the studio's All states view: which jokes land,
    which art does not read, which variants to keep. Regenerate a one-page overview any time
    with `uv run python -m arthur.render.preview --sheet DIR`.
@@ -44,17 +49,25 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
    read-back with the simulator's. The guesses to check are listed at the end of that file.
 4. Build the feeder service: `arthur/sources/whisker.py` and the run loop with heartbeat. With
    the hardware here it is the main missing piece.
-5. Feed spike findings back into `docs/states.md` and `config/display.toml` (phase durations,
-   cat-detected latency, what the raw fields add), and add a way to replay a spike log in the
-   studio. First look at two visits, not yet analysed or acted on:
-   - In one visit `status` went to `CAT_SENSOR_TIMING` after 6 s. In the other it stayed
-     `CAT_DETECTED` for 9 minutes, right up to the clean cycle, with raw `robotStatus` at
-     `ROBOT_CAT_DETECT` instead of `ROBOT_CAT_DETECT_DELAY`. The in-use screen would have shown
-     the whole time.
-   - The clean cycle began about 9.3 minutes after detection both times and took about 2 min
-     5 s. `clean_cycle_wait_time_minutes` reads 8, which is not one of the documented values.
-   - Raw `robotCycleStatus` does show cycle phases: `CYCLE_DUMP`, `CYCLE_DFI`, `CYCLE_LEVEL`,
-     `CYCLE_HOME`. Raw `catDetect` never left `CAT_DETECT_CLEAR`.
+5. Decide with Kyle how to fix what the first two real visits showed, then change
+   `arthur/mapping.py`, `docs/states.md` and `config/display.toml`. Nothing has been changed
+   yet. Replayed through the real mapping:
+   - **In use and waiting cannot be told apart from `status` alone.** Sunday: `CAT_DETECTED`
+     for 6 s, then `CAT_SENSOR_TIMING` (raw `ROBOT_CAT_DETECT_DELAY`) while he was probably
+     still inside, so in-use flashed by and the countdown started early. Monday: `CAT_DETECTED`
+     (raw `ROBOT_CAT_DETECT`) for 9 min 13 s, straight into the clean cycle, so the in-use
+     timer counted to nine minutes after he had left. The pet-weight update about a minute in
+     may be the better "he has left" signal.
+   - **The countdown ends early.** The clean cycle started about 9.3 minutes after detection
+     both times, against a wait setting of 8 minutes, so "DUE" showed for 81 s on Sunday.
+     `clean_cycle_wait_time_minutes` reads 8, which is not a documented value; the studio's
+     Manual mode rejects it.
+   - **Cleaning is shorter than the estimate:** 2 min 3 s and 2 min 10 s against
+     `clean_cycle_estimate_s = 150`, so the progress never fills. Raw `robotCycleStatus` shows
+     real phases (`CYCLE_DUMP`, `CYCLE_DFI`, `CYCLE_LEVEL`, `CYCLE_HOME`) that could replace the
+     estimate.
+   - Raw `catDetect` never left `CAT_DETECT_CLEAR`. `last_seen` is stuck at 2026-11-13, so the
+     offline screen's "seen" age would be wrong.
 6. Kyle: run the PETLIBRO spike against the real Granary. In the PETLIBRO phone app, create a
    second account (password of 18 characters or fewer), share the Granary to it and accept the
    share; put that login in `.env` as `PETLIBRO_EMAIL` and `PETLIBRO_PASSWORD`; then

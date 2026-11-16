@@ -23,7 +23,7 @@ simulates the clock so screens can be designed without the hardware on the desk.
 
 | Stage | Module | Rule |
 |---|---|---|
-| source | `arthur/sources/` (not built yet) | The only code that imports pylitterbot |
+| source | `arthur/sources/` | `logfile.py` reads the spike's log for the studio. The Whisker source is not built yet; it will be the only code that imports pylitterbot |
 | mapping | `arthur/mapping.py` | Pure function. Knows nothing about displays or pixels |
 | render | `arthur/render/` | Pure function of DisplayState, time, config and size. Knows nothing about AWTRIX |
 | transport | `arthur/transports/` | Behind an interface. The only code that knows the clock's API |
@@ -48,7 +48,8 @@ simulates the clock so screens can be designed without the hardware on the desk.
 
 ## Commands
 - `uv run pytest` and `uv run ruff check`
-- `uv run python -m arthur.sim` starts the studio (also the "studio" entry in `.claude/launch.json`)
+- `uv run python -m arthur.sim` starts the studio (also the "studio" entry in `.claude/launch.json`).
+  Its Robot log source follows or replays the spike's `logs/spike-*.jsonl`
 - `uv run python -m arthur.render.preview --all` prints every screen as text
 - `uv run --env-file .env python scripts/spike_log.py` logs the real robot (needs Kyle's `.env`)
 - `uv run --env-file .env python scripts/spike_petlibro.py` logs the real PETLIBRO devices,

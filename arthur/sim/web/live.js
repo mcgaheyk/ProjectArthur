@@ -19,6 +19,18 @@ const MANUAL_FIELDS = [
   ["ws_connected", "WebSocket connected", "bool"],
 ];
 
+const MODE_LABELS = { scenario: "Scenario", fixture: "Fixture", manual: "Manual", log: "Robot log" };
+const LOG_SUB_LABELS = { follow: "Follow", replay: "Replay" };
+const RAW_LABELS = [
+  // [key, label] of the robot's own fields shown next to the mapped state
+  ["status", "status"],
+  ["robotStatus", "robotStatus"],
+  ["robotCycleState", "cycleState"],
+  ["robotCycleStatus", "cycleStatus"],
+  ["displayCode", "displayCode"],
+  ["catDetect", "catDetect"],
+];
+
 const $ = (id) => document.getElementById(id);
 
 function el(tag, attrs = {}, ...children) {
@@ -39,6 +51,15 @@ function fmtTime(s) {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
   const mm = String(m).padStart(h ? 2 : 1, "0"), ss = String(sec).padStart(2, "0");
   return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function fmtLocal(iso, withDay = true) {
+  if (!iso) return "–";
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  const t = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  if (!withDay) return t;
+  return `${d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} ${t}`;
 }
 
 function fmtAge(s) {
@@ -121,7 +142,8 @@ export function initLive({ control, getMeta }) {
     const modeSeg = $("mode-seg");
     modeSeg.textContent = "";
     for (const m of meta.modes || ["scenario", "fixture", "manual"]) {
-      modeSeg.append(el("button", { type: "button", "data-mode": m, text: m[0].toUpperCase() + m.slice(1),
+      modeSeg.append(el("button", { type: "button", "data-mode": m,
+        text: MODE_LABELS[m] || m[0].toUpperCase() + m.slice(1),
         onclick: () => control({ mode: m }) }));
     }
 
@@ -155,6 +177,7 @@ export function initLive({ control, getMeta }) {
     fSel.onchange = () => control({ fixture: fSel.value, mode: "fixture" });
 
     buildManual(meta);
+    buildLog(meta);
     $("feeder-alive").onchange = (e) => control({ feeder_alive: e.target.checked });
     $("fast-expiry").onchange = (e) => control({ fast_expiry: e.target.checked });
     buildVariants(meta);
@@ -197,6 +220,121 @@ export function initLive({ control, getMeta }) {
       };
       host.append(el("label", { class: "field" }, label, input));
     }
+  }
+
+  function buildLog(meta) {
+    const sendLog = (patch) => control({ mode: "log", log: patch });
+    const subSeg = $("log-sub-seg");
+    subSeg.textContent = "";
+    for (const m of meta.log_sub_modes || ["follow", "replay"]) {
+      subSeg.append(el("button", { type: "button", "data-sub": m, text: LOG_SUB_LABELS[m] || m,
+        onclick: () => sendLog({ sub_mode: m }) }));
+    }
+    const speedSeg = $("log-speed-seg");
+    speedSeg.textContent = "";
+    for (const sp of meta.speeds || [1, 10, 60]) {
+      speedSeg.append(el("button", { type: "button", "data-speed": sp, text: `${sp}x`,
+        onclick: () => sendLog({ speed: sp }) }));
+    }
+    $("log-play-btn").onclick = () => sendLog({ playing: !(lastState && lastState.log && lastState.log.playing) });
+    const scrub = $("log-scrubber");
+    scrub.oninput = () => {
+      scrub.dataset.dragging = "1";
+      const lg = lastState && lastState.log;
+      if (lg) $("log-time").textContent = `${fmtTime(Number(scrub.value))} / ${fmtTime(lg.duration)}`;
+    };
+    scrub.onchange = async () => {
+      await sendLog({ position: Number(scrub.value) });
+      delete scrub.dataset.dragging;
+    };
+    $("log-visits").dataset.key = "";
+    $("log-ticks").dataset.key = "";
+  }
+
+  function renderLog(st) {
+    const lg = st.log || {};
+    for (const b of $("log-sub-seg").children) b.classList.toggle("on", b.dataset.sub === lg.sub_mode);
+    for (const blk of document.querySelectorAll(".log-sub")) blk.hidden = blk.dataset.sub !== lg.sub_mode;
+
+    const missing = $("log-missing");
+    const noFiles = lg.loaded && !lg.has_files;
+    missing.hidden = !noFiles;
+    if (noFiles) {
+      missing.textContent = "";
+      missing.append(`No spike logs in ${lg.dir}/. Start the spike to record the robot: `,
+        el("code", { text: lg.spike_command }));
+    }
+    $("log-file").textContent = lg.file ? `${lg.dir}/${lg.file}` : "";
+
+    // follow
+    const info = $("log-follow-info");
+    info.textContent = "";
+    if (lg.newest_ts) {
+      info.append("Following ", el("b", { class: "mono", text: lg.file || "?" }),
+        ` · last line ${fmtAge(lg.newest_age_s)} (${lg.newest_kind}, ${fmtLocal(lg.newest_ts, false)})`);
+    }
+    const stale = $("log-stale");
+    const notFresh = lg.loaded && lg.has_files && lg.fresh === false;
+    stale.hidden = !(notFresh || lg.contact_error);
+    if (lg.contact_error) {
+      stale.textContent = `The spike's newest news is a ${lg.contact_error} error: it cannot reach Whisker, so the clock shows NO DATA.`;
+    } else if (notFresh) {
+      stale.textContent = "";
+      stale.append(`The log is not fresh: no line for ${fmtTime(lg.newest_age_s)} (the spike writes at least every ` +
+        `${Math.round((lg.fresh_for_s - 120) / 60)} min). Is the spike still running? The clock shows NO DATA once ` +
+        "the last contact is too old. Start it with ", el("code", { text: lg.spike_command }));
+    }
+
+    // replay
+    const visits = lg.visits || [];
+    const vbox = $("log-visits");
+    const key = visits.map((v) => `${v.id}|${v.duration_s}`).join(",");
+    if (vbox.dataset.key !== key) {
+      vbox.textContent = "";
+      for (const v of visits) {
+        const label = `${fmtLocal(v.start)} · ${fmtTime(v.duration_s)}`;
+        const b = el("button", { type: "button", class: "btn", "data-visit": v.id,
+          title: `${v.statuses.join(" → ")}${v.finished ? "" : " (still going)"}`,
+          onclick: () => control({ mode: "log", log: { sub_mode: "replay", visit: v.id, position: 0, playing: true } }) },
+          label);
+        if (!v.finished) b.append(" ", el("em", { text: "live" }));
+        vbox.append(b);
+      }
+      if (!visits.length) vbox.append(el("span", { class: "muted small", text: lg.loaded ? "No visits in the log yet." : "" }));
+      vbox.dataset.key = key;
+    }
+    for (const b of vbox.querySelectorAll("button")) b.classList.toggle("on", b.dataset.visit === lg.visit);
+    $("log-play-btn").textContent = lg.playing ? "Pause" : "Play";
+    for (const b of $("log-speed-seg").children) b.classList.toggle("on", Number(b.dataset.speed) === lg.speed);
+    const scrub = $("log-scrubber");
+    scrub.max = String(lg.duration || 0);
+    if (idle(scrub)) {
+      scrub.value = String(lg.position || 0);
+      $("log-time").textContent = `${fmtTime(lg.position)} / ${fmtTime(lg.duration)}` +
+        (lg.sub_mode === "replay" && lg.log_time ? `  · ${fmtLocal(lg.log_time, false)}` : "");
+    }
+    const visit = visits.find((v) => v.id === lg.visit);
+    const ticks = $("log-ticks");
+    const tkey = visit ? `${visit.id}|${visit.window_s}|${visit.changes.length}` : "";
+    if (ticks.dataset.key !== tkey) {
+      ticks.textContent = "";
+      if (visit && visit.window_s > 0) {
+        visit.changes.forEach((c, i) => {
+          const pct = (100 * c.at_s) / visit.window_s;
+          ticks.append(el("span", {
+            class: "tick" + (i % 2 ? " alt" : "") + (pct < 6 ? " first" : pct > 94 ? " last" : ""),
+            style: `left:${pct}%`,
+            title: `${c.status} at ${fmtTime(c.at_s)}`,
+            text: c.status,
+          }));
+        });
+      }
+      ticks.dataset.key = tkey;
+    }
+
+    $("log-skipped").textContent = lg.loaded && lg.has_files
+      ? `${lg.lines} lines read` + (lg.skipped ? `, ${lg.skipped} malformed skipped` : "") + `. Read-only: the studio never writes to ${lg.dir}/ or talks to Whisker.`
+      : "";
   }
 
   function buildVariants(meta) {
@@ -255,6 +393,20 @@ export function initLive({ control, getMeta }) {
       for (const b of sh.badges || []) showing.append(" ", el("span", { class: "chip", text: b }));
       if (sh.sim_time) showing.append(el("div", { class: "muted small", text: `source time ${sh.sim_time.replace("T", " ").replace("+00:00", "Z")}` }));
     }
+    if (st.mode === "log") {
+      const raw = (st.log && st.log.raw) || null;
+      const line = el("div", { class: "raw small" }, "Robot said ");
+      if (raw) {
+        for (const [k, label] of RAW_LABELS) {
+          line.append(el("span", { class: "chip", title: k }, el("b", { text: `${label} ` }), String(raw[k] ?? "–")));
+        }
+        if (st.log.line_ts) line.append(el("span", { class: "muted", text: ` (line at ${fmtLocal(st.log.line_ts, false)})` }));
+      } else {
+        line.append(el("span", { class: "muted", text: "nothing (no state line)" }));
+      }
+      showing.append(line);
+    }
+    renderLog(st);
 
     // scenario
     const sSel = $("scenario-select");

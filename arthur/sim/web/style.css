@@ -233,6 +233,16 @@ canvas { display: block; border-radius: 6px; }
 .tick.first { transform: none; }
 .tick.last { transform: translateX(-100%); border-left: 0; border-right: 1px solid var(--line); padding: 0 2px 0 0; }
 
+.note { margin: 8px 0; padding: 8px 10px; border-radius: 6px; font-size: 12px; }
+.note.warn { background: #3a2c12; border: 1px solid #6b5220; }
+.note code { font-family: var(--mono); font-size: 11px; word-break: break-all; }
+.raw { margin-top: 4px; }
+.raw .chip b { font-weight: 400; color: var(--muted); }
+.visits { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; max-height: 9.5em; overflow: auto; }
+.visits .btn { padding: 3px 10px; font-size: 12px; }
+.visits .btn.on { border-color: var(--accent); }
+.visits .btn em { font-style: normal; color: var(--warn); }
+
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); gap: 6px 14px; }
 .field { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
 .field .val { color: var(--text); font-family: var(--mono); }

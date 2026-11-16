@@ -1,0 +1,628 @@
+"""A source that reads the spike's logs (``logs/spike-YYYYMMDD.jsonl``) instead of Whisker.
+
+The spike (:mod:`arthur.spikelog`, run by ``scripts/spike_log.py``) holds the one connection
+to Whisker and appends what the robot does. This module owns everything about that file
+format, so the studio can drive the real pipeline from it:
+
+- :class:`RobotLog` reads every ``spike-2*.jsonl`` (state, info and error lines) and
+  ``spike-activity-*.jsonl`` (activity history) in a directory, and picks up appended lines on
+  :meth:`RobotLog.refresh` without re-reading whole files: it remembers each file's byte
+  offset, consumes only up to the last newline (a half-written line is left for later) and
+  notices a new day's file.
+- :class:`Timeline` holds the lines ordered by ``ts`` and answers "which snapshot was in force
+  at time t" (like ``Scenario.at``) and "where are the visits".
+- :func:`follow_view` and :func:`replay_view` turn that into ``(snapshot, health, now)`` for
+  live following and for replaying one visit.
+
+Pure standard library: no pylitterbot, no aiohttp. Bad data never raises; malformed lines are
+skipped and counted.
+
+Feeder-observed fields come from the log's own history:
+
+- ``status_since``: the ``ts`` of the line where the status last changed to the current one.
+  For the very first status in the log, when nothing earlier is known, it is the first state
+  line's ``ts``.
+- ``previous_status``: the status before that change (None for the first status).
+- ``last_visit_at``: the latest of (a) the most recent state line, at or before the moment in
+  question, where the status became ``CAT_DETECTED``, and (b) the latest "Cat Detected"
+  activity entry at or before that moment (a "Pet Weight Recorded" entry counts only when no
+  "Cat Detected" precedes it within 15 minutes, since it is the same visit a minute later).
+- ``visits_today`` stays None.
+"""
+
+from __future__ import annotations
+
+import bisect
+import json
+import math
+from collections.abc import Iterable
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+from arthur.model import FeederHealth, RobotSnapshot
+
+# arthur.spikelog imports only the standard library at module level (pylitterbot is imported
+# lazily inside its network functions), so taking the constant from it is safe.
+from arthur.spikelog import HEARTBEAT_SECONDS
+
+#: The log counts as fresh (the spike is alive and polling) while its newest line is younger
+#: than this. The spike writes at least a heartbeat line every HEARTBEAT_SECONDS.
+FRESH_FOR_S: float = HEARTBEAT_SECONDS + 120
+
+#: Seconds of context shown before a visit's first non-READY line, and after its "just
+#: cleaned" window, when replaying.
+VISIT_PAD_S: float = 30.0
+
+STATE_GLOB = "spike-2*.jsonl"
+ACTIVITY_GLOB = "spike-activity-*.jsonl"
+
+#: Raw robot fields shown next to the mapped state in the studio.
+RAW_FIELDS: tuple[str, ...] = (
+    "status",
+    "robotStatus",
+    "robotCycleState",
+    "robotCycleStatus",
+    "displayCode",
+    "catDetect",
+)
+
+#: Error lines written by the spike, by ``where``, that mean it lost contact with Whisker.
+#: Others (activity, pet-weight-history, update-callback, flush) are side jobs: the robot's
+#: state still arrives, so they do not affect health.
+_CONTACT_ERRORS = frozenset({"login", "connect", "poll"})
+_PET_WEIGHT_SAME_VISIT = timedelta(minutes=15)
+
+SPIKE_COMMAND = "uv run --env-file .env python scripts/spike_log.py"
+
+
+# =========================================================================================
+# Parsing
+# =========================================================================================
+
+
+def parse_ts(value: Any) -> datetime | None:
+    """An ISO timestamp (``...Z`` or with an offset) as an aware datetime, or None."""
+    if not isinstance(value, str) or not value:
+        return None
+    text = value.strip()
+    if text.endswith(("Z", "z")):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        return None  # the spike always writes UTC with a zone; a naive time is not ours
+    return dt
+
+
+def _bool(value: Any, default: bool) -> bool:
+    return value if isinstance(value, bool) else default
+
+
+def _num(value: Any, default: float | None) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    v = float(value)
+    return v if math.isfinite(v) else default
+
+
+def _str(value: Any, default: str | None) -> str | None:
+    return value if isinstance(value, str) and value else default
+
+
+@dataclass(frozen=True)
+class LogLine:
+    """One parsed line. ``data`` is the whole JSON object."""
+
+    ts: datetime
+    kind: str
+    data: dict[str, Any]
+    seq: int = 0  # read order, to keep equal timestamps stable
+
+    @property
+    def record(self) -> dict[str, Any]:
+        r = self.data.get("record")
+        return r if isinstance(r, dict) else {}
+
+    @property
+    def status(self) -> str:
+        s = _str(self.record.get("status"), None) or _str(self.data.get("status"), None)
+        return s or "UNKNOWN"
+
+
+def parse_line(text: str, seq: int = 0) -> LogLine | None:
+    """Parse one state-log line. None for anything malformed (the caller counts it)."""
+    try:
+        obj = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    ts = parse_ts(obj.get("ts"))
+    kind = obj.get("kind")
+    if ts is None or not isinstance(kind, str):
+        return None
+    if kind == "state":
+        rec = obj.get("record")
+        if not isinstance(rec, dict):
+            return None
+        if not (_str(rec.get("status"), None) or _str(obj.get("status"), None)):
+            return None
+    return LogLine(ts, kind, obj, seq)
+
+
+@dataclass(frozen=True)
+class Activity:
+    at: datetime
+    action: str
+
+
+def parse_activity(text: str) -> Activity | None:
+    """Parse one activity-log line (``kind`` "activity" or "pet_weight"). None if malformed."""
+    try:
+        obj = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    at = parse_ts(obj.get("timestamp"))
+    if at is None:
+        return None
+    if obj.get("kind") == "pet_weight":
+        return Activity(at, "Pet Weight Recorded")
+    action = obj.get("action")
+    if obj.get("kind") != "activity" or not isinstance(action, str):
+        return None
+    return Activity(at, action)
+
+
+def snapshot_from_record(
+    record: dict[str, Any],
+    *,
+    status_since: datetime | None = None,
+    previous_status: str | None = None,
+    last_visit_at: datetime | None = None,
+) -> RobotSnapshot:
+    """A :class:`RobotSnapshot` from a state line's ``record``. Odd values fall back to the
+    model's defaults (the spike writes ``"<error: X>"`` for a property that raised)."""
+    defaults = RobotSnapshot(status="UNKNOWN")
+    wait = _num(record.get("clean_cycle_wait_time_minutes"), None)
+    return RobotSnapshot(
+        status=_str(record.get("status"), "UNKNOWN") or "UNKNOWN",
+        status_code=_str(record.get("status_code"), None),
+        is_online=_bool(record.get("is_online"), defaults.is_online),
+        is_on=_bool(record.get("is_on"), defaults.is_on),
+        waste_drawer_level=_num(record.get("waste_drawer_level"), defaults.waste_drawer_level),
+        litter_level=_num(record.get("litter_level"), defaults.litter_level),
+        litter_level_state=_str(record.get("litter_level_state"), None),
+        is_sleeping=_bool(record.get("is_sleeping"), defaults.is_sleeping),
+        is_laser_dirty=_bool(record.get("is_laser_dirty"), defaults.is_laser_dirty),
+        power_type=_str(record.get("power_type"), defaults.power_type) or defaults.power_type,
+        wait_time_minutes=int(wait) if wait is not None else defaults.wait_time_minutes,
+        last_seen=parse_ts(record.get("last_seen")),
+        pet_weight_lbs=_num(record.get("pet_weight"), None),
+        status_since=status_since,
+        previous_status=previous_status,
+        last_visit_at=last_visit_at,
+        visits_today=None,
+    )
+
+
+def raw_fields(record: dict[str, Any] | None) -> dict[str, Any]:
+    """The raw robot fields worth comparing with the mapped state."""
+    rec = record or {}
+    return {k: rec.get(k) for k in RAW_FIELDS}
+
+
+# =========================================================================================
+# Timeline
+# =========================================================================================
+
+
+@dataclass(frozen=True)
+class Visit:
+    """A run of consecutive non-READY statuses, and the window to replay it in."""
+
+    start: datetime  # first non-READY line
+    end: datetime | None  # the line where the status returned to READY; None if unfinished
+    last: datetime  # last line of the visit (end, or the log's last line when unfinished)
+    window_start: datetime
+    window_end: datetime
+    statuses: tuple[str, ...]  # in the order first seen
+
+    @property
+    def id(self) -> str:
+        return self.start.isoformat()
+
+    @property
+    def finished(self) -> bool:
+        return self.end is not None
+
+    @property
+    def duration_s(self) -> float:
+        return ((self.end or self.last) - self.start).total_seconds()
+
+    @property
+    def window_s(self) -> float:
+        return max(0.0, (self.window_end - self.window_start).total_seconds())
+
+
+@dataclass(frozen=True)
+class StateAt:
+    """The state line in force at some moment, with the snapshot built from it."""
+
+    line: LogLine
+    snapshot: RobotSnapshot
+
+
+class Timeline:
+    """Log lines ordered by ``ts``, with the derived per-line history."""
+
+    def __init__(self, just_cleaned_s: float = 60.0) -> None:
+        self.just_cleaned_s = float(just_cleaned_s)
+        self.lines: list[LogLine] = []
+        self.states: list[LogLine] = []
+        self.activity: list[Activity] = []
+        self._since: list[datetime] = []
+        self._prev: list[str | None] = []
+        self._last_cd: list[datetime | None] = []
+        self._visit_starts: list[datetime] = []  # activity-based visit times, sorted
+        self._visits: list[Visit] | None = None
+
+    # --- building -------------------------------------------------------------------
+
+    def add(self, lines: Iterable[LogLine] = (), activity: Iterable[Activity] = ()) -> None:
+        lines = list(lines)
+        activity = list(activity)
+        if lines:
+            in_order = not self.lines or min(ln.ts for ln in lines) >= self.lines[-1].ts
+            self.lines.extend(lines)
+            if not in_order:
+                self.lines.sort(key=lambda ln: (ln.ts, ln.seq))
+            else:
+                lines.sort(key=lambda ln: (ln.ts, ln.seq))
+                self.lines[-len(lines):] = lines
+            self.states = [ln for ln in self.lines if ln.kind == "state"]
+            self._derive()
+        if activity:
+            self.activity.extend(activity)
+            self.activity.sort(key=lambda a: a.at)
+            self._derive_activity()
+        if lines or activity:
+            self._visits = None
+
+    def _derive(self) -> None:
+        self._since, self._prev, self._last_cd = [], [], []
+        since: datetime | None = None
+        prev: str | None = None
+        cur: str | None = None
+        last_cd: datetime | None = None
+        for ln in self.states:
+            s = ln.status
+            if cur is None:
+                since = ln.ts  # unknown start: the first line's time
+            elif s != cur:
+                prev, since = cur, ln.ts
+                if s == "CAT_DETECTED":
+                    last_cd = ln.ts
+            cur = s
+            self._since.append(since)  # type: ignore[arg-type]
+            self._prev.append(prev)
+            self._last_cd.append(last_cd)
+
+    def _derive_activity(self) -> None:
+        starts: list[datetime] = []
+        last_cd: datetime | None = None
+        for a in self.activity:
+            if a.action.startswith("Cat Detected"):
+                starts.append(a.at)
+                last_cd = a.at
+            elif a.action.startswith("Pet Weight Recorded") and (
+                last_cd is None or a.at - last_cd > _PET_WEIGHT_SAME_VISIT
+            ):
+                starts.append(a.at)
+        self._visit_starts = starts
+
+    def set_just_cleaned_s(self, seconds: float) -> None:
+        """Change the "just cleaned" length (it sets the end of each visit's window)."""
+        if float(seconds) != self.just_cleaned_s:
+            self.just_cleaned_s = float(seconds)
+            self._visits = None
+
+    # --- queries --------------------------------------------------------------------
+
+    @property
+    def empty(self) -> bool:
+        return not self.lines
+
+    @property
+    def newest(self) -> LogLine | None:
+        return self.lines[-1] if self.lines else None
+
+    @property
+    def first_state(self) -> LogLine | None:
+        return self.states[0] if self.states else None
+
+    def _index_at(self, t: datetime) -> int | None:
+        i = bisect.bisect_right(self.states, t, key=lambda ln: ln.ts) - 1
+        return i if i >= 0 else None
+
+    def _activity_visit(self, t: datetime) -> datetime | None:
+        i = bisect.bisect_right(self._visit_starts, t) - 1
+        return self._visit_starts[i] if i >= 0 else None
+
+    def _state(self, i: int, moment: datetime) -> StateAt:
+        ln = self.states[i]
+        candidates = [d for d in (self._last_cd[i], self._activity_visit(moment)) if d is not None]
+        snap = snapshot_from_record(
+            ln.record,
+            status_since=self._since[i],
+            previous_status=self._prev[i],
+            last_visit_at=max(candidates) if candidates else None,
+        )
+        return StateAt(ln, snap)
+
+    def at(self, t: datetime) -> StateAt | None:
+        """The state line in force at ``t`` (the last one at or before it), or None."""
+        i = self._index_at(t)
+        return None if i is None else self._state(i, t)
+
+    def latest(self, moment: datetime | None = None) -> StateAt | None:
+        """The newest state line; ``moment`` (default its own time) bounds the activity look-up."""
+        if not self.states:
+            return None
+        i = len(self.states) - 1
+        m = self.states[i].ts if moment is None else max(moment, self.states[i].ts)
+        return self._state(i, m)
+
+    def contact_error(self) -> str | None:
+        """``"auth"`` or ``"api"`` when the spike's newest news is that it lost Whisker (an
+        error line after the last state line), else None."""
+        for ln in reversed(self.lines):
+            if ln.kind == "state":
+                return None
+            if ln.kind != "error" or ln.data.get("where") not in _CONTACT_ERRORS:
+                continue
+            where = ln.data.get("where")
+            # The spike logs a rejected login at "login", and a token gone bad mid-run at
+            # "poll" without a retry (it logs in again rather than retrying the poll).
+            if where == "login" or (where == "poll" and ln.data.get("retry_in") is None):
+                return "auth"
+            return "api"
+        return None
+
+    def visits(self) -> list[Visit]:
+        """Every visit, oldest first."""
+        if self._visits is None:
+            self._visits = self._find_visits()
+        return self._visits
+
+    def changes(self, visit: Visit) -> list[tuple[datetime, str]]:
+        """``(ts, status)`` for each status change inside the visit's window, plus the status
+        in force at its start."""
+        out: list[tuple[datetime, str]] = []
+        start = self.at(visit.window_start)
+        cur = start.line.status if start else None
+        if cur is not None:
+            out.append((visit.window_start, cur))
+        for ln in self.states:
+            if ln.ts <= visit.window_start:
+                continue
+            if ln.ts > visit.window_end:
+                break
+            if ln.status != cur:
+                cur = ln.status
+                out.append((ln.ts, cur))
+        return out
+
+    def visit(self, visit_id: str) -> Visit | None:
+        return next((v for v in self.visits() if v.id == visit_id), None)
+
+    def _find_visits(self) -> list[Visit]:
+        out: list[Visit] = []
+        if not self.states:
+            return out
+        first_ts = self.states[0].ts
+        last_ts = self.lines[-1].ts
+        pad = timedelta(seconds=VISIT_PAD_S)
+        tail = timedelta(seconds=self.just_cleaned_s + VISIT_PAD_S)
+        start: datetime | None = None
+        seen: list[str] = []
+        for ln in self.states:
+            s = ln.status
+            if s != "READY":
+                if start is None:
+                    start, seen = ln.ts, []
+                if s not in seen:
+                    seen.append(s)
+            elif start is not None:
+                out.append(Visit(start, ln.ts, ln.ts, max(first_ts, start - pad), ln.ts + tail,
+                                 tuple(seen)))
+                start = None
+        if start is not None:
+            out.append(Visit(start, None, last_ts, max(first_ts, start - pad),
+                             max(last_ts, start), tuple(seen)))
+        return out
+
+
+# =========================================================================================
+# Reading and following files
+# =========================================================================================
+
+
+@dataclass
+class _FileState:
+    offset: int = 0
+    size: int = 0
+
+
+class RobotLog:
+    """The spike's logs in one directory, followed incrementally.
+
+    Call :meth:`refresh` to pick up new lines and files. Never writes to the directory.
+    """
+
+    def __init__(self, directory: str | Path, *, just_cleaned_s: float = 60.0) -> None:
+        self.directory = Path(directory)
+        self.timeline = Timeline(just_cleaned_s)
+        self.skipped = 0
+        self._files: dict[Path, _FileState] = {}
+        self._seq = 0
+
+    @property
+    def state_files(self) -> list[Path]:
+        return sorted(p for p in self._files if not p.name.startswith("spike-activity-"))
+
+    @property
+    def current_file(self) -> Path | None:
+        files = self.state_files
+        return files[-1] if files else None
+
+    @property
+    def has_files(self) -> bool:
+        return bool(self.state_files)
+
+    @property
+    def line_count(self) -> int:
+        return len(self.timeline.lines)
+
+    def _reset(self) -> None:
+        self.timeline = Timeline(self.timeline.just_cleaned_s)
+        self.skipped = 0
+        self._files = {}
+
+    def refresh(self) -> int:
+        """Read whatever was appended since the last call. Returns the number of new lines."""
+        try:
+            found = sorted(self.directory.glob(STATE_GLOB)) + sorted(
+                self.directory.glob(ACTIVITY_GLOB))
+        except OSError:
+            found = []
+        found = [p for p in found if p.is_file()]
+        # A file that shrank or vanished was replaced: start over rather than guess.
+        for p, st in self._files.items():
+            try:
+                size = p.stat().st_size
+            except OSError:
+                size = -1
+            if size < st.offset or p not in found:
+                self._reset()
+                break
+        new_lines: list[LogLine] = []
+        new_activity: list[Activity] = []
+        for p in found:
+            st = self._files.setdefault(p, _FileState())
+            chunk = self._read_new(p, st)
+            if not chunk:
+                continue
+            is_activity = p.name.startswith("spike-activity-")
+            for raw in chunk.split(b"\n"):
+                if not raw.strip():
+                    continue
+                try:
+                    text = raw.decode("utf-8")
+                except UnicodeDecodeError:
+                    self.skipped += 1
+                    continue
+                if is_activity:
+                    a = parse_activity(text)
+                    if a is None:
+                        self.skipped += 1
+                    else:
+                        new_activity.append(a)
+                    continue
+                self._seq += 1
+                ln = parse_line(text, self._seq)
+                if ln is None:
+                    self.skipped += 1
+                else:
+                    new_lines.append(ln)
+        if new_lines or new_activity:
+            self.timeline.add(new_lines, new_activity)
+        return len(new_lines) + len(new_activity)
+
+    @staticmethod
+    def _read_new(p: Path, st: _FileState) -> bytes:
+        """Bytes from the remembered offset up to the last newline; advances the offset."""
+        try:
+            size = p.stat().st_size
+            st.size = size
+            if size <= st.offset:
+                return b""
+            with open(p, "rb") as fh:
+                fh.seek(st.offset)
+                data = fh.read(size - st.offset)
+        except OSError:
+            return b""
+        cut = data.rfind(b"\n")
+        if cut < 0:
+            return b""  # only a half-written line so far
+        st.offset += cut + 1
+        return data[: cut + 1]
+
+
+# =========================================================================================
+# Follow and replay
+# =========================================================================================
+
+
+@dataclass(frozen=True)
+class LogView:
+    """What the log says at one moment, ready for the mapping."""
+
+    snapshot: RobotSnapshot | None
+    health: FeederHealth
+    now: datetime
+    line: LogLine | None = None  # the state line in force
+    fresh: bool = True
+    newest_ts: datetime | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def raw(self) -> dict[str, Any]:
+        return raw_fields(self.line.record if self.line else None)
+
+
+def is_fresh(tl: Timeline, now: datetime) -> bool:
+    """True while the spike is evidently running: its newest line (any kind) is younger than
+    :data:`FRESH_FOR_S` and is not its clean "exit" line."""
+    newest = tl.newest
+    if newest is None:
+        return False
+    if newest.kind == "info" and newest.data.get("event") == "exit":
+        return False
+    return (now - newest.ts).total_seconds() <= FRESH_FOR_S
+
+
+def follow_view(tl: Timeline, now: datetime) -> LogView:
+    """Live: what the real clock would show at real time ``now``.
+
+    While the log is fresh, a quiet log means "no change" (the spike is still polling), so the
+    feeder counts as in contact now. When it is not fresh, last contact is the newest line's
+    time, so the mapping's own timeout produces NO DATA. An error line newer than the last
+    state line sets ``health.error``.
+    """
+    newest = tl.newest
+    fresh = is_fresh(tl, now)
+    st = tl.latest(now)
+    if newest is None:
+        return LogView(None, FeederHealth(last_contact_at=None, ws_connected=True), now,
+                       fresh=False)
+    contact = now if fresh else newest.ts
+    health = FeederHealth(last_contact_at=contact, ws_connected=True, error=tl.contact_error())
+    return LogView(
+        st.snapshot if st else None, health, now, st.line if st else None, fresh, newest.ts
+    )
+
+
+def replay_view(tl: Timeline, visit: Visit, t_s: float) -> LogView:
+    """Replay: the moment ``t_s`` seconds into ``visit``'s window, with a healthy feeder."""
+    t_s = min(max(0.0, t_s), visit.window_s)
+    now = visit.window_start + timedelta(seconds=t_s)
+    st = tl.at(now)
+    health = FeederHealth(last_contact_at=now, ws_connected=True)
+    return LogView(st.snapshot if st else None, health, now, st.line if st else None, True,
+                   tl.newest.ts if tl.newest else None)

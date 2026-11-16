@@ -6,7 +6,10 @@ It runs the real pipeline end to end. The source is one of:
   clock (``start + t``) with play/pause, seek and speed;
 - ``fixture``: one named fixture, frozen at the fixture's ``now`` except that the seconds
   alternate (``now`` and ``now + 1 s``) so blinking states blink;
-- ``manual``: a snapshot built from hand-set fields at the real current time.
+- ``manual``: a snapshot built from hand-set fields at the real current time;
+- ``log``: the spike's logs of the real robot (:mod:`arthur.sources.logfile`), either
+  *followed* live at the real current time, or one recorded visit *replayed* on its own
+  simulated clock with play/pause, seek and speed. The studio never talks to Whisker itself.
 
 It renders a 52x16 frame and pushes it over HTTP through the real
 :class:`~arthur.transports.awtrix_ng.AwtrixNgTransport` when the frame changes or when the
@@ -20,20 +23,38 @@ entry; the control API takes variants as ``{"52x16": {kind: variant}}``.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import time
 from collections import deque
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import aiohttp
 
 from arthur.sim.pipeline import ReloadingPipeline, size_key
+from arthur.sources.logfile import (
+    FRESH_FOR_S,
+    SPIKE_COMMAND,
+    LogView,
+    RobotLog,
+    Visit,
+    follow_view,
+    is_fresh,
+    replay_view,
+)
 from arthur.transports.awtrix_ng import AwtrixNgTransport
 from arthur.transports.base import TransportError
 
-MODES = ("scenario", "fixture", "manual")
+MODES = ("scenario", "fixture", "manual", "log")
 SPEEDS = (1, 10, 60)
+#: Sub-modes of the "log" source.
+LOG_SUB_MODES = ("follow", "replay")
+LOG_CONTROL_KEYS = ("sub_mode", "visit", "position", "speed", "playing")
+#: Look for new log lines at most this often (seconds of time_fn).
+LOG_REFRESH_S = 1.0
+DEFAULT_LOG_DIR = Path("logs")
 #: Heartbeat and ttl with "fast expiry" on: the stale mark shows 6 s after the feeder dies.
 FAST_HEARTBEAT_S = 2.0
 FAST_TTL_S = 6.0
@@ -86,6 +107,7 @@ class StudioFeeder:
         time_fn: Callable[[], float] = time.monotonic,
         wall_fn: Callable[[], datetime] = lambda: datetime.now(UTC),
         base_url: str | None = None,
+        log_dir: str | Path | None = None,
     ) -> None:
         self.pipe = pipe
         self.time_fn = time_fn
@@ -108,6 +130,18 @@ class StudioFeeder:
         self._manual_since = now - timedelta(hours=2)
         self._manual_prev: str | None = "CLEAN_CYCLE"
         self._offline_since: datetime | None = None
+
+        # "log" source. The log is read only once the mode is first used.
+        self.log_dir = Path(log_dir) if log_dir is not None else DEFAULT_LOG_DIR
+        self.robot_log: RobotLog | None = None
+        self._log_refresh_t: float | None = None
+        self.log_sub = "follow"
+        self.log_visit: str | None = None
+        self.log_speed = 10
+        self.log_playing = False
+        self._log_pos = 0.0
+        self._log_anchor = time_fn()
+        self._log_view: LogView | None = None
 
         self.variants: dict[str, dict[str, str]] = {size_key(s): {} for s in p.sizes()}
         self.alive = True
@@ -160,7 +194,7 @@ class StudioFeeder:
             raise ControlError("control body must be a JSON object")
         p = self.pipe.current
         known = {"mode", "fixture", "scenario", "speed", "position", "playing", "manual",
-                 "variants", "feeder_alive", "fast_expiry"}
+                 "variants", "feeder_alive", "fast_expiry", "log"}
         unknown = set(ctl) - known
         if unknown:
             raise ControlError(f"unknown control field(s): {', '.join(sorted(unknown))}")
@@ -181,6 +215,7 @@ class StudioFeeder:
                 raise ControlError(f"{k} must be true or false")
         manual = self._check_manual(ctl.get("manual"))
         variants = self._check_variants(ctl.get("variants"))
+        log_ctl = self._check_log(ctl.get("log"))
 
         # Apply.
         if "mode" in ctl and ctl["mode"] != self.mode:
@@ -207,6 +242,8 @@ class StudioFeeder:
             self._anchor = self.time_fn()
         if manual:
             self._apply_manual(manual)
+        if log_ctl or ctl.get("mode") == "log":
+            self._apply_log(log_ctl)
         for sk, kinds in variants.items():
             self.variants.setdefault(sk, {}).update(kinds)
         if "feeder_alive" in ctl and ctl["feeder_alive"] != self.alive:
@@ -260,6 +297,159 @@ class StudioFeeder:
             self._offline_since = None if m["is_online"] else now
         self.manual.update(m)
 
+    def _check_log(self, m: Any) -> dict[str, Any]:
+        if m is None:
+            return {}
+        if not isinstance(m, dict):
+            raise ControlError("log must be an object")
+        unknown = set(m) - set(LOG_CONTROL_KEYS)
+        if unknown:
+            raise ControlError(f"unknown log field(s): {', '.join(sorted(unknown))}")
+        if "sub_mode" in m and m["sub_mode"] not in LOG_SUB_MODES:
+            raise ControlError(f"log sub_mode must be one of {', '.join(LOG_SUB_MODES)}")
+        if "speed" in m and m["speed"] not in SPEEDS:
+            raise ControlError(f"log speed must be one of {SPEEDS}")
+        if "position" in m and not (
+            isinstance(m["position"], (int, float)) and not isinstance(m["position"], bool)
+        ):
+            raise ControlError("log position must be a number of seconds")
+        if "playing" in m and not isinstance(m["playing"], bool):
+            raise ControlError("log playing must be true or false")
+        if "visit" in m:
+            if not isinstance(m["visit"], str):
+                raise ControlError("log visit must be a visit id")
+            if self._robot_log(force=True).timeline.visit(m["visit"]) is None:
+                raise ControlError(f"unknown visit {m['visit']!r}")
+        return dict(m)
+
+    def _apply_log(self, m: dict[str, Any]) -> None:
+        self._robot_log(force=True)
+        if "sub_mode" in m:
+            self.log_sub = m["sub_mode"]
+        if "visit" in m and m["visit"] != self.log_visit:
+            self.log_visit = m["visit"]
+            self._log_pos, self._log_anchor = 0.0, self.time_fn()
+        if "speed" in m:
+            self._log_freeze()
+            self.log_speed = m["speed"]
+        if "position" in m:
+            v = self._log_visit_obj()
+            dur = v.window_s if v else 0.0
+            self._log_pos = min(max(0.0, float(m["position"])), dur)
+            self._log_anchor = self.time_fn()
+        if "playing" in m:
+            self._log_freeze()
+            v = self._log_visit_obj()
+            if m["playing"] and v is not None and self._log_pos >= v.window_s:
+                self._log_pos = 0.0  # play again from the start
+            self.log_playing = m["playing"]
+            self._log_anchor = self.time_fn()
+
+    # --- the robot log ----------------------------------------------------------------
+
+    def _robot_log(self, force: bool = False) -> RobotLog:
+        """The log, refreshed if it is time (or ``force``). Created on first use."""
+        jc = float(self.pipe.current.cfg.timings.just_cleaned_s)
+        if self.robot_log is None:
+            self.robot_log = RobotLog(self.log_dir, just_cleaned_s=jc)
+        self.robot_log.timeline.set_just_cleaned_s(jc)
+        now_t = self.time_fn()
+        if force or self._log_refresh_t is None or now_t - self._log_refresh_t >= LOG_REFRESH_S:
+            self.robot_log.refresh()
+            self.robot_log.timeline.set_just_cleaned_s(jc)  # a reset makes a new timeline
+            self._log_refresh_t = now_t
+        return self.robot_log
+
+    def _log_visit_obj(self) -> Visit | None:
+        """The chosen visit; the newest one when none is chosen or it is gone."""
+        if self.robot_log is None:
+            return None
+        tl = self.robot_log.timeline
+        v = tl.visit(self.log_visit) if self.log_visit else None
+        if v is None:
+            visits = tl.visits()
+            v = visits[-1] if visits else None
+            self.log_visit = v.id if v else None
+        return v
+
+    def log_position(self) -> float:
+        """Seconds into the chosen visit's replay window. Stops (and pauses) at the end."""
+        v = self._log_visit_obj()
+        dur = v.window_s if v else 0.0
+        pos = self._log_pos
+        if self.log_playing:
+            pos += (self.time_fn() - self._log_anchor) * self.log_speed
+        if pos >= dur:
+            pos = dur
+            if self.log_playing:
+                self.log_playing = False
+                self._log_pos = dur
+        return max(0.0, pos)
+
+    def _log_freeze(self) -> None:
+        self._log_pos = self.log_position()
+        self._log_anchor = self.time_fn()
+
+    def _log_source(self) -> tuple[Any, Any, datetime, str]:
+        p = self.pipe.current
+        tl = self._robot_log().timeline
+        if self.log_sub == "follow":
+            view = follow_view(tl, self.wall_fn())
+            label = "follow" if view.fresh else "follow (log not fresh)"
+        else:
+            v = self._log_visit_obj()
+            if v is None:
+                now = self.wall_fn()
+                view = LogView(None, p.model.FeederHealth(last_contact_at=now), now)
+                label = "replay (no visits)"
+            else:
+                view = replay_view(tl, v, self.log_position())
+                label = f"replay {v.id}"
+        self._log_view = view
+        snap = _rebuild(view.snapshot, p.model.RobotSnapshot)
+        health = _rebuild(view.health, p.model.FeederHealth)
+        return snap, health, view.now, label
+
+    def _log_block(self) -> dict[str, Any]:
+        rl = self.robot_log
+        block: dict[str, Any] = {
+            "dir": str(self.log_dir),
+            "loaded": rl is not None,
+            "sub_mode": self.log_sub,
+            "spike_command": SPIKE_COMMAND,
+            "fresh_for_s": FRESH_FOR_S,
+        }
+        if rl is None:
+            return block
+        tl = rl.timeline
+        wall = self.wall_fn()
+        newest = tl.newest
+        visit = self._log_visit_obj()
+        view = self._log_view
+        cur = rl.current_file
+        block.update(
+            has_files=rl.has_files,
+            file=cur.name if cur else None,
+            files=[f.name for f in rl.state_files],
+            lines=rl.line_count,
+            skipped=rl.skipped,
+            newest_ts=newest.ts.isoformat() if newest else None,
+            newest_kind=newest.kind if newest else None,
+            newest_age_s=(wall - newest.ts).total_seconds() if newest else None,
+            fresh=is_fresh(tl, wall),
+            contact_error=tl.contact_error(),
+            visits=[_visit_json(tl, v) for v in reversed(tl.visits())],
+            visit=visit.id if visit else None,
+            position=self.log_position(),
+            duration=visit.window_s if visit else 0.0,
+            playing=self.log_playing,
+            speed=self.log_speed,
+            log_time=view.now.isoformat() if view else None,
+            line_ts=view.line.ts.isoformat() if (view and view.line) else None,
+            raw=view.raw if view else None,
+        )
+        return block
+
     def _check_variants(self, v: Any) -> dict[str, dict[str, str]]:
         if v is None:
             return {}
@@ -297,6 +487,8 @@ class StudioFeeder:
             t = self.position()
             snap, health, now = sc.at(t)
             return snap, health, now, sc.step_at(t).label
+        if self.mode == "log":
+            return self._log_source()
         if self.mode == "fixture":
             fxs = p.fixtures.FIXTURES
             if self.fixture not in fxs:
@@ -454,4 +646,29 @@ class StudioFeeder:
             "pushes": pushes,
             "push_count": sum(b.push_count for b in self._push.values()),
             "errors": list(self.errors)[-10:],
+            "log": self._log_block(),
         }
+
+
+def _rebuild(obj: Any, cls: Any) -> Any:
+    """``obj`` as an instance of ``cls`` (the reloaded model class), copying shared fields."""
+    if obj is None or isinstance(obj, cls):
+        return obj
+    names = {f.name for f in dataclasses.fields(cls)}
+    return cls(**{f.name: getattr(obj, f.name) for f in dataclasses.fields(obj)
+                  if f.name in names})
+
+
+def _visit_json(tl: Any, v: Visit) -> dict[str, Any]:
+    return {
+        "id": v.id,
+        "start": v.start.isoformat(),
+        "end": v.end.isoformat() if v.end else None,
+        "finished": v.finished,
+        "duration_s": v.duration_s,
+        "window_start": v.window_start.isoformat(),
+        "window_s": v.window_s,
+        "statuses": list(v.statuses),
+        "changes": [{"at_s": (ts - v.window_start).total_seconds(), "status": s}
+                    for ts, s in tl.changes(v)],
+    }

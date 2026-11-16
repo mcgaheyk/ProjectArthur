@@ -68,6 +68,31 @@
           <div class="mode-block" data-mode="manual">
             <div class="grid2" id="manual-controls"></div>
           </div>
+
+          <div class="mode-block" data-mode="log">
+            <div class="row gap">
+              <div class="seg small" id="log-sub-seg"></div>
+              <span class="muted small" id="log-file"></span>
+            </div>
+            <div class="note warn" id="log-missing" hidden></div>
+            <div class="log-sub" data-sub="follow">
+              <p class="small" id="log-follow-info"></p>
+              <div class="note warn" id="log-stale" hidden></div>
+            </div>
+            <div class="log-sub" data-sub="replay">
+              <div class="visits" id="log-visits"></div>
+              <div class="row gap">
+                <button type="button" id="log-play-btn" class="btn">Play</button>
+                <div class="seg small" id="log-speed-seg"></div>
+                <span class="mono" id="log-time"></span>
+              </div>
+              <div class="scrub">
+                <input type="range" id="log-scrubber" min="0" max="100" step="1" value="0">
+                <div class="ticks" id="log-ticks"></div>
+              </div>
+            </div>
+            <p class="muted small" id="log-skipped"></p>
+          </div>
         </div>
 
         <div class="card" id="card-feeder">
