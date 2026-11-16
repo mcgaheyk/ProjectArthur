@@ -3,6 +3,13 @@
     uv run python -m arthur.render.preview --all
     uv run python -m arthur.render.preview waiting --size 52x16 --variant bar --stale
     uv run python -m arthur.render.preview --all --png /tmp/screens
+    uv run python -m arthur.render.preview --sheet /tmp/sheets             # every fixture
+    uv run python -m arthur.render.preview in_use --sheet /tmp/s --frames 8 --step 1
+
+``--sheet DIR`` writes contact sheets instead of text: one PNG per size with every fixture x
+variant (or just the named one), each tile labelled in the project's own font. With
+``--frames N`` each tile becomes a strip of N frames ``--step`` seconds apart, so an
+animation can be read side by side.
 
 A positional name may be a display kind (uses the fixture of the same name) or any fixture name
 from ``arthur.fixtures`` (e.g. ``ready_badges``). One character per pixel; ``.`` is off; the
@@ -18,6 +25,7 @@ from pathlib import Path
 from arthur.config import Config, format_size, load_config
 from arthur.fixtures import FIXTURES, Fixture
 from arthur.mapping import to_display_state
+from arthur.render.font import small_font
 from arthur.render.frame import RGB, Frame, overlay_stale
 from arthur.render.screens import list_kinds, list_sizes, list_variants, render
 
@@ -47,6 +55,91 @@ def render_fixture(
     return overlay_stale(frame, cfg.rgb("stale")) if stale else frame
 
 
+SHEET_BG: RGB = (0x1C, 0x1A, 0x18)
+SHEET_GAP: RGB = (0x10, 0x10, 0x10)
+SHEET_INK: RGB = (0xE0, 0xD8, 0xD0)
+SHEET_SUB: RGB = (0x90, 0x88, 0x80)
+
+
+def _led_blit(canvas: Frame, frame: Frame, x0: int, y0: int, led: int) -> None:
+    """Draw ``frame`` onto ``canvas`` with each pixel as a ``led``-px LED and a 1-px gap."""
+    gap = 1 if led >= 3 else 0
+    canvas.rect(x0, y0, frame.width * led, frame.height * led, SHEET_GAP)
+    for y in range(frame.height):
+        for x in range(frame.width):
+            canvas.rect(x0 + x * led, y0 + y * led, led - gap, led - gap,
+                        frame.pixels[y * frame.width + x])
+
+
+def contact_sheet(
+    tiles: list[tuple[str, list[tuple[str, Frame]]]], led: int, cols: int, label_scale: int = 2
+) -> Frame:
+    """Tiles of labelled frame strips on one canvas.
+
+    Each tile is ``(label, [(sub_label, frame), ...])``: the frames sit side by side with
+    their sub-labels under them and the tile label above.
+    """
+    font = small_font()
+    pad = 6 * label_scale
+    lab_h = 7 * label_scale
+    fw, fh = tiles[0][1][0][1].size
+    n = max(len(t[1]) for t in tiles)
+    has_sub = any(sub for _, strip in tiles for sub, _ in strip)
+    tile_w = n * (fw * led) + (n - 1) * pad
+    tile_h = lab_h + fh * led + (lab_h if has_sub else 0)
+    cols = max(1, min(cols, len(tiles)))
+    rows = (len(tiles) + cols - 1) // cols
+    canvas = Frame(pad + cols * (tile_w + pad), pad + rows * (tile_h + pad), SHEET_BG)
+    for i, (label, strip) in enumerate(tiles):
+        tx = pad + (i % cols) * (tile_w + pad)
+        ty = pad + (i // cols) * (tile_h + pad)
+        font.draw(canvas, tx, ty, label, SHEET_INK, scale=label_scale)
+        for j, (sub, frame) in enumerate(strip):
+            fx = tx + j * (fw * led + pad)
+            _led_blit(canvas, frame, fx, ty + lab_h, led)
+            if sub:
+                font.draw(canvas, fx, ty + lab_h + fh * led + label_scale, sub, SHEET_SUB,
+                          scale=label_scale)
+    return canvas
+
+
+def write_sheets(
+    names: list[str], cfg: Config, sizes: list[tuple[int, int]], out: Path, *,
+    variant: str | None, frames: int, step: float, stale: bool, led: int | None,
+) -> list[Path]:
+    """Write one contact sheet per size; returns the paths written."""
+    from datetime import timedelta
+
+    out.mkdir(parents=True, exist_ok=True)
+    written = []
+    for size in sizes:
+        tiles: list[tuple[str, list[tuple[str, Frame]]]] = []
+        for name in names:
+            fx = FIXTURES[name]
+            available = list_variants(fx.kind, size)
+            vs = available if variant in (None, "all") else [variant if variant in available
+                                                            else available[0]]
+            state = to_display_state(fx.snapshot, fx.health, fx.now, cfg)
+            for v in vs:
+                strip = []
+                for k in range(frames):
+                    t = k * step
+                    fr = render(state, fx.now + timedelta(seconds=t), cfg, size=size, variant=v)
+                    if stale:
+                        fr = overlay_stale(fr, cfg.rgb("stale"))
+                    strip.append((f"+{t:g}s" if frames > 1 else "", fr))
+                tiles.append((f"{name} / {v}", strip))
+        led_px = led or (8 if size[0] == 32 else 6)
+        cols = 1 if frames > 1 else (4 if size[0] == 32 else 3)
+        sheet = contact_sheet(tiles, led_px, cols)
+        tag = names[0] if len(names) == 1 else "all"
+        suffix = f"__frames{frames}" if frames > 1 else ""
+        path = out / f"sheet__{tag}__{format_size(size)}{suffix}.png"
+        path.write_bytes(sheet.to_png(1))
+        written.append(path)
+    return written
+
+
 def _sizes(arg: str) -> list[tuple[int, int]]:
     if arg == "both":
         return list(list_sizes())
@@ -66,6 +159,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--variant", help="variant name; 'all' shows every variant")
     p.add_argument("--stale", action="store_true", help="overlay the clock's stale border")
     p.add_argument("--png", metavar="DIR", help="also write PNGs (scale 12) into DIR")
+    p.add_argument("--sheet", metavar="DIR", help="write contact-sheet PNGs into DIR")
+    p.add_argument("--frames", type=int, default=1, help="frames per tile in a sheet")
+    p.add_argument("--step", type=float, default=1.0, help="seconds between sheet frames")
+    p.add_argument("--led", type=int, help="pixels per LED in a sheet (default 8 or 6)")
     p.add_argument("--config", help="path to display.toml")
     p.add_argument("--list", action="store_true", help="list kinds, variants and fixtures")
     args = p.parse_args(argv)
@@ -85,6 +182,8 @@ def main(argv: list[str] | None = None) -> int:
         names = list(FIXTURES)
     elif args.all:
         names = list(list_kinds())
+    elif args.sheet and not args.name:
+        names = list(FIXTURES)
     elif args.name:
         if args.name not in FIXTURES:
             print(f"unknown kind or fixture {args.name!r}; try --list", file=sys.stderr)
@@ -95,6 +194,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     sizes = _sizes(args.size)
+    if args.sheet:
+        for path in write_sheets(names, cfg, sizes, Path(args.sheet), variant=args.variant,
+                                 frames=max(1, args.frames), step=args.step, stale=args.stale,
+                                 led=args.led):
+            print(path)
+        return 0
     png_dir = Path(args.png) if args.png else None
     if png_dir:
         png_dir.mkdir(parents=True, exist_ok=True)

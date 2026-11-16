@@ -12,7 +12,14 @@ from arthur.model import KINDS, DisplayState
 from arthur.render import Frame, list_kinds, list_sizes, list_variants, overlay_stale, render
 from arthur.render.font import large_font, small_font
 from arthur.render.icons import get_icon, icon_names
-from arthur.render.screens import fmt_age, fmt_clock, fmt_countdown
+from arthur.render.screens import (
+    BOTTOM_GAUGE_32,
+    T32_R,
+    T32_X,
+    fmt_age,
+    fmt_clock,
+    fmt_countdown,
+)
 
 CFG = default_config()
 SIZES = list(list_sizes())
@@ -92,11 +99,12 @@ def test_fonts_have_needed_glyphs():
     assert large_font().width("A") == 3
 
 
-def test_icons_load_at_both_sizes():
+def test_icons_load():
+    # Every icon has 16x16 art (its own, or its 8x8 drawn at double size). Some poses exist
+    # only at 16x16 because they are only used at 52x16.
     for name in icon_names():
-        for size in (8, 16):
-            icon, scale = get_icon(name, size)
-            assert icon.size * scale == size
+        icon, scale = get_icon(name, 16)
+        assert icon.size * scale == 16
 
 
 # --- formatting --------------------------------------------------------------------------
@@ -157,9 +165,14 @@ def test_renders_cleanly(name, size, variant):
         assert f.size == size
         assert len(f.to_rgb888()) == w * h * 3
         assert len(base64.b64encode(f.to_rgb888())) == {32: 1024, 52: 3328}[w]
-        # Nothing may be drawn where the clock's stale border goes.
+        # Nothing may be drawn where the clock's stale border goes. One narrow exception: a
+        # 32x8 layout registered in BOTTOM_GAUGE_32 may put a gauge on the bottom row, inside
+        # the text columns (losing it to the stale border is accepted).
         off = CFG.rgb("off")
-        border = [f.get(x, 0) for x in range(w)] + [f.get(x, h - 1) for x in range(w)]
+        bottom_gauge = size == (32, 8) and (fx.kind, variant) in BOTTOM_GAUGE_32
+        bottom = [f.get(x, h - 1) for x in range(w)
+                  if not (bottom_gauge and T32_X <= x <= T32_R)]
+        border = [f.get(x, 0) for x in range(w)] + bottom
         border += [f.get(0, y) for y in range(h)] + [f.get(w - 1, y) for y in range(h)]
         assert all(p == off for p in border), f"{name} draws on the border"
         # Only palette colours are used.

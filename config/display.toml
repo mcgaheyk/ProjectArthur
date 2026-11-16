@@ -1,5 +1,5 @@
-# ProjectArthur display configuration. The one place for colours, thresholds and timings.
-# Loaded by arthur/config.py into frozen dataclasses.
+# ProjectArthur display configuration. The one place for colours, thresholds, timings and
+# captions. Loaded by arthur/config.py into frozen dataclasses.
 
 [display]
 # Frame size the feeder renders by default: "32x8" (Ulanzi TC001) or "52x16" (Ulanzi TC002).
@@ -7,20 +7,32 @@
 size = "32x8"
 
 # Semantic colour roles. Screens and icons refer to roles, never to hex values.
+# The scheme is warm (Kyle's office is reddish, Arthur is orange). Mint is the one cool accent
+# and is reserved for the robot cleaning and "fresh". Trouble is red.
 [palette]
 off       = "#000000"  # unlit
-text      = "#FFFFFF"  # neutral text and digits
-dim       = "#383838"  # gauge tracks, secondary marks
-ok        = "#00D040"  # idle and healthy: ready, just cleaned, drawer level below the warning
-attention = "#FFA000"  # needs a look soon: interrupted, bonnet, nearly-full drawer, badges
-alert     = "#FF1818"  # needs a person now: drawer full, faults
-activity  = "#2080FF"  # Arthur is in the box
-cycle     = "#00C8C8"  # the robot is moving or about to: waiting, cleaning, emptying
-trust     = "#B040FF"  # cannot reach Whisker (no data)
+text      = "#FFE4C4"  # warm white: words and digits
+dim       = "#3A2E26"  # gauge tracks, secondary marks
+ok        = "#00D040"  # drawer gauge while it has room
+attention = "#FFA000"  # amber: needs a look soon (interrupted, bonnet, paused, filling drawer)
+alert     = "#FF1818"  # red: trouble (faults, drawer full, no data, offline)
+fur       = "#FF7A00"  # Arthur: bright orange body
+stripe    = "#8C2000"  # Arthur: darker orange tabby stripes, closed eyes
+cream     = "#FFD8A0"  # Arthur: muzzle, chest and paws; hourglass frame; moon
+nose      = "#FF5C8A"  # Arthur: pink nose
+eye       = "#38E038"  # Arthur: green eyes
+poop      = "#683010"  # the poop emoji: brown (kept dark so it never reads as Arthur's orange)
+poop_hi   = "#A86028"  # the poop emoji: lighter highlight
+gold      = "#FFC828"  # waiting digits, power and emptying
+sand      = "#F0A040"  # hourglass sand and the litter gauge
+mint      = "#30FFB0"  # the one cool accent: cleaning and "fresh"
+stink     = "#A8D020"  # stink lines: a sickly yellow-green, used for nothing else
+ghost     = "#686868"  # grey ghost Arthur: we do not know what he is doing
 stale     = "#6E0700"  # the clock's own out-of-date border (AWTRIX NG lifetimeExpiry "mark")
 
 # One character per role. Icon text-art files and the text preview use these.
-# "." is also "transparent" in icons; "*" in an icon means "the accent role the screen picks".
+# "." is also "transparent" in icons; "*" in an icon means "the accent role the screen picks";
+# "%" is a level-fill cell.
 [palette_chars]
 off       = "."
 text      = "W"
@@ -28,13 +40,23 @@ dim       = ":"
 ok        = "G"
 attention = "Y"
 alert     = "R"
-activity  = "B"
-cycle     = "C"
-trust     = "P"
+fur       = "O"
+stripe    = "S"
+cream     = "C"
+nose      = "N"
+eye       = "E"
+poop      = "B"
+poop_hi   = "H"
+gold      = "A"
+sand      = "s"
+mint      = "M"
+stink     = "K"
+ghost     = "g"
 stale     = "x"
 
 [thresholds]
-drawer_warn_pct = 80   # drawer_nearly_full badge and the gauge turns attention-coloured
+drawer_amber_pct = 60  # drawer gauge turns amber from here
+drawer_warn_pct = 80   # drawer_nearly_full badge, and the drawer gauge turns red
 
 [timings]
 heartbeat_s = 30              # feeder re-pushes at least this often
@@ -42,3 +64,30 @@ ttl_s = 90                    # lifetimeMs sent with each push (three heartbeats
 just_cleaned_s = 60           # READY within this long after CLEAN_CYCLE shows just_cleaned
 clean_cycle_estimate_s = 150  # timed progress estimate for cleaning (library has no phases)
 no_data_after_s = 600         # no successful contact for this long shows no_data
+idle_blink_every_s = 30       # idle Arthur blinks (or flicks his tail) once per this many s
+page_s = 2                    # 32x8 rare states show one word at a time for this long
+
+# Captions are jokes. One is picked per visit (from when the state began), so it stays put for
+# the whole visit and changes between visits. Add your own; a caption too wide for its line
+# is skipped, never cut off (the tests list any that do not fit).
+# Rough widths: most letters are 4 px, M and W 6, I ! : and space 2.
+[captions]
+# 52x16 in use, top line next to Arthur: up to 31 px (about 7 letters)
+in_use = ["OCCUPIED", "BUSY", "IN SESH", "NO PEEK", "POOPIN?", "PEEIN?", "BRB", "SHH!",
+          "PRIVACY", "WORKIN", "THRONE", "VIP ONLY"]
+# 52x16 waiting, label variant, top line: up to 31 px
+waiting = ["FLUSH IN", "CLEAN IN", "SPIN IN", "SCOOP IN", "SIFT IN"]
+# waiting while the robot sleeps: 52x16 headline, up to 31 px in the big font
+waiting_sleep = ["ZZZ", "SNOOZE", "NAPPING", "SLEEPY", "LATER"]
+# 52x16 cleaning, second line under the countdown: up to 31 px
+cleaning = ["SPINNING", "FLUSHING", "WHEEE", "TUMBLE", "SIFTING", "SWOOSH", "DIZZY"]
+# 52x16 just cleaned headline, big font, up to 31 px
+just_cleaned = ["FRESH!", "SPARKLY", "SO FRESH", "SHINY", "SO NICE", "AHHH"]
+# 32x8 just cleaned, next to the sparkle: up to 20 px
+just_cleaned_small = ["FRESH", "NEAT!", "TIDY!", "CLEAN", "AHH"]
+# 52x16 interrupted headline, big font, up to 31 px
+interrupted = ["HEY!", "OI!", "WAIT!", "HOLD UP", "NOPE!", "RUDE!", "UH OH"]
+# 32x8 interrupted, next to Arthur: up to 20 px
+interrupted_small = ["HEY!", "OI!", "WAIT!", "RUDE!", "OOPS"]
+# 52x16 drawer full, second line under FULL: up to 31 px
+drawer_full = ["EMPTY IT", "HELP!", "TOO MUCH", "NO ROOM", "EMPTY!"]

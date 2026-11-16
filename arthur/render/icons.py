@@ -60,6 +60,47 @@ def get_icon(name: str, size: int) -> tuple[Icon, int]:
     raise KeyError(f"no icon {name!r} at {size}x{size}")
 
 
+def icon_cells(name: str, size: int, ch: str) -> list[tuple[int, int]]:
+    """``(x, y)`` of every cell in icon ``name`` drawn with character ``ch``, at ``size``
+    (scaled cells are expanded). Lets code animate parts of an icon, e.g. hourglass sand."""
+    icon, scale = get_icon(name, size)
+    out = []
+    for iy, row in enumerate(icon.rows):
+        for ix, c in enumerate(row):
+            if c == ch:
+                for dy in range(scale):
+                    for dx in range(scale):
+                        out.append((ix * scale + dx, iy * scale + dy))
+    return out
+
+
+def draw_art(
+    frame: Frame,
+    rows: tuple[str, ...] | list[str],
+    x: int,
+    y: int,
+    cfg: Config,
+    *,
+    accent: str = "text",
+    override: str | None = None,
+) -> None:
+    """Draw a small piece of text-art (any size) with its top-left at (x, y).
+
+    Same characters as icons, without level fill: ``.`` is transparent, ``*`` the accent.
+    """
+    pal = cfg.palette
+    char_role = {c: r for r, c in pal.chars.items()}
+    off_char = pal.chars.get("off", ".")
+    for iy, row in enumerate(rows):
+        for ix, ch in enumerate(row):
+            if ch in (".", off_char, "%"):
+                continue
+            role = accent if ch == "*" else char_role.get(ch)
+            if role is None:
+                raise ValueError(f"art: unknown character {ch!r}")
+            frame.pixel(x + ix, y + iy, pal.rgb(override or role))
+
+
 def draw_icon(
     frame: Frame,
     name: str,

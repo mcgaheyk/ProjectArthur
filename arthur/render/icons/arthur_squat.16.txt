@@ -1,0 +1,19 @@
+# Icon text-art. One character per pixel; see config/display.toml [palette_chars].
+# '.' transparent, '*' the screen's accent role, '%' level-fill area (drawn by code).
+# Arthur squatting and concentrating: eyes squeezed shut, tail up.
+................
+.O..............
+.OO.............
+..O.............
+..O.O.........O.
+..O.OO.......OO.
+..O.ONOOOOOOONO.
+..O.OOOOSOSOOOO.
+..O.OSOOOSOOOSO.
+..OOOOSOOOOOSOO.
+...OOSOOCNCOOSO.
+..OOOOOCCCCCOOO.
+..OOSOOOCCCOOSO.
+..OOOOOOOOOOOOO.
+...CCO.....OCC..
+................

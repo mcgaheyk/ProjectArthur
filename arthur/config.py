@@ -1,6 +1,6 @@
 """Load config/display.toml into frozen dataclasses.
 
-Everything that is a colour, threshold or timing lives in that one file. Screens and icons
+Everything that is a colour, threshold, timing or caption lives in that one file. Screens and icons
 refer to palette *roles* (``"ok"``, ``"alert"``, ...), never to hex values.
 """
 
@@ -26,9 +26,18 @@ REQUIRED_ROLES: tuple[str, ...] = (
     "ok",
     "attention",
     "alert",
-    "activity",
-    "cycle",
-    "trust",
+    "fur",
+    "stripe",
+    "cream",
+    "nose",
+    "eye",
+    "poop",
+    "poop_hi",
+    "gold",
+    "sand",
+    "mint",
+    "stink",
+    "ghost",
     "stale",
 )
 
@@ -98,6 +107,7 @@ class Palette:
 
 @dataclass(frozen=True)
 class Thresholds:
+    drawer_amber_pct: float = 60
     drawer_warn_pct: float = 80
 
 
@@ -108,6 +118,12 @@ class Timings:
     just_cleaned_s: float = 60
     clean_cycle_estimate_s: float = 150
     no_data_after_s: float = 600
+    idle_blink_every_s: float = 30
+    page_s: float = 2
+
+
+#: An empty caption table, for configs without [captions].
+NO_CAPTIONS: Mapping[str, tuple[str, ...]] = MappingProxyType({})
 
 
 @dataclass(frozen=True)
@@ -117,6 +133,9 @@ class Config:
     thresholds: Thresholds
     timings: Timings
     source: str = "<defaults>"
+    #: Caption key → the jokes to pick from. Screens fall back to a plain word when a key is
+    #: missing or none of its captions fits.
+    captions: Mapping[str, tuple[str, ...]] = NO_CAPTIONS
 
     def rgb(self, role: str) -> RGB:
         return self.palette.rgb(role)
@@ -142,6 +161,20 @@ def _numbers(sec: Mapping[str, Any], cls: type, name: str) -> Any:
             raise ConfigError(f"[{name}] {key} must not be negative")
         kwargs[key] = value
     return cls(**kwargs)
+
+
+def _captions(sec: Mapping[str, Any]) -> Mapping[str, tuple[str, ...]]:
+    out: dict[str, tuple[str, ...]] = {}
+    for key, value in sec.items():
+        if not isinstance(value, list) or not value:
+            raise ConfigError(f"[captions] {key} must be a non-empty list of strings")
+        items = []
+        for v in value:
+            if not isinstance(v, str) or not v.strip():
+                raise ConfigError(f"[captions] {key} must contain only non-empty strings")
+            items.append(v.strip().upper())
+        out[key] = tuple(items)
+    return MappingProxyType(out)
 
 
 def config_from_dict(data: Mapping[str, Any], source: str = "<dict>") -> Config:
@@ -173,6 +206,7 @@ def config_from_dict(data: Mapping[str, Any], source: str = "<dict>") -> Config:
         thresholds=_numbers(_section(data, "thresholds"), Thresholds, "thresholds"),
         timings=_numbers(_section(data, "timings"), Timings, "timings"),
         source=source,
+        captions=_captions(_section(data, "captions")),
     )
 
 
