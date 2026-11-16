@@ -31,9 +31,12 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
     complete visits in `logs/spike-*.jsonl`. The studio's Robot log source reads them.
   - PETLIBRO spike: `scripts/spike_petlibro.py` (logic in `arthur/petlibro_spike.py`, 39
     tests). Logs what the Granary and a fountain report through PETLIBRO's cloud, read only.
-    Kyle's Granary is the reachable kind (paired with the PETLIBRO app, not PETLIBRO Lite).
-    **Tested against a fake server only; never run against PETLIBRO.** API notes, unconfirmed:
-    `docs/reference/petlibro.md`.
+    **Running on Kyle's Mac since 10:33 on 2026-11-16**, detached, against the real Granary
+    through a second PETLIBRO account it is shared to. So the login, a shared account and the
+    Granary's fields are confirmed; `docs/reference/petlibro.md` says which. It writes
+    `logs/petlibro-*.jsonl` and `logs/petlibro-console.log`. It stops on a Mac restart and
+    pauses during sleep; stop it with `pkill -f spike_petlibro`. Never start a second copy on
+    the same account.
 - **Not built:** the feeder service itself (`arthur/sources/whisker.py`, the run loop). The
   studio has its own in-process stand-in that plays fixtures, scenarios and the spike's log.
 
@@ -68,12 +71,14 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
      estimate.
    - Raw `catDetect` never left `CAT_DETECT_CLEAR`. `last_seen` is stuck at 2026-11-13, so the
      offline screen's "seen" age would be wrong.
-6. Kyle: run the PETLIBRO spike against the real Granary. In the PETLIBRO phone app, create a
-   second account (password of 18 characters or fewer), share the Granary to it and accept the
-   share; put that login in `.env` as `PETLIBRO_EMAIL` and `PETLIBRO_PASSWORD`; then
-   `uv run --env-file .env python scripts/spike_petlibro.py`. Its first run is the first test
-   of everything in `docs/reference/petlibro.md`, including whether a shared account can log in
-   at all. Fountain to buy: a plug-in model, PLWF105 or PLWF106 (see the research note).
+6. Kyle: leave the PETLIBRO spike running until the Granary has run low and been refilled at
+   least once. That is the one thing it has not seen: what `surplusGrain` and
+   `warehouseSurplusGrain` read when food is low, and how soon. Then read the log back into
+   `docs/reference/petlibro.md`.
+7. Kyle: buy a fountain, a plug-in model, PLWF105 or PLWF106 (see the research note), and
+   share it to the same second account. The running spike picks it up within the hour.
+8. Kyle: say whether the Granary has backup batteries in. It reports `batteryState: low` with
+   0% charge while on mains, which probably just means none are fitted.
 
 ## Later
 - Pi 5 deployment: Raspberry Pi OS Lite (64-bit), systemd unit, reconnect with backoff, log
@@ -87,8 +92,9 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
 - Alert sounds (the TC002 has a speaker) and acknowledgement with its knob or buttons.
 - Health nudges: no visit in N hours, unusually many visits.
 - Food and water on the display: a PETLIBRO source (`arthur/sources/petlibro.py`), mapping and
-  screens for the Granary's low-food flag and a fountain's water level. Waits on what the
-  PETLIBRO spike logs (Next, item 6). Research:
+  screens for the Granary's low-food flag and a fountain's water level. The Granary side can
+  be built from what is confirmed now; the low-food reading and the fountain wait on Next,
+  items 6 and 7. Research:
   `docs/research/2026-11-16-petlibro-food-and-water.md`.
 - Experiment: the no-cloud ESPHome firmware for the robot itself.
 

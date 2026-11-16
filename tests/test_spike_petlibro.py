@@ -373,7 +373,7 @@ def test_main_without_timezone_exits_2(monkeypatch, capsys):
     assert "PETLIBRO_TIMEZONE" in capsys.readouterr().err
 
 
-def test_poll_clamp_and_long_password_warning(monkeypatch, capsys):
+def test_poll_clamp_and_no_password_in_output(monkeypatch, capsys):
     seen = {}
 
     async def fake_run(opts, email, password, timezone):
@@ -385,8 +385,9 @@ def test_poll_clamp_and_long_password_warning(monkeypatch, capsys):
     assert ps.main(["--poll-seconds", "5"], environ=env) == 0
     assert seen == {"poll": 60.0, "tz": TZ}
     err = capsys.readouterr().err
-    assert "minimum of 60" in err and "longer than 18" in err
-    assert "x" * 19 not in err
+    assert "minimum of 60" in err
+    # A long password is not warned about: PETLIBRO accepted one longer than 18 characters.
+    assert "password" not in err.lower() and "x" * 19 not in err
 
 
 def test_help_has_an_example(capsys):

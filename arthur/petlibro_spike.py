@@ -62,7 +62,6 @@ APP_SN = "c35772530d1041699c87fe62348507a8"  # a constant of the app, not a secr
 APP_VERSION = "1.3.45"
 REQUEST_TIMEOUT = 30.0
 REQUEST_GAP = 1.0  # seconds between calls, to space requests out a little
-MAX_PASSWORD_LENGTH = 18
 
 DEFAULT_POLL_SECONDS = 300
 MIN_POLL_SECONDS = 60
@@ -387,8 +386,8 @@ def auth_hint(code: int | None, msg: str | None) -> str:
     if code == CODE_ILLEGAL_PASSWORD:
         text = (
             "PETLIBRO rejected the password (code 1102). Check PETLIBRO_PASSWORD in .env. "
-            "PETLIBRO also gives this code when the password is longer than 18 characters; "
-            "if it is, change it to a shorter one in the phone app."
+            "Some users report this code for a correct password longer than 18 characters "
+            "(a longer one has also been accepted); if yours is, try a shorter one."
         )
     elif code == CODE_MEMBER_NOT_EXIST:
         text = (
@@ -453,8 +452,7 @@ MISSING_ENV_MESSAGE = """\
 PETLIBRO credentials are not set ({missing}).
 
 Use a SECOND PETLIBRO account: logging in here logs that account out of the phone app.
-  1. In the PETLIBRO phone app, create a new account (not on the website; password of
-     18 characters or fewer).
+  1. In the PETLIBRO phone app, create a new account (not on the website).
   2. From your own account, share the Granary (and later the fountain) with it, and accept
      the share while signed in as the new account.
   3. Add PETLIBRO_EMAIL and PETLIBRO_PASSWORD to .env with the new account's login (the
@@ -1182,12 +1180,6 @@ def main(argv: list[str] | None = None, environ: Mapping[str, str] | None = None
     except TimezoneError as exc:
         print(TIMEZONE_MESSAGE.format(reason=exc), file=sys.stderr)
         return EXIT_MISSING_ENV
-    if len(password) > MAX_PASSWORD_LENGTH:
-        print(
-            f"warning: PETLIBRO_PASSWORD is longer than {MAX_PASSWORD_LENGTH} characters; "
-            "PETLIBRO is known to reject those (code 1102). Trying anyway.",
-            file=sys.stderr,
-        )
     try:
         return asyncio.run(run(opts, email, password, timezone))
     except KeyboardInterrupt:

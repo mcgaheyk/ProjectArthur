@@ -2,8 +2,10 @@
 
 _Outcome (2026-11-16): Kyle's Granary is paired with the **PETLIBRO** app, so it is the
 reachable version 2. A logging spike was built to confirm the rest against the real devices:
-`scripts/spike_petlibro.py`, with the API notes in `docs/reference/petlibro.md`. The rest of
-this file is the research as it stood before that answer._
+`scripts/spike_petlibro.py`, with the API notes in `docs/reference/petlibro.md`. It ran
+against the real Granary the same day: a shared second account can log in, the food flag is
+there as predicted, and the 18-character password limit did not hold. The rest of this file is
+the research as it stood before that answer._
 
 The question: can the display also show Arthur's food and water levels, from the PETLIBRO
 Granary he already has (model PLAF103) and a PETLIBRO fountain Kyle wants to buy?
