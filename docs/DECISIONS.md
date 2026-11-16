@@ -198,3 +198,22 @@ the display. A real outage still shows `no_data` or the clock's stale border (D-
 
 **Costs.** The cleaning border means a push every second during a cycle, which the countdown
 already caused. The laser notice only has room for the word "LASER".
+
+## D-0013 — Idle Arthur is alive: a one-minute script of gestures
+
+**2026-11-16.** Changes D-0009's "idle stays nearly still". Kyle asked for the idle cat to have
+life: blinks, looks, tail wags, the tail passing through the text.
+- Idle runs a 60-second script, one pose a second, about two thirds of it at rest: uneven
+  blinks, a look left or right, an ear twitch, a squint, and a four-second tail wag twice a
+  minute. A yawn replaces one rest about every five minutes.
+- On the wag the tail swings across the bottom line. Letter pixels it crosses turn a light
+  orange (`fur_tint`); the gaps between letters are left dark, because orange there made the
+  letters unreadable.
+
+**Why the old rule could go.** It was there to spare the clock pushes. The TC002 is a small
+Linux board on the LAN, and every live state already pushes once a second.
+
+**Limit kept.** Alive, not busy: idle must be still for at least half of every minute (tested),
+since it is on screen most of the day in the corner of the eye.
+
+**Cost.** About 27 pushes a minute while idle, up from two.

@@ -27,6 +27,7 @@ REQUIRED_ROLES: tuple[str, ...] = (
     "attention",
     "alert",
     "fur",
+    "fur_tint",
     "stripe",
     "cream",
     "nose",
@@ -120,7 +121,6 @@ class Timings:
     just_cleaned_s: float = 60
     clean_cycle_estimate_s: float = 150
     no_data_after_s: float = 600
-    idle_blink_every_s: float = 30
     in_use_joke_s: float = 6
     in_use_cat_s: float = 4
 

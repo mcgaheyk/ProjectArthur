@@ -47,8 +47,8 @@ and still readable in one glance from across a room. Clear first, funny second.
   deliberate exceptions are the flashing red ring on `drawer_full` (D-0011) and the moving
   blue border on `cleaning` (D-0012).
 - Plan for about one frame a second. No smooth animation. Each changed frame is an HTTP push
-  to the clock, so live states may change every second, but **idle must stay nearly still**
-  (a blink or tail flick a couple of times a minute at most).
+  to the clock. Live states may change every second. **Idle is alive but not busy** (D-0013):
+  short gestures with still pauses between them, and still for at least half of every minute.
 - Every label must fit its box. Text that runs off is a bug; the tests check it.
 - A person reads this from across a room. Prefer one clear thing over three small ones, and
   make states differ by shape as well as colour.

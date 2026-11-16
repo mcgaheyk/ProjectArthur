@@ -24,8 +24,8 @@ Canvas rules (docs/states.md, design-screen skill):
   ``alert`` from there or when full; the litter bar follows the robot's own litter word
   (OPTIMAL ``ok``, REFILL/OVERFILL ``caution``, LOW/EMPTY ``alert``, else ``sand``).
 - About one frame a second: animation phases are derived from ``now``. Live states change at
-  most once a second; idle almost never (a blink or tail flick every
-  ``idle_blink_every_s``).
+  most once a second. Idle is "alive, not busy": short gestures between still pauses, played
+  from a 60-second script (:data:`IDLE_SCRIPT`), and still for most of every minute.
 - Captions come from ``[captions]`` in the config: one per visit, picked from when the state
   began (in use's jokes instead take turns, one per joke page, in an order shuffled per visit);
   a caption that does not fit its line is skipped, never cut.
@@ -45,7 +45,15 @@ from arthur.model import KINDS, DisplayState
 from arthur.render.font import Font, condensed_small_font, large_font, small_font
 from arthur.render.frame import Frame
 from arthur.render.icons import draw_art, draw_icon, icon_cells
-from arthur.render.text import check_text, first_fitting, fits, is_strict, put_text, strict_text
+from arthur.render.text import (
+    check_text,
+    draw_behind_text,
+    first_fitting,
+    fits,
+    is_strict,
+    put_text,
+    strict_text,
+)
 
 Size = tuple[int, int]
 Layout = Callable[[DisplayState, datetime, Config], Frame]
@@ -734,18 +742,6 @@ def _interrupted_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
 # =========================================================================================
 
 
-def idle_pose(now: datetime, cfg: Config) -> str | None:
-    """``"blink"`` or ``"tail"`` for one second every ``idle_blink_every_s`` (taking turns),
-    else None. This is the only thing that animates while idle."""
-    every = int(cfg.timings.idle_blink_every_s)
-    if every <= 0:
-        return None
-    k = tick(now)
-    if k % every != every - 1:
-        return None
-    return "blink" if (k // every) % 2 == 0 else "tail"
-
-
 def _last_visit(state: DisplayState, now: datetime) -> str:
     if state.last_visit_at is None:
         return "NO VISIT"
@@ -772,9 +768,9 @@ def _levels_52(
 IDLE_X = C52_X + 3
 IDLE_R = IDLE_X + 7 + LEVEL_BAR_W - 1  # 50: the last column inside the border
 #: Arthur's long tail, drawn over the 16x16 icon from (TAIL_X, TAIL_Y). It continues the
-#: little tail already in the icon art (bottom right of arthur_sit / arthur_blink, raised in
-#: arthur_tail) out into columns 16-18. Solid orange (stripe bands on a 1-px tail read as gaps)
-#: with a dark tip.
+#: little tail already in the icon art (bottom right of every arthur_sit pose) out to the
+#: right. Solid orange (stripe bands on a 1-px tail read as gaps) with a dark tip. Each art is
+#: 14 rows (rows 1-14); widths differ.
 TAIL_X = 13
 TAIL_Y = 1
 #: At rest: along the floor, then up and curled back at the tip, beside the bottom line.
@@ -794,45 +790,131 @@ TAIL_REST = (
     "....O.",
     "..OO..",  # row 14: along the floor
 )
-#: Flicked: up from the raised tail in arthur_tail, out to the right and curled back at the
-#: tip, the same curl as at rest but tall, beside the level bars.
-TAIL_FLICK = (
-    "....S.",  # row 1: the dark tip, curling back
+#: The wag, lifting (and coming back): the tail raised tall beside the bottom line, the tip
+#: curled back. Stays in columns 15-18, clear of the litter mark.
+TAIL_LIFT = (
+    "......",  # row 1
+    "......",
+    "......",
+    "......",
+    "......",
+    "......",
+    "....S.",  # row 7: the dark tip
     ".....O",
     ".....O",
     "....O.",
     "....O.",
     "...O..",
-    "...O..",
-    "..O...",  # row 8: just above the raised tail in the icon
-    "......",
-    "......",
-    "......",
-    "......",
-    "......",
-    "......",
+    "..O...",
+    "......",  # row 14
 )
+#: The wag, swung out: low and lazy to the right, behind the bottom line. Inside the line's
+#: box only the letters it crosses show it, turning ``fur_tint`` (see
+#: :func:`idle_tail_through`); there it is two rows thick, so enough ink changes colour to
+#: read as a tail. It stays on rows 9-14, two rows clear of the litter bar.
+TAIL_OUT = (
+    ".....................",  # row 1
+    ".....................",
+    ".....................",
+    ".....................",
+    ".....................",
+    ".....................",
+    ".....................",
+    ".....................",
+    "....................S",  # row 9: the dark tip, turned up
+    "...............OOOOO.",
+    ".........OOOOOOOOOOO.",
+    "......OOOOOOOOO......",
+    "....OO...............",
+    "..OO.................",  # row 14: off the floor
+)
+
+#: Idle Arthur's poses: name → (icon, tail art).
+IDLE_POSES: dict[str, tuple[str, tuple[str, ...]]] = {
+    "rest": ("arthur_sit", TAIL_REST),
+    "blink": ("arthur_blink", TAIL_REST),
+    "left": ("arthur_sit_left", TAIL_REST),
+    "right": ("arthur_sit_right", TAIL_REST),
+    "ear": ("arthur_sit_ear", TAIL_REST),
+    "squint": ("arthur_sit_squint", TAIL_REST),
+    "yawn": ("arthur_sit_yawn", TAIL_REST),
+    "lift": ("arthur_sit", TAIL_LIFT),
+    "out": ("arthur_sit", TAIL_OUT),
+}
+#: The frames of one tail wag, in order: lift, swing out through the text (held), lift back.
+IDLE_WAG: tuple[str, ...] = ("lift", "out", "out", "lift")
+
+_R, _W = "rest", IDLE_WAG
+#: Idle Arthur, one pose per second of the wall-clock minute. Alive, not busy: about two
+#: thirds of the minute he sits still; between, one short gesture at a time, unevenly spaced,
+#: with a still second either side (a glance left may run straight into one right). The first
+#: half-minute (what the studio's All states tile plays) has a blink, a glance, an ear twitch
+#: and a whole wag.
+IDLE_SCRIPT: tuple[str, ...] = (
+    _R, _R, _R, "blink", _R, _R, _R, "left", "right", _R,          # 0-9
+    _R, _R, *_W, _R, _R, _R, "ear",                               # 10-19
+    _R, _R, _R, _R, "blink", _R, _R, _R, _R, _R,                  # 20-29 (26-27: yawn)
+    _R, "squint", "squint", _R, _R, _R, "right", _R, _R, _R,      # 30-39
+    _R, *_W, _R, _R, _R, "blink", _R,                             # 40-49
+    _R, _R, "ear", _R, _R, "left", _R, _R, _R, _R,                # 50-59
+)
+#: The rare yawn: in one minute out of every ``YAWN_EVERY_MIN`` (minute ``YAWN_MINUTE`` of
+#: each cycle), these seconds of the script's resting stretch become a two-second yawn.
+YAWN_EVERY_MIN = 5
+YAWN_MINUTE = 3
+YAWN_SECONDS = (26, 27)
+
+
+def idle_pose(now: datetime) -> str:
+    """Idle Arthur's pose at ``now`` (a key of :data:`IDLE_POSES`): the minute's script, with
+    a yawn in place of a rest once every few minutes."""
+    k = tick(now)
+    s = k % len(IDLE_SCRIPT)
+    if (k // 60) % YAWN_EVERY_MIN == YAWN_MINUTE and s in YAWN_SECONDS:
+        return "yawn"
+    return IDLE_SCRIPT[s]
+
+
+def idle_tail(pose: str) -> tuple[str, ...]:
+    """The long-tail art for an idle pose."""
+    return IDLE_POSES[pose][1]
+
+
 #: Words for the laser notice on idle's bottom line; the first that fits is used.
 LASER_WORDS = ("WIPE LASER", "LASER DIRTY", "LASER")
 
 
-def idle_tail(pose: str | None) -> tuple[str, ...]:
-    """The long-tail art for an idle pose (see :func:`idle_pose`)."""
-    return TAIL_FLICK if pose == "tail" else TAIL_REST
+def idle_tail_through(
+    f: Frame, cfg: Config, art: tuple[str, ...], line: str
+) -> set[tuple[int, int]]:
+    """Draw the tail after the bottom line ``line``, as if behind it: outside the line it is
+    Arthur's orange (dark tip); within the line's box the letters hide it, and the ink it
+    crosses turns ``fur_tint``, every letter keeping its shape. Returns the tinted pixels."""
+    pal = cfg.palette
+    cells = [
+        (TAIL_X + x, TAIL_Y + y, pal.rgb(pal.role_for_char(ch)))
+        for y, row in enumerate(art)
+        for x, ch in enumerate(row)
+        if ch != "."
+    ]
+    w = min(small_font().width(line), IDLE_R - IDLE_X + 1)
+    box = (IDLE_X, L2_Y, IDLE_X + w - 1, L2_Y + 4)
+    return draw_behind_text(f, cells, cfg.rgb("fur_tint"), box=box)
 
 
 @layout(S52, "ready", "arthur")
 def _ready_arthur_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     f = _f52()
-    pose = idle_pose(now, cfg)
-    icon52(f, cfg, {"blink": "arthur_blink", "tail": "arthur_tail"}.get(pose or "", "arthur_sit"))
-    draw_art(f, idle_tail(pose), TAIL_X, TAIL_Y, cfg)
+    icon, tail = IDLE_POSES[idle_pose(now)]
+    icon52(f, cfg, icon)
     _levels_52(f, state, cfg, 1, 5, x=IDLE_X)
     if state.laser_dirty:
         line = first_fitting(LASER_WORDS, IDLE_R - IDLE_X + 1, small_font())
         small52(f, cfg, line, "attention", x=IDLE_X, right=IDLE_R)
     else:
-        small52(f, cfg, _last_visit(state, now), "text", x=IDLE_X, right=IDLE_R)
+        line = _last_visit(state, now)
+        small52(f, cfg, line, "text", x=IDLE_X, right=IDLE_R)
+    idle_tail_through(f, cfg, tail, line)
     return f
 
 
@@ -848,7 +930,8 @@ def _ready_vacant_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
 @layout(S52, "ready", "numbers")
 def _ready_numbers_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     f = _f52()
-    icon52(f, cfg, "arthur_blink" if idle_pose(now, cfg) == "blink" else "arthur_sit")
+    # Blinks on the same seconds as idle Arthur's script (only the blink; no other gestures).
+    icon52(f, cfg, "arthur_blink" if idle_pose(now) == "blink" else "arthur_sit")
     draw_art(f, BIN_MARK, C52_X, 3, cfg)
     big52(f, cfg, fmt_pct(state.drawer_pct), drawer_role(state, cfg), x=C52_X + 7)
     draw_art(f, LITTER_MARK, C52_X, 11, cfg)

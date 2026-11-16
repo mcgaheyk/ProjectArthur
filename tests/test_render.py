@@ -15,14 +15,18 @@ from arthur.render.font import condensed_small_font, large_font, small_font
 from arthur.render.icons import get_icon, icon_names
 from arthur.render.screens import (
     EDGE_RING,
+    IDLE_POSES,
     IDLE_R,
+    IDLE_SCRIPT,
+    IDLE_WAG,
     IDLE_X,
     LASER_WORDS,
     POOP_FACE_LOOP,
-    TAIL_FLICK,
+    TAIL_OUT,
     TAIL_REST,
     TAIL_X,
     TAIL_Y,
+    YAWN_EVERY_MIN,
     _ready_arthur_52,
     _waiting_52,
     drawer_role,
@@ -300,12 +304,11 @@ def _labels(state, now):
 
 
 def _pose_times():
-    """A moment for each idle pose: at rest, the blink, the tail flick."""
-    every = int(CFG.timings.idle_blink_every_s)
+    """A moment for each idle pose (the yawn from a minute that has one)."""
     out = {}
-    for dt in range(2 * every + 1):
-        out.setdefault(idle_pose(NOW + timedelta(seconds=dt), CFG), NOW + timedelta(seconds=dt))
-    assert set(out) == {None, "blink", "tail"}
+    for dt in range(60 * YAWN_EVERY_MIN):
+        out.setdefault(idle_pose(NOW + timedelta(seconds=dt)), NOW + timedelta(seconds=dt))
+    assert set(out) == set(IDLE_POSES)
     return out
 
 
@@ -341,38 +344,167 @@ def _tail_cells(pose):
             for x, ch in enumerate(row) if ch != "."}
 
 
+# The idle script: alive, not busy.
+
+GESTURES = {"blink", "left", "right", "ear", "squint", "yawn"}
+
+
+def _runs(seq):
+    """Collapse a pose sequence into gesture runs: a wag's frames are one run."""
+    runs, i = [], 0
+    while i < len(seq):
+        if tuple(seq[i:i + len(IDLE_WAG)]) == IDLE_WAG:
+            runs.append("wag")
+            i += len(IDLE_WAG)
+            continue
+        if seq[i] in IDLE_WAG:
+            runs.append("partial-wag")
+        else:
+            runs.append(seq[i])
+        i += 1
+    return runs
+
+
+def test_idle_script_shape():
+    assert len(IDLE_SCRIPT) == 60
+    assert set(IDLE_SCRIPT) <= set(IDLE_POSES)
+    assert IDLE_SCRIPT.count("rest") >= 0.6 * 60
+    runs = _runs(IDLE_SCRIPT)
+    assert "partial-wag" not in runs  # every wag is whole
+    for g in ("blink", "left", "right", "ear", "squint", "wag"):
+        assert g in runs, g
+    assert runs.count("wag") == 2
+    assert 1 <= runs.count("ear") <= 2
+    assert runs.count("blink") >= 3
+    assert IDLE_SCRIPT.count("squint") == 2  # one two-second squint
+    assert "yawn" not in IDLE_SCRIPT  # the yawn has its own slower clock
+    # One gesture at a time: two different gestures always have a still second between them,
+    # except a glance left running into one right (or back). Wrap round the minute too.
+    looped = runs + runs[:1]
+    for a, b in itertools.pairwise(looped):
+        if a != "rest" and b != "rest" and a != b:
+            assert {a, b} == {"left", "right"}, (a, b)
+    # The first half-minute (the studio tile) shows each kind of gesture.
+    first = _runs(IDLE_SCRIPT[:30])
+    assert {"blink", "ear", "wag"} <= set(first)
+    assert {"left", "right"} & set(first)
+    # Blinks are not evenly spaced.
+    at = [i for i, p in enumerate(IDLE_SCRIPT) if p == "blink"]
+    gaps = {(b - a) % 60 for a, b in itertools.pairwise(at + at[:1])}
+    assert len(gaps) > 1
+
+
+def test_idle_yawn_is_rare():
+    minutes = []
+    for m in range(10):
+        poses = [idle_pose(NOW + timedelta(seconds=60 * m + s)) for s in range(60)]
+        minutes.append(poses.count("yawn"))
+        if "yawn" in poses:
+            i = poses.index("yawn")
+            assert poses[i:i + 2] == ["yawn", "yawn"] and poses.count("yawn") == 2
+            assert poses[i - 1] == poses[i + 2] == "rest"
+    assert any(minutes) and not all(minutes)
+    yawn_minutes = [m for m, n in enumerate(minutes) if n]
+    assert all(b - a >= 5 for a, b in itertools.pairwise(yawn_minutes))
+
+
+def test_idle_is_still_most_of_the_minute():
+    """Each changed frame is an HTTP push: idle stays still for at least half of every
+    minute (a second whose frame equals the one before)."""
+    for start in (0, 60 * 3):  # a plain minute and a yawn minute
+        frames = [render(READY, NOW + timedelta(seconds=start + dt), CFG, variant="arthur")
+                  for dt in range(61)]
+        still = sum(a == b for a, b in itertools.pairwise(frames))
+        assert still >= 30, still
+
+
 def test_tail_art_shapes():
-    assert idle_tail(None) == idle_tail("blink") == TAIL_REST
-    assert idle_tail("tail") == TAIL_FLICK
-    for art in (TAIL_REST, TAIL_FLICK):
-        assert len({len(r) for r in art}) == 1
-    for pose in (None, "tail"):
+    for pose in IDLE_POSES:
+        art = idle_tail(pose)
+        assert len(art) == 14 and len({len(r) for r in art}) == 1
+    assert idle_tail("rest") == TAIL_REST
+    assert idle_tail("out") == TAIL_OUT
+    for pose in IDLE_POSES:
         cells = _tail_cells(pose)
         assert max(x for x, _ in cells) > 15  # it reaches beyond the 16x16 icon
-        assert max(x for x, _ in cells) < IDLE_X - 1  # and leaves a gap column before content
+        assert all(1 <= x <= 50 and 1 <= y <= 14 for x, y in cells)
+        if pose != "out":
+            assert max(x for x, _ in cells) < IDLE_X - 1  # gap column before the content
+
+
+def _bars_and_marks(f):
+    """Lit pixels of the two marks and bars (rows 1-7 of the content columns)."""
+    off = CFG.rgb("off")
+    return {(x, y) for x in range(IDLE_X, 51) for y in range(1, 8) if f.get(x, y) != off}
+
+
+LAST_VISITS = [None, 0, 45 * 60, 2 * 3600, 10 * 3600, 47 * 3600, 9 * 86400]
 
 
 @pytest.mark.parametrize("laser", [False, True])
 @pytest.mark.parametrize("drawer", [0, 42, 100])
-def test_tail_never_touches_the_marks_or_text(laser, drawer):
+def test_tail_never_touches_the_bars_or_marks(laser, drawer):
     s = DisplayState(**{**READY.__dict__, "laser_dirty": laser, "drawer_pct": drawer})
     off = CFG.rgb("off")
     for pose, now in _pose_times().items():
-        f, _ = _labels(s, now)  # strict: nothing drawn against a label
+        f, _ = _labels(s, now)  # strict: nothing else drawn against a label
         tail = _tail_cells(pose)
-        content = {(x, y) for x in range(IDLE_X, 51) for y in range(1, 15)
-                   if f.get(x, y) != off}
-        assert content
+        bars = _bars_and_marks(f)
+        assert bars
         for tx, ty in tail:
-            assert f.get(tx, ty) != off
-            for cx, cy in content:
+            for cx, cy in bars:
                 assert max(abs(cx - tx), abs(cy - ty)) >= 2, (pose, (tx, ty), (cx, cy))
+        # Outside the bottom line the tail is drawn; inside it, it hides behind the letters.
+        for tx, ty in tail:
+            if not (IDLE_X <= tx and 9 <= ty <= 13):
+                assert f.get(tx, ty) != off
 
 
-def test_idle_is_still_apart_from_blink_and_tail():
-    frames = {render(READY, NOW + timedelta(seconds=dt), CFG, variant="arthur").to_rgb888()
-              for dt in range(2 * int(CFG.timings.idle_blink_every_s))}
-    assert len(frames) == 3
+def _bottom_line(state, now):
+    f, labels = _labels(state, now)
+    (line,) = [r for r in labels if r.y == 9]
+    return f, line
+
+
+@pytest.mark.parametrize("laser", [False, True])
+def test_tail_swings_through_the_text_and_tints_it(laser):
+    tint = CFG.rgb("fur_tint")
+    for ago in LAST_VISITS:
+        last = None if ago is None else NOW - timedelta(seconds=ago)
+        s = DisplayState(**{**READY.__dict__, "last_visit_at": last, "laser_dirty": laser})
+        now = NOW + timedelta(seconds=IDLE_SCRIPT.index("out"))
+        f, line = _bottom_line(s, now)
+        tinted = {p for p in line.ink if f.get(*p) == tint}
+        assert len(tinted) >= 3, (line.text, len(tinted))
+        # Letters keep their shapes: no pixel inside the line's ink box changes from dark.
+        xs = [x for x, _ in line.ink]
+        ref = render(s, NOW, CFG, variant="arthur")  # a resting frame
+        for x in range(min(xs), max(xs) + 1):
+            for y in range(9, 14):
+                assert (f.get(x, y) == CFG.rgb("off")) == (ref.get(x, y) == CFG.rgb("off"))
+
+
+@pytest.mark.parametrize("laser", [False, True])
+def test_letters_stay_intact_for_ten_minutes(laser):
+    tint = CFG.rgb("fur_tint")
+    normal = CFG.rgb("attention" if laser else "text")
+    off = CFG.rgb("off")
+    for ago in [None, 45 * 60, 2 * 3600, 9 * 86400]:
+        last = None if ago is None else NOW - timedelta(seconds=ago)
+        s = DisplayState(**{**READY.__dict__, "last_visit_at": last, "laser_dirty": laser})
+        for dt in range(600):
+            f, line = _bottom_line(s, NOW + timedelta(seconds=dt))
+            assert all(f.get(*p) in (normal, tint) for p in line.ink), (line.text, dt)
+            border = [f.get(x, y) for x in range(52) for y in (0, 15)]
+            border += [f.get(x, y) for x in (0, 51) for y in range(16)]
+            assert all(p == off for p in border)
+
+
+def test_tint_is_only_used_by_the_tail():
+    tint = CFG.rgb("fur_tint")
+    for pose, now in _pose_times().items():
+        f = render(READY, now, CFG, variant="arthur")
+        assert (tint in f.pixels) == (pose == "out"), pose
 
 
 def test_idle_bars_keep_length_and_colours():

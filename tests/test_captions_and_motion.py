@@ -52,9 +52,12 @@ def test_idle_changes_rarely(size, last_visit_s):
             if prev is not None and f != prev:
                 changes += 1
             prev = f
-        # A blink is two changes (close, open). Two blinks a minute = 20 in five minutes,
-        # plus the "last visit" text ticking over once a minute at most.
-        assert changes <= 26, f"{v}: {changes} frame changes in 5 minutes"
+        # A blink is two changes (close, open), plus the "last visit" text ticking over once
+        # a minute at most. Idle Arthur plays a 60 s script of short gestures between still
+        # pauses (tests/test_render.py proves it is still for at least half of each minute):
+        # at most 30 changes a minute. The others only blink, a few times a minute.
+        budget = 5 * 30 if v == "arthur" else 5 * (2 * 3 + 1)
+        assert changes <= budget, f"{v}: {changes} frame changes in 5 minutes"
 
 
 @pytest.mark.parametrize("name", ["in_use", "waiting", "cleaning", "interrupted"])
