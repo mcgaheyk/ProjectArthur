@@ -1,7 +1,8 @@
 # Icon text-art. One character per pixel; see config/display.toml [palette_chars].
 # '.' transparent, '*' the screen's accent role, '%' level-fill area (drawn by code).
-# Drawer full: the googly-eyed poop emoji of poop_big, squeezed to 13x12 so it sits inside
-# the flashing ring (rows 2-13, columns 2-14) with a 1-pixel gap all round.
+# Drawer full, calm: smiling, looking straight out. The poop of poop_big squeezed to 13x12 so it sits inside the
+# flashing ring (rows 2-13, columns 2-14). Every poop_full face has the same body; only the
+# eyes change (DRAWER_FULL_LOOP in screens.py).
 ................
 ................
 .........B......

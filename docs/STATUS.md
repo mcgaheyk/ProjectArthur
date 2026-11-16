@@ -9,7 +9,7 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
   (D-0010); commit 91e4960 is the last one that has them.
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
-- **Built and tested (467 tests):**
+- **Built and tested (472 tests):**
   - Pipeline: `arthur/model.py`, `arthur/mapping.py`, `arthur/render/`, with variants for
     ready, in_use, waiting and cleaning.
   - Screens: second design pass done on 2026-11-16 to Kyle's direction (D-0009): orange
@@ -110,7 +110,10 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
   draws the two that the bars replace, and drawer-full draws none.
 - **Drawer full:** the narrow M and W in "EMPTY NOW" and the flashing ring have only been
   judged on a monitor. The ring means a push to the clock every second for as long as the
-  drawer stays full.
+  drawer stays full. The poop's face runs on its own 15-second loop (blink, glance left and
+  right, one wink), deliberately out of step with the ring; Kyle did not want an opening
+  mouth or anything in sync with the flashing. The glances move one pixel and may not show
+  from across the room.
 - **The drawer bar turns red at 80 %**, which is a guess. The robot's percentage is rough and
   some owners report it jumping from about 70 % to full.
 - Idle shows the last-visit time but not visits today.

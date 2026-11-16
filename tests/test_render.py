@@ -1,4 +1,5 @@
 import base64
+import itertools
 import struct
 import zlib
 from datetime import timedelta
@@ -13,6 +14,7 @@ from arthur.render import Frame, list_kinds, list_sizes, list_variants, overlay_
 from arthur.render.font import condensed_small_font, large_font, small_font
 from arthur.render.icons import get_icon, icon_names
 from arthur.render.screens import (
+    DRAWER_FULL_LOOP,
     EDGE_RING,
     badges_to_draw,
     drawer_role,
@@ -21,6 +23,7 @@ from arthur.render.screens import (
     fmt_countdown,
     has_edge_ring,
     litter_role,
+    phase,
 )
 
 CFG = default_config()
@@ -318,16 +321,73 @@ def test_drawer_full_ring_flashes_on_even_seconds():
         assert all(f.get(x, y) == want for x, y in _edge(f)), dt
 
 
-def test_drawer_full_keeps_a_gap_inside_the_ring_and_only_the_ring_moves():
+#: The poop's face (eyes and mouth) on screen: columns 4-12, rows 7-13. Only it and the ring
+#: may change between drawer-full frames.
+FACE_BOX = {(x, y) for x in range(4, 13) for y in range(7, 14)}
+
+
+def _drawer_full_face(dt):
+    fx = FIXTURES["drawer_full"]
+    return DRAWER_FULL_LOOP[phase(fx.now + timedelta(seconds=dt), len(DRAWER_FULL_LOOP))]
+
+
+def test_drawer_full_keeps_a_gap_inside_the_ring_and_only_ring_and_face_move():
     off = CFG.rgb("off")
-    frames = [_drawer_full_frame(dt) for dt in range(4)]
+    frames = [_drawer_full_frame(dt) for dt in range(2 * len(DRAWER_FULL_LOOP))]
     for f in frames:
         w, h = f.size
         gap = {(x, y) for x in range(1, w - 1) for y in (1, h - 2)}
         gap |= {(x, y) for x in (1, w - 2) for y in range(1, h - 1)}
         assert all(f.get(x, y) == off for x, y in gap)
-    inside = [[f.get(x, y) for x in range(1, 51) for y in range(1, 15)] for f in frames]
-    assert all(i == inside[0] for i in inside)
+    rest = [[f.get(x, y) for x in range(1, 51) for y in range(1, 15) if (x, y) not in FACE_BOX]
+            for f in frames]
+    assert all(r == rest[0] for r in rest)
+
+
+def test_drawer_full_face_loop_shape():
+    loop = DRAWER_FULL_LOOP
+    assert len(loop) % 2 == 1  # odd, so the face drifts against the 2 s ring
+    assert loop.count("poop_full") > len(loop) / 2
+    assert loop.count("poop_full_left") >= 1 and loop.count("poop_full_right") >= 1
+    assert loop.count("poop_full_blink") >= 2 and loop.count("poop_full_wink") == 1
+    for a, b in itertools.pairwise(loop + loop[:1]):
+        assert a == "poop_full" or a != b, (a, b)
+
+
+def test_drawer_full_face_is_independent_of_the_ring():
+    alert = CFG.rgb("alert")
+    seen: dict[str, set[bool]] = {}
+    for dt in range(2 * len(DRAWER_FULL_LOOP)):
+        ring_on = _drawer_full_frame(dt).get(0, 0) == alert
+        seen.setdefault(_drawer_full_face(dt), set()).add(ring_on)
+    for face, phases in seen.items():
+        if face != "poop_full":
+            assert phases == {True, False}, face
+    assert set(seen) == set(DRAWER_FULL_LOOP)
+
+
+def test_drawer_full_has_no_shout_and_the_mouth_never_moves():
+    assert "poop_full_shout" not in icon_names()
+    assert "poop_full_shout" not in DRAWER_FULL_LOOP
+    mouths = {tuple(_drawer_full_frame(dt).get(x, y) for x in range(2, 15) for y in range(10, 14))
+              for dt in range(len(DRAWER_FULL_LOOP))}
+    assert len(mouths) == 1
+
+
+def test_drawer_full_calm_faces_are_distinct():
+    rows = {get_icon(name, 16)[0].rows for name in set(DRAWER_FULL_LOOP)}
+    assert len(rows) == len(set(DRAWER_FULL_LOOP)) == 5
+
+
+def test_drawer_full_faces_share_one_body():
+    # Every face fills the same body outline: only interior eye and mouth cells differ.
+    base = get_icon("poop_full", 16)[0].rows
+    for name in set(DRAWER_FULL_LOOP):
+        rows = get_icon(name, 16)[0].rows
+        for y in range(16):
+            for x in range(16):
+                if (x, y) not in FACE_BOX:
+                    assert rows[y][x] == base[y][x], (name, x, y)
 
 
 def test_stale_overlay_covers_the_ring():

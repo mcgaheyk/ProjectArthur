@@ -364,7 +364,7 @@ for _kind in ("no_data", "robot_offline", "robot_off", "fault", "bonnet_removed"
 
 
 # =========================================================================================
-# Drawer full: the poop emoji, bold FULL, EMPTY NOW, and a red ring flashing round the edge
+# Drawer full: the poop emoji, bold FULL, EMPTY NOW, and a red ring flashing
 # =========================================================================================
 
 #: Content inside the ring keeps a 1-pixel gap from it: rows 2-13, columns 2-49.
@@ -381,6 +381,17 @@ FULL_ART = (
 )
 
 
+#: The poop's face, one entry per second (a 15 s loop). Mostly he sits smiling; now and then
+#: he blinks, glances left and right, and winks once. The loop runs on its own, not with the
+#: ring: its length is odd and the ring's period is 2 s, so each time round every face lands
+#: on the other ring phase. Only the eyes move; the smile stays.
+DRAWER_FULL_LOOP: tuple[str, ...] = (
+    "poop_full", "poop_full", "poop_full_blink", "poop_full", "poop_full",
+    "poop_full_left", "poop_full_right", "poop_full", "poop_full", "poop_full",
+    "poop_full_blink", "poop_full", "poop_full_wink", "poop_full", "poop_full",
+)
+
+
 def edge_ring(f: Frame, cfg: Config, role: str) -> None:
     """A 1-pixel ring on the outermost pixels: only for layouts registered ``edge_ring``."""
     f.rect(0, 0, f.width, f.height, cfg.rgb(role), filled=False)
@@ -391,7 +402,7 @@ def _drawer_full_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     f = _f52()
     if blink(now):
         edge_ring(f, cfg, "alert")
-    icon52(f, cfg, "poop_full")
+    icon52(f, cfg, DRAWER_FULL_LOOP[phase(now, len(DRAWER_FULL_LOOP))])
     draw_art(f, FULL_ART, RING_X, 2, cfg)
     width = RING_R - RING_X + 1
     sub = caption(state, cfg, "drawer_full", S52, width, condensed_small_font(),

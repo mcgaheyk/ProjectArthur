@@ -28,7 +28,7 @@ The highest layer with something to say wins. Badges are added on top of whateve
 
 | id | Trigger | Must convey |
 |---|---|---|
-| `drawer_full` | Status `DRAWER_FULL` (the robot's own full flag). | Empty the drawer. Held until it clears. A red ring flashes on the outer edge once a second, with "FULL" and "EMPTY NOW". |
+| `drawer_full` | Status `DRAWER_FULL` (the robot's own full flag). | Empty the drawer. Held until it clears. A red ring flashes on the outer edge once a second, with "FULL" and "EMPTY NOW". The poop emoji blinks and glances on its own rhythm. |
 | `fault` | Status `PINCH_DETECT`, `OVER_TORQUE_FAULT`, `CAT_SENSOR_FAULT`, or `UNKNOWN`. | Something is wrong, with the short code (`PD`, `OTF`, `CSF`, or the raw code). |
 | `bonnet_removed` | Status `BONNET_REMOVED`. | The bonnet is off. |
 
