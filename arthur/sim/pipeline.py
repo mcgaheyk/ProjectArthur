@@ -26,6 +26,11 @@ from arthur.config import DEFAULT_PATH, Config, load_config
 
 ROOT = Path(arthur.__file__).resolve().parent
 
+#: Seconds of a fixture the studio plays on a loop: the gallery tiles render this many
+#: one-second frames after the fixture's own time, and "fixture" mode on the live clock feeds
+#: the fixture's time plus (seconds since it was selected, modulo this).
+LOOP_S = 30
+
 #: Watched source modules, imported in this order.
 MODULES = ("arthur.model", "arthur.mapping", "arthur.fixtures", "arthur.render")
 
@@ -105,6 +110,25 @@ class Pipeline:
         now = fx.now + timedelta(seconds=offset_s)
         st = self.state(fx.snapshot, fx.health, now)
         return self.render(st, now, size, variant)
+
+    def fixture_loop(
+        self, name: str, size: tuple[int, int], variant: str | None, stale: bool = False
+    ) -> list[Any]:
+        """The fixture's frames at 0, 1, ... ``LOOP_S - 1`` seconds, cut to its loop.
+
+        The result is the shortest prefix that the window repeats, so a still screen is one
+        frame and a 2 s loop two. A period is only trusted when the window shows it at least
+        twice (at most ``LOOP_S // 2``); anything else is the whole window, which wraps.
+        ``stale`` puts the stale border on every frame.
+        """
+        frames = [self.fixture_frame(name, size, variant, k) for k in range(LOOP_S)]
+        if stale:
+            frames = [self.overlay_stale(f) for f in frames]
+        keys = [f.to_rgb888() for f in frames]
+        for period in range(1, LOOP_S // 2 + 1):
+            if all(keys[i] == keys[i - period] for i in range(period, LOOP_S)):
+                return frames[:period]
+        return frames
 
     def validate(self) -> None:
         """Render every fixture in every variant; raise on the first failure."""

@@ -9,7 +9,7 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
   (D-0010); commit 91e4960 is the last one that has them.
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
-- **Built and tested (472 tests):**
+- **Built and tested (476 tests):**
   - Pipeline: `arthur/model.py`, `arthur/mapping.py`, `arthur/render/`, with variants for
     ready, in_use, waiting and cleaning.
   - Screens: second design pass done on 2026-11-16 to Kyle's direction (D-0009): orange
@@ -118,8 +118,9 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
   some owners report it jumping from about 70 % to full.
 - Idle shows the last-visit time but not visits today.
 - Brown and the dim shades have only been judged on a monitor, not on LEDs.
-- In the studio's fixture mode, time is frozen, so timers do not count; scenario and manual
-  modes run with time moving.
+- In the studio, All states tiles and fixture mode on the live clock play a 30-second loop and
+  then jump back, so a timer counts 30 seconds and restarts. Scenario, Manual and Robot log
+  modes run with time moving normally.
 
 ## Known unknowns
 - How fast Whisker pushes "cat detected". Nobody has published a measurement.

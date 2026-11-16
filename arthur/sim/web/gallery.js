@@ -16,9 +16,23 @@ function el(tag, attrs = {}, ...children) {
   return e;
 }
 
+// A tile's frames arrive once each as base64 RGB888 ("frames"), with "seq" naming the frame
+// to show at each second of its loop. Returns one array of 0xRRGGBB ints per second.
+function decodeLoop(t) {
+  const distinct = (t.frames || []).map((b64) => {
+    const bin = atob(b64);
+    const out = new Array(bin.length / 3);
+    for (let i = 0, j = 0; j < out.length; i += 3, j++) {
+      out[j] = (bin.charCodeAt(i) << 16) | (bin.charCodeAt(i + 1) << 8) | bin.charCodeAt(i + 2);
+    }
+    return out;
+  });
+  return (t.seq || distinct.map((_, i) => i)).map((i) => distinct[i]);
+}
+
 export function initGallery({ control, toast }) {
   let tiles = []; // { matrix, frames, fixture, size, variant, kind, node }
-  let phase = 0;
+  let second = 0; // seconds since the gallery was drawn; every tile shows frame second % length
   let loadedKey = null;
   let loading = false;
   let selected = null; // { fixture, size, variant }
@@ -50,6 +64,7 @@ export function initGallery({ control, toast }) {
     const host = $("gallery");
     host.textContent = "";
     tiles = [];
+    second = 0;
     const pitch = pitchFor();
     for (const row of data.rows || []) {
       const r = el("div", { class: "grow" },
@@ -66,18 +81,19 @@ export function initGallery({ control, toast }) {
           const fig = el("figure", { class: "tile", role: "button", tabindex: "0",
             title: `Send ${row.fixture} / ${t.variant} to the live clock` });
           let matrix = null;
+          const frames = t.error ? [] : decodeLoop(t);
           if (t.error) {
             fig.append(el("div", { class: "terr", text: t.error }));
           } else {
             const canvas = el("canvas");
             fig.append(canvas);
             matrix = new LedMatrix(canvas, w, h, pitch);
-            matrix.setPixels(t.frames && t.frames[0]);
+            matrix.setPixels(frames[0]);
           }
           const cap = el("figcaption", {}, el("em", { text: t.variant }), t.default && t.variant !== "default" ? " · default" : "",
-            t.frames && t.frames.length > 1 ? " · animates" : "");
+            frames.length > 1 ? " · animates" : "");
           fig.append(cap);
-          const info = { matrix, frames: t.frames || [], fixture: row.fixture, size, variant: t.variant, kind: row.kind, node: fig };
+          const info = { matrix, frames, fixture: row.fixture, size, variant: t.variant, kind: row.kind, node: fig };
           const send = () => pick(info);
           fig.addEventListener("click", send);
           fig.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); send(); } });
@@ -108,9 +124,9 @@ export function initGallery({ control, toast }) {
   }
 
   function step() {
-    phase = 1 - phase;
+    second += 1;
     for (const t of tiles) {
-      if (t.matrix && t.frames.length > 1) t.matrix.setPixels(t.frames[phase % t.frames.length]);
+      if (t.matrix && t.frames.length > 1) t.matrix.setPixels(t.frames[second % t.frames.length]);
     }
   }
 

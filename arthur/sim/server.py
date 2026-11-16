@@ -18,7 +18,8 @@ Studio
   GET  /                      the page
   GET  /static/{path}         page scripts and styles
   GET  /studio/meta           kinds, sizes, variants, fixtures, scenarios, palette, timings
-  GET  /studio/gallery        every fixture x variant (?stale=1 overlays the border)
+  GET  /studio/gallery        every fixture x variant, each a loop of up to LOOP_S one-second
+                              frames (?stale=1 overlays the border on every frame)
   GET  /studio/state          what is showing, feeder pushes and errors, the clock's lifetime
   POST /studio/control        change the source, playback, variants, feeder switches, and the
                               robot log ({"mode": "log", "log": {"sub_mode": "follow"|"replay",
@@ -35,6 +36,7 @@ size string, "52x16", with that one entry.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import json
 import logging
@@ -59,7 +61,7 @@ from arthur.sim.feeder import (
     ControlError,
     StudioFeeder,
 )
-from arthur.sim.pipeline import ReloadingPipeline, size_key
+from arthur.sim.pipeline import LOOP_S, ReloadingPipeline, size_key
 
 log = logging.getLogger("arthur.sim")
 
@@ -267,6 +269,14 @@ async def h_meta(request: web.Request) -> web.Response:
     return _json(_meta(request.app), headers=NO_CACHE)
 
 
+def _encode_loop(frames: list[Any]) -> dict[str, Any]:
+    """A tile's loop, compactly: each distinct frame once as base64 RGB888 (as the transport
+    sends it), and ``seq``, the index of the frame to show at each second of the loop."""
+    distinct: dict[bytes, int] = {}
+    seq = [distinct.setdefault(f.to_rgb888(), len(distinct)) for f in frames]
+    return {"frames": [base64.b64encode(b).decode("ascii") for b in distinct], "seq": seq}
+
+
 def build_gallery(app: web.Application, stale: bool) -> dict[str, Any]:
     pipe = app[PIPE].current
     key = (pipe.version, stale)
@@ -289,22 +299,15 @@ def build_gallery(app: web.Application, stale: bool) -> dict[str, Any]:
             for i, v in enumerate(names):
                 tile: dict[str, Any] = {"variant": v, "default": i == 0}
                 try:
-                    frames = []
-                    for off in (0, 1):
-                        f = pipe.fixture_frame(fx.name, size, v, off)
-                        if stale:
-                            f = pipe.overlay_stale(f)
-                        frames.append(f.to_ints())
-                    if frames[1] == frames[0]:
-                        frames.pop()
-                    tile["frames"] = frames
+                    tile.update(_encode_loop(pipe.fixture_loop(fx.name, size, v, stale)))
                 except Exception as exc:  # noqa: BLE001 - show the error on the tile
                     tile["error"] = f"{exc.__class__.__name__}: {exc}"
                 out.append(tile)
             tiles[sk] = out
         rows.append({"fixture": fx.name, "kind": kind, "description": fx.description,
                      "tiles": tiles})
-    result = {"version": pipe.version, "stale": stale,
+    result = {"version": pipe.version, "stale": stale, "loop_s": LOOP_S,
+              "encoding": "rgb888-base64",
               "sizes": [size_key(s) for s in pipe.sizes()], "rows": rows}
     if len(cache) > 4:
         cache.clear()
@@ -317,7 +320,9 @@ def _flag(request: web.Request, name: str) -> bool:
 
 
 async def h_gallery(request: web.Request) -> web.Response:
-    return _json(build_gallery(request.app, _flag(request, "stale")), headers=NO_CACHE)
+    resp = _json(build_gallery(request.app, _flag(request, "stale")), headers=NO_CACHE)
+    resp.enable_compression()  # the loops repeat a lot; gzip when the browser accepts it
+    return resp
 
 
 async def h_png(request: web.Request) -> web.Response:

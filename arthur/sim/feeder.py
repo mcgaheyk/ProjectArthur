@@ -4,8 +4,9 @@ It runs the real pipeline end to end. The source is one of:
 
 - ``scenario``: a timed scenario from :mod:`arthur.fixtures`, played on its own simulated
   clock (``start + t``) with play/pause, seek and speed;
-- ``fixture``: one named fixture, frozen at the fixture's ``now`` except that the seconds
-  alternate (``now`` and ``now + 1 s``) so blinking states blink;
+- ``fixture``: one named fixture, played on a loop: the time is the fixture's ``now`` plus
+  the whole seconds since it was selected, modulo :data:`~arthur.sim.pipeline.LOOP_S`, so
+  blinks, glances and timers play as in the gallery. Selecting a fixture restarts its loop;
 - ``manual``: a snapshot built from hand-set fields at the real current time;
 - ``log``: the spike's logs of the real robot (:mod:`arthur.sources.logfile`), either
   *followed* live at the real current time, or one recorded visit *replayed* on its own
@@ -33,7 +34,7 @@ from typing import Any
 
 import aiohttp
 
-from arthur.sim.pipeline import ReloadingPipeline, size_key
+from arthur.sim.pipeline import LOOP_S, ReloadingPipeline, size_key
 from arthur.sources.logfile import (
     FRESH_FOR_S,
     SPIKE_COMMAND,
@@ -181,6 +182,10 @@ class StudioFeeder:
                 self.playing = False
                 self._pos = dur
         return max(0.0, pos)
+
+    def fixture_position(self) -> int:
+        """Whole seconds into the fixture's loop (0 .. LOOP_S - 1)."""
+        return int(max(0.0, self.time_fn() - self._fixture_t0)) % LOOP_S
 
     def _freeze(self) -> None:
         self._pos = self.position()
@@ -494,8 +499,8 @@ class StudioFeeder:
             if self.fixture not in fxs:
                 self.fixture = next(iter(fxs))
             fx = fxs[self.fixture]
-            tick = int(self.time_fn() - self._fixture_t0) % 2
-            return fx.snapshot, fx.health, fx.now + timedelta(seconds=tick), fx.name
+            return (fx.snapshot, fx.health,
+                    fx.now + timedelta(seconds=self.fixture_position()), fx.name)
         return (*self._manual_source(), "manual")
 
     def _manual_source(self) -> tuple[Any, Any, datetime]:
@@ -630,6 +635,8 @@ class StudioFeeder:
         return {
             "mode": self.mode,
             "fixture": self.fixture,
+            "fixture_position": self.fixture_position(),
+            "loop_s": LOOP_S,
             "scenario": self.scenario,
             "playing": self.playing,
             "speed": self.speed,

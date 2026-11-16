@@ -3,6 +3,7 @@
 import base64
 import shutil
 import sys
+from datetime import timedelta
 
 import pytest
 
@@ -10,6 +11,7 @@ import arthur
 from arthur.config import DEFAULT_PATH
 from arthur.render import Frame
 from arthur.sim.clock import BODY_LIMIT, STALE_RGB
+from arthur.sim.pipeline import LOOP_S
 from arthur.sim.server import CLOCKS, FEEDER, PIPE, check_reload, create_app
 
 
@@ -153,20 +155,106 @@ async def test_studio_meta(client):
     assert "CAT_DETECTED" in meta["statuses"]
 
 
+def tile_frames(tile, w=52, h=16):
+    """A gallery tile's loop as Frames, one per second."""
+    def decode(b64):
+        raw = base64.b64decode(b64)
+        return Frame.from_ints(w, h, [int.from_bytes(raw[i:i + 3], "big")
+                                      for i in range(0, len(raw), 3)])
+
+    distinct = [decode(b) for b in tile["frames"]]
+    return [distinct[i] for i in tile["seq"]]
+
+
 async def test_gallery(client):
     g = await (await client.get("/studio/gallery")).json()
     rows = {r["fixture"]: r for r in g["rows"]}
-    assert g["sizes"] == ["52x16"]
+    assert g["sizes"] == ["52x16"] and g["loop_s"] == LOOP_S
     assert set(rows["ready"]["tiles"]) == {"52x16"}
     tile = rows["ready"]["tiles"]["52x16"][0]
-    assert tile["default"] and len(tile["frames"][0]) == 52 * 16
-    # in_use counts up every second, so it has a second frame
-    assert any(len(t["frames"]) == 2 for t in rows["in_use"]["tiles"]["52x16"])
+    assert tile["default"] and len(base64.b64decode(tile["frames"][0])) == 52 * 16 * 3
 
     gs = await (await client.get("/studio/gallery?stale=1")).json()
     st_tile = {r["fixture"]: r for r in gs["rows"]}["ready"]["tiles"]["52x16"][0]
-    stale_int = (STALE_RGB[0] << 16) | (STALE_RGB[1] << 8) | STALE_RGB[2]
-    assert st_tile["frames"][0][0] == stale_int and st_tile["frames"][0][51] == stale_int
+    f = tile_frames(st_tile)[0]
+    assert f.get(0, 0) == STALE_RGB and f.get(51, 0) == STALE_RGB
+
+
+async def test_gallery_tiles_play_their_loop(client):
+    pipe = client.app[PIPE].current
+    rows = {r["fixture"]: r for r in (await (await client.get("/studio/gallery")).json())["rows"]}
+
+    still = rows["bonnet_removed"]["tiles"]["52x16"]
+    assert all(len(t["seq"]) == 1 and len(t["frames"]) == 1 for t in still)
+
+    (drawer,) = rows["drawer_full"]["tiles"]["52x16"]
+    frames = tile_frames(drawer)
+    assert len(frames) == LOOP_S
+    # The face (left part of the screen, away from the ring) changes during the loop.
+    faces = {tuple(f.get(x, y) for x in range(26) for y in range(16)) for f in frames}
+    assert len(faces) > 2
+
+    duo = next(t for t in rows["in_use"]["tiles"]["52x16"] if t["variant"] == "duo")
+    assert len(set(duo["seq"])) > 2
+
+    # Frame k of every tile is the fixture rendered k seconds after its own time.
+    for row in rows.values():
+        for t in row["tiles"]["52x16"]:
+            for k, f in enumerate(tile_frames(t)):
+                assert f == pipe.fixture_frame(row["fixture"], (52, 16), t["variant"], k), (
+                    row["fixture"], t["variant"], k)
+
+
+async def test_gallery_stale_border_on_every_frame(client):
+    g = await (await client.get("/studio/gallery?stale=1")).json()
+    for row in g["rows"]:
+        for t in row["tiles"]["52x16"]:
+            for f in tile_frames(t):
+                assert f.get(0, 0) == STALE_RGB and f.get(51, 15) == STALE_RGB, row["fixture"]
+    # The border covers drawer_full's flashing ring, leaving the 15 s face loop.
+    (drawer,) = {r["fixture"]: r for r in g["rows"]}["drawer_full"]["tiles"]["52x16"]
+    assert len(drawer["seq"]) == 15 and len(drawer["frames"]) > 2
+
+
+async def test_fixture_mode_loops(client, fake_time):
+    feeder = client.app[FEEDER]
+    fx = client.app[PIPE].current.fixtures.FIXTURES["drawer_full"]
+    await client.post("/studio/control", json={"mode": "fixture", "fixture": "drawer_full"})
+
+    def sim_time():
+        return feeder.source()[2]
+
+    assert sim_time() == fx.now
+    fake_time.t += 7.4
+    assert sim_time() == fx.now + timedelta(seconds=7)
+    await feeder.tick()
+    st = await (await client.get("/studio/state")).json()
+    assert st["fixture_position"] == 7 and st["loop_s"] == LOOP_S
+    assert st["showing"]["sim_time"] == (fx.now + timedelta(seconds=7)).isoformat()
+    fake_time.t += LOOP_S - 7  # 30.4 s in: wrapped
+    assert sim_time() == fx.now
+    fake_time.t += 5
+    assert sim_time() == fx.now + timedelta(seconds=5)
+    # Selecting it again restarts the loop.
+    await client.post("/studio/control", json={"fixture": "drawer_full"})
+    assert sim_time() == fx.now
+    # The live clock shows the looping frames.
+    fake_time.t += 3
+    await feeder.tick()
+    data = await (await client.get("/api/v1/display/screen")).json()
+    expected = client.app[PIPE].current.fixture_frame("drawer_full", (52, 16), None, 3)
+    assert Frame.from_ints(52, 16, data["pixels"]) == expected
+
+
+async def test_fixture_mode_keeps_kind_through_the_loop(client, fake_time):
+    feeder = client.app[FEEDER]
+    pipe = client.app[PIPE].current
+    for name, fx in pipe.fixtures.FIXTURES.items():
+        feeder.apply({"mode": "fixture", "fixture": name})
+        for k in range(LOOP_S + 1):
+            shown = feeder.compute()
+            assert shown["kind"] == fx.kind, (name, k)
+            fake_time.t += 1
 
 
 async def test_png(client):
