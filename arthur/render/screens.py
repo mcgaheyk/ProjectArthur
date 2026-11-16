@@ -9,7 +9,7 @@ Canvas rules (docs/states.md, design-screen skill):
 
 - The clock's stale border covers row 0, row 15, column 0 and column 51, so nothing is drawn
   there. One deliberate exception: a layout registered with ``edge_ring=True`` (listed in
-  :data:`EDGE_RING`; today only ``drawer_full``) may draw a 1-pixel ring on exactly those
+  :data:`EDGE_RING`; today ``drawer_full`` and ``cleaning``) may draw a 1-pixel ring on exactly those
   pixels. The stale overlay paints over the whole ring, so a stale frame still reads as
   stale, and such a layout keeps its other content one pixel clear of the ring (rows 2-13,
   columns 2-49).
@@ -27,12 +27,14 @@ Canvas rules (docs/states.md, design-screen skill):
   most once a second; idle almost never (a blink or tail flick every
   ``idle_blink_every_s``).
 - Captions come from ``[captions]`` in the config: one per visit, picked from when the state
-  began; a caption that does not fit its line is skipped, never cut.
+  began (in use's jokes instead take turns, one per joke page, in an order shuffled per visit);
+  a caption that does not fit its line is skipped, never cut.
 """
 
 from __future__ import annotations
 
 import math
+import random
 import zlib
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -281,9 +283,6 @@ BIN_MARK = ("..B..", ".BHB.", "BBBBB")  # a little poop: the waste drawer
 LITTER_MARK = ("s.s.s", ".s.s.", "sssss")  # a little sand pile: the litter
 #: A 3x3 "z" for the sleeping moon.
 Z_ART = ("CCC", ".C.", "CCC")
-#: Stink lines beside the poop: two wiggle frames.
-STINK_A = (".K..K", "K..K.", ".K..K", "K..K.", ".K..K")
-STINK_B = ("K..K.", ".K..K", "K..K.", ".K..K", "K..K.")
 
 
 # =========================================================================================
@@ -382,11 +381,12 @@ FULL_ART = (
 )
 
 
-#: The poop's face, one entry per second (a 15 s loop). Mostly he sits smiling; now and then
-#: he blinks, glances left and right, and winks once. The loop runs on its own, not with the
-#: ring: its length is odd and the ring's period is 2 s, so each time round every face lands
-#: on the other ring phase. Only the eyes move; the smile stays.
-DRAWER_FULL_LOOP: tuple[str, ...] = (
+#: The poop's face, one entry per second (a 15 s loop on wall-clock seconds), shared by
+#: drawer-full and in-use's joke page. Mostly he sits smiling; now and then he blinks, glances
+#: left and right, and winks once. The loop runs on its own, not with drawer-full's ring (its
+#: length is odd and the ring's period is 2 s, so each time round every face lands on the other
+#: ring phase) nor with in-use's pages. Only the eyes move; the smile stays.
+POOP_FACE_LOOP: tuple[str, ...] = (
     "poop_full", "poop_full", "poop_full_blink", "poop_full", "poop_full",
     "poop_full_left", "poop_full_right", "poop_full", "poop_full", "poop_full",
     "poop_full_blink", "poop_full", "poop_full_wink", "poop_full", "poop_full",
@@ -403,7 +403,7 @@ def _drawer_full_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     f = _f52()
     if blink(now):
         edge_ring(f, cfg, "alert")
-    icon52(f, cfg, DRAWER_FULL_LOOP[phase(now, len(DRAWER_FULL_LOOP))])
+    icon52(f, cfg, POOP_FACE_LOOP[phase(now, len(POOP_FACE_LOOP))])
     draw_art(f, FULL_ART, RING_X, 2, cfg)
     width = RING_R - RING_X + 1
     sub = caption(state, cfg, "drawer_full", S52, width, condensed_small_font(),
@@ -413,62 +413,100 @@ def _drawer_full_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
 
 
 # =========================================================================================
-# In use: the funny moment. Arthur and a big poop emoji take turns.
+# In use: the funny moment. Two pages take turns: the poop emoji with a joke, then Arthur
+# with the timer.
 # =========================================================================================
 
-#: In-use loop at 52x16, one entry per second. Page A (4 s): Arthur in the box giving a
-#: "do you mind?" look (eyes dart left, right, then squeeze shut with a sweat drop), big
-#: timer and drawer bar. Page B (2 s): the big poop emoji with wiggling stink lines, the
-#: caption as the headline and the timer small underneath.
-IN_USE_LOOP: tuple[str, ...] = (
-    "arthur_box_left",
-    "arthur_box_right",
-    "arthur_box_shut",
-    "arthur_box_shut",
-    "poop",
-    "poop",
+#: Cat-page poses, one per second (a 9 s loop of its own, on wall-clock seconds): Arthur sits
+#: half-lidded and smirking ("do you mind?"), glances to each side, raises a brow, blinks
+#: slowly and flicks his tail. The smirk never moves, so every frame carries the joke.
+SMUG_LOOP: tuple[str, ...] = (
+    "arthur_smug", "arthur_smug", "arthur_smug_left", "arthur_smug_right", "arthur_smug",
+    "arthur_smug_brow", "arthur_smug", "arthur_smug_blink", "arthur_smug_tail",
 )
-
-
+#: The poop emoji drawn one row lower than on drawer-full (rows 3-14), so the stink lines have
+#: rows 1-5 beside its tip.
+POOP_Y = 1
+#: A stink wisp: a little S, 2 columns by 4 rows.
+WISP = (".K", "K.", "K.", ".K")
+#: Rows the wisps may use: beside the poop's tip, a pixel clear of it, off the border row.
+STINK_TOP, STINK_BOTTOM = 1, 5
+#: The wisps are a stream: one every ``STINK_CYCLE`` rows (the wisp and a 2-row gap), the whole
+#: stream climbing a row a second, so every lit pixel moves straight up. A 6 s cycle.
+STINK_CYCLE = 6
+#: (left column, phase offset) of each side's wisp: left at columns 2-3, right at 13-14, half a
+#: cycle apart so one is always low while the other is high.
+STINK_SIDES = ((2, 0), (13, 3))
 def _in_use_timer(state: DisplayState, now: datetime) -> str:
     return fmt_clock(seconds_between(state.since, now))
 
 
-@layout(S52, "in_use", "duo")
-def _in_use_duo_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
+def in_use_page(state: DisplayState, now: datetime, cfg: Config) -> tuple[str, int]:
+    """``("joke" | "cat", loop number)``. The loop is the joke page for ``in_use_joke_s``
+    then the cat page for ``in_use_cat_s``, counted from when Arthur stepped in, so every visit
+    opens on a joke."""
+    joke_s = max(1, int(cfg.timings.in_use_joke_s))
+    cat_s = max(0, int(cfg.timings.in_use_cat_s))
+    began = state.since or state.last_seen
+    t = tick(now) - (math.floor(began.timestamp()) if began is not None else 0)
+    k, into = divmod(t, joke_s + cat_s)
+    return ("joke" if into < joke_s else "cat"), k
+
+
+def turn_caption(
+    state: DisplayState,
+    cfg: Config,
+    key: str,
+    turn: int,
+    size: Size,
+    width: int,
+    font: Font,
+    *,
+    fallback: str,
+) -> str:
+    """The ``[captions] key`` joke for the ``turn``-th time its page comes round.
+
+    The captions that fit are shuffled once per visit (seeded from when the state began, like
+    :func:`caption`) and shown in that order, one per turn, so every one shows before any
+    repeats and two visits start in different places.
+    """
+    CAPTION_USES.setdefault(key, set()).add((size, width, font, 1))
+    options = [c for c in cfg.captions.get(key, ()) if fits(c, width, font)]
+    if not options:
+        return fallback
+    began = state.since or state.last_seen
+    seed = zlib.crc32(f"{key}|{math.floor(began.timestamp()) if began else 0}".encode())
+    random.Random(seed).shuffle(options)
+    return options[turn % len(options)]
+
+
+def stink(f: Frame, cfg: Config, now: datetime) -> None:
+    """Two streams of stink wisps rising beside the poop's tip, a row a second."""
+    color = cfg.rgb("stink")
+    n = len(WISP)
+    for x0, offset in STINK_SIDES:
+        for y in range(STINK_TOP, STINK_BOTTOM + 1):
+            i = (y + tick(now) + offset) % STINK_CYCLE  # row of the wisp (or gap) shown here
+            if i < n:
+                for dx, ch in enumerate(WISP[i]):
+                    if ch != ".":
+                        f.pixel(x0 + dx, y, color)
+
+
+@layout(S52, "in_use")
+def _in_use_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     f = _f52()
-    p = phase(now, len(IN_USE_LOOP))
-    pose = IN_USE_LOOP[p]
-    if pose != "poop":
-        icon52(f, cfg, pose)
+    page, k = in_use_page(state, now, cfg)
+    if page == "cat":
+        icon52(f, cfg, SMUG_LOOP[phase(now, len(SMUG_LOOP))])
         digits52(f, cfg, _in_use_timer(state, now), "text")
         drawer_gauge52(f, state, cfg)
         return f
-    icon52(f, cfg, "poop_big")
-    a, b = (STINK_A, STINK_B) if p % 2 == 0 else (STINK_B, STINK_A)
-    draw_art(f, a[:3], 1, 1, cfg)
-    draw_art(f, b[:3], 10, 1, cfg)
-    cap = caption(state, cfg, "in_use", S52, C52_W, large_font(), fallback="BUSY")
-    big52(f, cfg, cap, "fur")
-    small52(f, cfg, _in_use_timer(state, now), "text")
-    return f
-
-
-@layout(S52, "in_use", "door")
-def _in_use_door_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    f = _f52()
-    icon52(f, cfg, "door", "alert")
-    small52(f, cfg, "OCCUPIED", "alert", y=L1_Y)
-    big52(f, cfg, _in_use_timer(state, now), "text", y=7)
-    return f
-
-
-@layout(S52, "in_use", "timer")
-def _in_use_timer_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    f = _f52()
-    icon52(f, cfg, "arthur_box")
-    digits52(f, cfg, _in_use_timer(state, now), "text")
-    drawer_gauge52(f, state, cfg)
+    draw_icon(f, POOP_FACE_LOOP[phase(now, len(POOP_FACE_LOOP))], 0, POOP_Y, cfg, size=PIC)
+    stink(f, cfg, now)
+    joke = turn_caption(state, cfg, "in_use", k, S52, C52_W, large_font(), fallback="BUSY")
+    big52(f, cfg, joke, "fur")
+    small52(f, cfg, "IN USE", "text")
     return f
 
 
@@ -532,30 +570,115 @@ def _waiting_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
 
 
 # =========================================================================================
-# Cleaning: the globe turning, in mint
+# Cleaning: soapy blue. The globe turning inside a ring with bubbles running round it.
 # =========================================================================================
 
+#: The drum's top-left inside the ring's 1-pixel gap: it covers columns 2-13, rows 2-13.
+DRUM_X, DRUM_Y = 2, 2
+#: Bubbles on the cleaning ring: a ``BUBBLE_LEN``-pixel run of ``soap_hi`` every
+#: ``BUBBLE_EVERY`` pixels round the ring, moving ``BUBBLE_STEP`` pixels clockwise a second.
+BUBBLE_EVERY = 11  # 132 ring pixels / 11 = 12 bubbles
+BUBBLE_LEN = 2
+BUBBLE_STEP = 1
 
-def drum(f: Frame, cfg: Config, now: datetime) -> None:
-    """The robot's globe: a mint ring whose opening turns a step every second, with litter
-    lying in the bottom."""
-    size = PIC
+#: The countdown in 6-row bold digits (the big font's 7 rows leave no gap inside the ring), in
+#: the style of drawer-full's FULL: 2-pixel uprights, 1-pixel bars. Drawn in ``text``; "M", "H"
+#: and "D" cover the rare long timers (``fmt_clock``).
+BOLD_GLYPHS: dict[str, tuple[str, ...]] = {
+    "0": (".WWWW.", "WW..WW", "WW..WW", "WW..WW", "WW..WW", ".WWWW."),
+    "1": ("..WW..", ".WWW..", "..WW..", "..WW..", "..WW..", ".WWWW."),
+    "2": ("WWWWW.", "....WW", ".WWWW.", "WW....", "WW....", "WWWWWW"),
+    "3": ("WWWWW.", "....WW", "..WWW.", "....WW", "....WW", "WWWWW."),
+    "4": ("WW..WW", "WW..WW", "WWWWWW", "....WW", "....WW", "....WW"),
+    "5": ("WWWWWW", "WW....", "WWWWW.", "....WW", "....WW", "WWWWW."),
+    "6": (".WWWW.", "WW....", "WWWWW.", "WW..WW", "WW..WW", ".WWWW."),
+    "7": ("WWWWWW", "....WW", "...WW.", "..WW..", "..WW..", "..WW.."),
+    "8": (".WWWW.", "WW..WW", ".WWWW.", "WW..WW", "WW..WW", ".WWWW."),
+    "9": (".WWWW.", "WW..WW", "WW..WW", ".WWWWW", "....WW", ".WWWW."),
+    ":": ("..", "WW", "..", "..", "WW", ".."),
+    "-": ("....", "....", "WWWW", "WWWW", "....", "...."),
+    "M": ("WW...WW", "WWW.WWW", "WWWWWWW", "WW.W.WW", "WW...WW", "WW...WW"),
+    "H": ("WW..WW", "WW..WW", "WWWWWW", "WW..WW", "WW..WW", "WW..WW"),
+    "D": ("WWWWW.", "WW..WW", "WW..WW", "WW..WW", "WW..WW", "WWWWW."),
+}
+#: Space after each bold glyph: 2 pixels, 1 either side of a colon.
+BOLD_GAP = 2
+
+
+def bold_width(s: str) -> int:
+    """Width of ``s`` in :data:`BOLD_GLYPHS`."""
+    w = 0
+    for i, ch in enumerate(s):
+        w += len(BOLD_GLYPHS[ch][0])
+        if i < len(s) - 1:
+            w += 1 if ":" in (ch, s[i + 1]) else BOLD_GAP
+    return w
+
+
+def bold_text(f: Frame, cfg: Config, s: str, x: int, y: int, role: str) -> int:
+    """Draw ``s`` in the bold digits with its top-left at (x, y); returns the width."""
+    for i, ch in enumerate(s):
+        art = BOLD_GLYPHS[ch]
+        draw_art(f, art, x, y, cfg, override=role)
+        x += len(art[0])
+        if i < len(s) - 1:
+            x += 1 if ":" in (ch, s[i + 1]) else BOLD_GAP
+    return bold_width(s)
+
+
+def ring_pixels(w: int, h: int) -> list[tuple[int, int]]:
+    """The outermost pixels, clockwise from the top-left corner."""
+    top = [(x, 0) for x in range(w)]
+    right = [(w - 1, y) for y in range(1, h)]
+    bottom = [(x, h - 1) for x in range(w - 2, -1, -1)]
+    left = [(0, y) for y in range(h - 2, 0, -1)]
+    return top + right + bottom + left
+
+
+def soap_ring(f: Frame, cfg: Config, now: datetime) -> None:
+    """The cleaning ring: ``soap`` all round, with ``soap_hi`` bubbles running clockwise."""
+    edge_ring(f, cfg, "soap")
+    hi = cfg.rgb("soap_hi")
+    shift = tick(now) * BUBBLE_STEP
+    for i, (x, y) in enumerate(ring_pixels(f.width, f.height)):
+        if (i - shift) % BUBBLE_EVERY < BUBBLE_LEN:
+            f.pixel(x, y, hi)
+
+
+#: The globe, hand-drawn to fit the 12x12 box inside the ring: ``b`` the shell (its opening is
+#: cut out by angle as it turns), ``s`` the litter lying in the bottom.
+DRUM_ART = (
+    "....bbbb....",
+    "..bb....bb..",
+    ".b........b.",
+    ".b........b.",
+    "b..........b",
+    "b..........b",
+    "b..........b",
+    "b.ssssssss.b",
+    ".bssssssssb.",
+    ".b.ssssss.b.",
+    "..bb.ss.bb..",
+    "....bbbb....",
+)
+
+
+def drum(f: Frame, cfg: Config, now: datetime, x0: int = DRUM_X, y0: int = DRUM_Y) -> None:
+    """The robot's globe at (x0, y0): a soapy-blue shell whose opening turns a step (an eighth
+    of a turn) every second, with litter lying in the bottom."""
     steps = 8
-    c = (size - 1) / 2
-    r = 6.4
+    c = (len(DRUM_ART) - 1) / 2
     theta = phase(now, steps) * 2 * math.pi / steps - math.pi / 2
-    gap = math.radians(38)
-    mint, sand = cfg.rgb("mint"), cfg.rgb("sand")
-    for y in range(size):
-        for x in range(size):
-            dx, dy = x - c, y - c
-            d = math.hypot(dx, dy)
-            if abs(d - r) <= 0.6:
-                diff = (math.atan2(dy, dx) - theta + math.pi) % (2 * math.pi) - math.pi
+    gap = math.radians(40)
+    soap, sand = cfg.rgb("soap"), cfg.rgb("sand")
+    for y, row in enumerate(DRUM_ART):
+        for x, ch in enumerate(row):
+            if ch == "s":
+                f.pixel(x0 + x, y0 + y, sand)
+            elif ch == "b":
+                diff = (math.atan2(y - c, x - c) - theta + math.pi) % (2 * math.pi) - math.pi
                 if abs(diff) > gap:
-                    f.pixel(x, y, mint)
-            elif d < r - 1.4 and dy > 1.5:
-                f.pixel(x, y, sand)
+                    f.pixel(x0 + x, y0 + y, soap)
 
 
 def _clean_left(state: DisplayState, now: datetime) -> str:
@@ -564,27 +687,20 @@ def _clean_left(state: DisplayState, now: datetime) -> str:
     return fmt_countdown((state.cycle_end - now).total_seconds())
 
 
-@layout(S52, "cleaning", "spin")
-def _cleaning_spin_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
+@layout(S52, "cleaning", edge_ring=True)
+def _cleaning_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     f = _f52()
+    soap_ring(f, cfg, now)
     drum(f, cfg, now)
-    big52(f, cfg, _clean_left(state, now), "text")
-    cap = caption(state, cfg, "cleaning", S52, C52_W, small_font(), fallback="CLEANING")
-    small52(f, cfg, cap, "mint")
-    return f
-
-
-@layout(S52, "cleaning", "gauge")
-def _cleaning_gauge_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    f = _f52()
-    drum(f, cfg, now)
-    digits52(f, cfg, _clean_left(state, now), "mint")
-    drawer_gauge52(f, state, cfg)
+    bold_text(f, cfg, _clean_left(state, now), RING_X, 2, "text")
+    width = RING_R - RING_X + 1
+    word = caption(state, cfg, "cleaning", S52, width, small_font(), fallback="CLEANING")
+    small52(f, cfg, word, "soap", y=9, x=RING_X, right=RING_R)
     return f
 
 
 # =========================================================================================
-# Just cleaned: a twinkling sparkle and FRESH!
+# Just cleaned: a twinkling soapy-blue sparkle and FRESH!
 # =========================================================================================
 
 
@@ -593,7 +709,7 @@ def _just_cleaned_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     f = _f52()
     icon52(f, cfg, "sparkle_a" if blink(now) else "sparkle_b")
     head = caption(state, cfg, "just_cleaned", S52, C52_W, large_font(), fallback="FRESH!")
-    big52(f, cfg, head, "mint")
+    big52(f, cfg, head, "soap")
     drawer_gauge52(f, state, cfg)
     return f
 

@@ -8,7 +8,8 @@ get across. How it looks on the 52x16 clock is worked out in the studio, not her
 mapping, renderer and fixtures all use.
 
 ## How a state is chosen
-The highest layer with something to say wins. Badges are added on top of whatever is showing.
+The highest layer with something to say wins. There are no badges (D-0012): one state shows
+at a time.
 
 1. **Trust** — can I believe the screen?
 2. **Needs you** — something only a person can fix.
@@ -36,9 +37,9 @@ The highest layer with something to say wins. Badges are added on top of whateve
 
 | id | Trigger | Must convey |
 |---|---|---|
-| `in_use` | Status `CAT_DETECTED`. | Arthur is in there now; how long he has been. |
+| `in_use` | Status `CAT_DETECTED`. | Arthur is in there now. Two pages take turns: the poop emoji with a joke and "IN USE", then Arthur with how long he has been. |
 | `waiting` | Status `CAT_SENSOR_TIMING`. | He has left; countdown to the clean cycle, from `clean_cycle_wait_time_minutes` (3, 7, 15, 25 or 30). If `is_sleeping`, the robot will not cycle yet, so show waiting without a countdown. |
-| `cleaning` | Status `CLEAN_CYCLE`. | Cycling; progress as a timed estimate (`clean_cycle_estimate_s`). The library does not expose dump, level and home phases. |
+| `cleaning` | Status `CLEAN_CYCLE`. | Cycling: soapy blue, a moving border, "CLEANING" and a countdown that is a timed estimate (`clean_cycle_estimate_s`). The library does not expose dump, level and home phases. |
 | `interrupted` | Status `CAT_SENSOR_INTERRUPTED`. | He stepped back in mid-cycle and it stopped. Visibly different from `cleaning`. |
 | `paused` | Status `PAUSED`. | The cycle is paused. |
 | `emptying` | Status `EMPTY_CYCLE`. | A person started an empty cycle. |
@@ -63,17 +64,15 @@ the live screens (D-0011).
 | Litter | Follows the robot's own word, `litter_level_state`, which is what the phone app shows. `OPTIMAL` green; `REFILL` and `OVERFILL` yellow; `LOW` and `EMPTY` red; no word, sand. |
 | Drawer | Orange below `drawer_warn_pct`; red from there, and on `drawer_full`. The robot reports only a percentage and a full flag, so "nearly full" is our own threshold. |
 
-## Badges
-On `ready`, `drawer_nearly_full` and `litter_low` are not drawn, because the bars already say
-it. `drawer_full` and `no_data` draw no badges.
+## Conditions with no screen of their own
+Badges were removed (D-0012). What they used to mark:
 
-| id | Trigger |
+| Condition | Now |
 |---|---|
-| `drawer_nearly_full` | `waste_drawer_level` ≥ `drawer_warn_pct` |
-| `litter_low` | `litter_level_state` is `LOW` or `EMPTY` |
-| `laser_dirty` | `is_laser_dirty` |
-| `on_battery` | `power_type == "DC"` |
-| `polling_only` | The WebSocket is down and data comes from the periodic refresh, so it may lag |
+| Drawer nearly full, litter low | The bar colours above. |
+| Laser sensors dirty (`is_laser_dirty`) | On idle, the bottom line says "LASER" in amber instead of the last-visit time. |
+| On battery (`power_type == "DC"`) | Not shown. |
+| Live connection down, polling only | Not shown. A real outage still becomes `no_data`, or the clock's stale border. |
 
 ## Not live data
 - **Last visit and visits today** come from `get_activity_history()` or the pet's
@@ -86,7 +85,7 @@ it. `drawer_full` and `no_data` draw no badges.
 - Anything faster than Whisker's cloud chooses to push it.
 - Its own state while it is offline.
 - "Drawer almost full" as a state: a Litter-Robot 4 never reports `DRAWER_FULL_1` or
-  `DRAWER_FULL_2`, so the nearly-full badge is our own threshold.
+  `DRAWER_FULL_2`, so the drawer bar turning red is our own threshold.
 
 ## Ideas for later
 - **No visit in N hours.** A cat that stops going is a health warning worth a gentle alert.

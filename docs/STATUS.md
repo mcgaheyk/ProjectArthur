@@ -9,7 +9,7 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
   (D-0010); commit 91e4960 is the last one that has them.
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
-- **Built and tested (476 tests):**
+- **Built and tested (522 tests):**
   - Pipeline: `arthur/model.py`, `arthur/mapping.py`, `arthur/render/`, with variants for
     ready, in_use, waiting and cleaning.
   - Screens: second design pass done on 2026-11-16 to Kyle's direction (D-0009): orange
@@ -18,6 +18,10 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
     Since then, to his direction (D-0011): the level bars are coloured by state (litter by the
     robot's own word, drawer orange then red), and drawer-full is a poop emoji, "FULL",
     "EMPTY NOW" and a flashing red ring.
+    Then pass 4 (D-0012): one layout each for in use, waiting and cleaning; in use takes
+    turns between the poop emoji with a cycling joke and "IN USE", and a smug Arthur with the
+    timer; cleaning and just-cleaned are soapy blue with a moving border on cleaning; idle has
+    more room and a longer tail; badges are gone. **Kyle has not reacted to pass 4 yet.**
   - Transport: `arthur/transports/awtrix_ng.py`. Before pushing, it turns off the TC002's
     double-size drawing (`enlargeApps`); without that the clock shows a quarter of the frame.
     Only ever run against the fake clock.
@@ -100,14 +104,16 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
 - Experiment: the no-cloud ESPHome firmware for the robot itself.
 
 ## Known rough edges in the screens
-- **In use:** Arthur's side-eye is subtle and needs a couple of seconds of watching; his head
-  is a little flat because the litter-box rim takes the lower rows. The stink lines read as
-  chevrons.
-- **Captions** are capped at about seven letters, so "SPIN CYCLE" and "EMPTY ME" do not fit.
-  "POOPIN?" and "PEEIN?" carry question marks because we cannot tell which; Kyle may prefer
-  them without.
-- **Badges** are still small coloured marks that do not explain themselves. Idle no longer
-  draws the two that the bars replace, and drawer-full draws none.
+- **In use:** the joke page and the poop's face loop share a rhythm (pages 6 s + 4 s, face
+  15 s), so the same blinks land on the same pages every third round. Arthur's smirk and the
+  rising stink lines have only been judged on a monitor.
+- **Jokes** are capped at about seven letters. "POOPIN?" and "PEEIN?" carry question marks
+  because we cannot tell which.
+- **Idle laser notice** can only say "LASER": "WIPE LASER" and "LASER DIRTY" are too wide for
+  the line. It does not say what to do.
+- **Cleaning:** the countdown is still an estimate (150 s against real cycles of about 125 s).
+  The 6-row digits and the pale bubbles on the blue border have only been judged on a monitor.
+- On-battery and connection-down are no longer shown anywhere (badges were removed).
 - **Drawer full:** the narrow M and W in "EMPTY NOW" and the flashing ring have only been
   judged on a monitor. The ring means a push to the clock every second for as long as the
   drawer stays full. The poop's face runs on its own 15-second loop (blink, glance left and

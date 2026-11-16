@@ -173,3 +173,28 @@ means a push every second for as long as the drawer stays full.
 **Rejected.** Our own percentage cut-offs for litter (they would disagree with the app). Orange
 for `REFILL`, which Kyle suggested: orange is the drawer's colour, so yellow was used. Green
 for a drawer with room (Kyle prefers orange throughout).
+
+## D-0012 — One layout per live state, soapy blue for cleaning, and no badges
+
+**2026-11-16.** Kyle's direction after reviewing the screens in the studio.
+- **In use, waiting and cleaning each have one layout.** The alternatives were removed (in
+  use's door and timer versions, waiting's big countdown, cleaning's gauge). Idle keeps its
+  three versions until he chooses.
+- **In use** takes turns between two pages: the poop emoji, with the same face as drawer-full,
+  beside a joke and "IN USE"; then a smug Arthur, without the litter box, with the timer and
+  the drawer bar. A new joke shows each time the joke page comes round, from six he kept.
+- **Waiting** is the hourglass, "CLEAN IN" and the countdown.
+- **Cleaning and just-cleaned are a soapy light blue**, replacing mint; D-0009's "one cool
+  accent" is now this blue. Cleaning says "CLEANING" and has a blue border with bubbles moving
+  round it, on the outer edge like drawer-full's ring (the exception accepted in D-0011).
+- **Badges are removed.** The bar colours cover drawer and litter (D-0011). A dirty laser
+  shows as an amber line on idle. On-battery and connection-down are not shown.
+- **Idle** moves its bars and text right into the freed columns and Arthur gets a longer tail.
+
+**Why.** He wants settled screens with more life, and the badges never explained themselves.
+
+**Accepted.** A robot on battery, or a feeder that has fallen back to polling, is invisible on
+the display. A real outage still shows `no_data` or the clock's stale border (D-0004).
+
+**Costs.** The cleaning border means a push every second during a cycle, which the countdown
+already caused. The laser notice only has room for the word "LASER".

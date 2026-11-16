@@ -194,8 +194,8 @@ async def test_gallery_tiles_play_their_loop(client):
     faces = {tuple(f.get(x, y) for x in range(26) for y in range(16)) for f in frames}
     assert len(faces) > 2
 
-    duo = next(t for t in rows["in_use"]["tiles"]["52x16"] if t["variant"] == "duo")
-    assert len(set(duo["seq"])) > 2
+    (in_use,) = rows["in_use"]["tiles"]["52x16"]
+    assert len(set(in_use["seq"])) > 2
 
     # Frame k of every tile is the fixture rendered k seconds after its own time.
     for row in rows.values():

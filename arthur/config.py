@@ -35,7 +35,8 @@ REQUIRED_ROLES: tuple[str, ...] = (
     "poop_hi",
     "gold",
     "sand",
-    "mint",
+    "soap",
+    "soap_hi",
     "stink",
     "ghost",
     "stale",
@@ -120,6 +121,8 @@ class Timings:
     clean_cycle_estimate_s: float = 150
     no_data_after_s: float = 600
     idle_blink_every_s: float = 30
+    in_use_joke_s: float = 6
+    in_use_cat_s: float = 4
 
 
 #: An empty caption table, for configs without [captions].

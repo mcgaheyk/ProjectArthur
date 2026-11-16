@@ -6,8 +6,8 @@
 size = "52x16"
 
 # Semantic colour roles. Screens and icons refer to roles, never to hex values.
-# The scheme is warm (Kyle's office is reddish, Arthur is orange). Mint is the one cool accent
-# and is reserved for the robot cleaning and "fresh". Trouble is red.
+# The scheme is warm (Kyle's office is reddish, Arthur is orange). A light, soapy blue is the one
+# cool accent and is reserved for the robot cleaning and "fresh". Trouble is red.
 [palette]
 off       = "#000000"  # unlit
 text      = "#FFE4C4"  # warm white: words and digits
@@ -24,7 +24,8 @@ poop      = "#683010"  # the poop emoji: brown (kept dark so it never reads as A
 poop_hi   = "#A86028"  # the poop emoji: lighter highlight
 gold      = "#FFC828"  # waiting digits, power and emptying
 sand      = "#E09020"  # hourglass sand; the litter bar when the robot gives no litter word
-mint      = "#30FFB0"  # the one cool accent: cleaning and "fresh"
+soap      = "#38B6FF"  # the one cool accent: a light, fun, soapy blue for cleaning and "fresh"
+soap_hi   = "#B8ECFF"  # pale bubble highlight on the soapy blue (the cleaning ring's bubbles)
 stink     = "#A8D020"  # stink lines: a sickly yellow-green, used for nothing else
 ghost     = "#686868"  # grey ghost Arthur: we do not know what he is doing
 stale     = "#6E0700"  # the clock's own out-of-date border (AWTRIX NG lifetimeExpiry "mark")
@@ -50,7 +51,8 @@ poop      = "B"
 poop_hi   = "H"
 gold      = "A"
 sand      = "s"
-mint      = "M"
+soap      = "b"
+soap_hi   = "i"
 stink     = "K"
 ghost     = "g"
 stale     = "x"
@@ -67,21 +69,24 @@ just_cleaned_s = 60           # READY within this long after CLEAN_CYCLE shows j
 clean_cycle_estimate_s = 150  # timed progress estimate for cleaning (library has no phases)
 no_data_after_s = 600         # no successful contact for this long shows no_data
 idle_blink_every_s = 30       # idle Arthur blinks (or flicks his tail) once per this many s
+in_use_joke_s = 6             # in use: seconds of the joke page (poop emoji, joke, IN USE)
+in_use_cat_s = 4              # in use: seconds of the cat page (Arthur, timer, drawer bar)
 
 # Captions are jokes. One is picked per visit (from when the state began), so it stays put for
 # the whole visit and changes between visits. Add your own; a caption too wide for its line
 # is skipped, never cut off (the tests list any that do not fit).
 # Rough widths: most letters are 4 px, M and W 6, I ! : and space 2.
 [captions]
-# in use, headline beside the poop emoji, big font: up to 31 px (about 7 letters)
-in_use = ["PLOP?", "BUSY", "IN SESH", "NO PEEK", "POOPIN?", "PEEIN?", "BRB", "SHH!",
-          "PRIVACY", "WORKIN", "THRONE", "VIP ONLY"]
+# in use, the joke page's headline beside the poop emoji, big font: up to 31 px (about 7
+# letters). Unlike the others these take turns: a new one each time the joke page comes round,
+# in an order shuffled once per visit, so all of them show before any repeats.
+in_use = ["IN SESH", "NO PEEK", "POOPIN?", "PEEIN?", "THRONE", "VIP ONLY"]
 # waiting, top line above the countdown: up to 31 px
 waiting = ["CLEAN IN"]
 # waiting while the robot sleeps: headline, up to 31 px in the big font
 waiting_sleep = ["ZZZ", "SNOOZE", "NAPPING", "SLEEPY", "LATER"]
-# cleaning, second line under the countdown: up to 31 px
-cleaning = ["SPINNING", "FLUSHING", "WHEEE", "TUMBLE", "SIFTING", "SWOOSH", "DIZZY"]
+# cleaning, small line under the countdown, inside the soapy ring: up to 34 px
+cleaning = ["CLEANING"]
 # just cleaned headline, big font, up to 31 px
 just_cleaned = ["FRESH!", "SPARKLY", "SO FRESH", "SHINY", "SO NICE", "AHHH"]
 # interrupted headline, big font, up to 31 px

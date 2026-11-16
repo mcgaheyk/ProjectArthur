@@ -14,11 +14,11 @@ from arthur.render import Frame, list_kinds, list_sizes, list_variants, overlay_
 from arthur.render.font import condensed_small_font, large_font, small_font
 from arthur.render.icons import get_icon, icon_names
 from arthur.render.screens import (
-    DRAWER_FULL_LOOP,
     EDGE_RING,
     IDLE_R,
     IDLE_X,
     LASER_WORDS,
+    POOP_FACE_LOOP,
     TAIL_FLICK,
     TAIL_REST,
     TAIL_X,
@@ -151,10 +151,11 @@ def test_every_kind_has_layouts():
             assert list_variants(kind, size)
 
 
-@pytest.mark.parametrize("kind", ["ready", "in_use", "cleaning"])
-def test_variant_kinds_have_two_or_more(kind):
+def test_only_ready_has_variants():
     for size in SIZES:
-        assert 2 <= len(list_variants(kind, size)) <= 3
+        assert 2 <= len(list_variants("ready", size)) <= 3
+        for kind in ("in_use", "cleaning", "waiting", "just_cleaned", "drawer_full"):
+            assert list_variants(kind, size) == ["default"], kind
 
 
 def test_unknown_variant_falls_back_to_default():
@@ -417,10 +418,12 @@ def _drawer_full_frame(dt):
     return render(s, fx.now + timedelta(seconds=dt), CFG)
 
 
-def test_only_drawer_full_has_an_edge_ring():
-    assert EDGE_RING == {((52, 16), "drawer_full", "default")}
+def test_only_drawer_full_and_cleaning_have_an_edge_ring():
+    assert EDGE_RING == {((52, 16), "drawer_full", "default"), ((52, 16), "cleaning", "default")}
     assert has_edge_ring("drawer_full", (52, 16))
+    assert has_edge_ring("cleaning", (52, 16))
     assert not has_edge_ring("ready", (52, 16))
+    assert not has_edge_ring("in_use", (52, 16))
 
 
 def test_drawer_full_ring_flashes_on_even_seconds():
@@ -437,12 +440,12 @@ FACE_BOX = {(x, y) for x in range(4, 13) for y in range(7, 14)}
 
 def _drawer_full_face(dt):
     fx = FIXTURES["drawer_full"]
-    return DRAWER_FULL_LOOP[phase(fx.now + timedelta(seconds=dt), len(DRAWER_FULL_LOOP))]
+    return POOP_FACE_LOOP[phase(fx.now + timedelta(seconds=dt), len(POOP_FACE_LOOP))]
 
 
 def test_drawer_full_keeps_a_gap_inside_the_ring_and_only_ring_and_face_move():
     off = CFG.rgb("off")
-    frames = [_drawer_full_frame(dt) for dt in range(2 * len(DRAWER_FULL_LOOP))]
+    frames = [_drawer_full_frame(dt) for dt in range(2 * len(POOP_FACE_LOOP))]
     for f in frames:
         w, h = f.size
         gap = {(x, y) for x in range(1, w - 1) for y in (1, h - 2)}
@@ -454,7 +457,7 @@ def test_drawer_full_keeps_a_gap_inside_the_ring_and_only_ring_and_face_move():
 
 
 def test_drawer_full_face_loop_shape():
-    loop = DRAWER_FULL_LOOP
+    loop = POOP_FACE_LOOP
     assert len(loop) % 2 == 1  # odd, so the face drifts against the 2 s ring
     assert loop.count("poop_full") > len(loop) / 2
     assert loop.count("poop_full_left") >= 1 and loop.count("poop_full_right") >= 1
@@ -466,32 +469,32 @@ def test_drawer_full_face_loop_shape():
 def test_drawer_full_face_is_independent_of_the_ring():
     alert = CFG.rgb("alert")
     seen: dict[str, set[bool]] = {}
-    for dt in range(2 * len(DRAWER_FULL_LOOP)):
+    for dt in range(2 * len(POOP_FACE_LOOP)):
         ring_on = _drawer_full_frame(dt).get(0, 0) == alert
         seen.setdefault(_drawer_full_face(dt), set()).add(ring_on)
     for face, phases in seen.items():
         if face != "poop_full":
             assert phases == {True, False}, face
-    assert set(seen) == set(DRAWER_FULL_LOOP)
+    assert set(seen) == set(POOP_FACE_LOOP)
 
 
 def test_drawer_full_has_no_shout_and_the_mouth_never_moves():
     assert "poop_full_shout" not in icon_names()
-    assert "poop_full_shout" not in DRAWER_FULL_LOOP
+    assert "poop_full_shout" not in POOP_FACE_LOOP
     mouths = {tuple(_drawer_full_frame(dt).get(x, y) for x in range(2, 15) for y in range(10, 14))
-              for dt in range(len(DRAWER_FULL_LOOP))}
+              for dt in range(len(POOP_FACE_LOOP))}
     assert len(mouths) == 1
 
 
 def test_drawer_full_calm_faces_are_distinct():
-    rows = {get_icon(name, 16)[0].rows for name in set(DRAWER_FULL_LOOP)}
-    assert len(rows) == len(set(DRAWER_FULL_LOOP)) == 5
+    rows = {get_icon(name, 16)[0].rows for name in set(POOP_FACE_LOOP)}
+    assert len(rows) == len(set(POOP_FACE_LOOP)) == 5
 
 
 def test_drawer_full_faces_share_one_body():
     # Every face fills the same body outline: only interior eye and mouth cells differ.
     base = get_icon("poop_full", 16)[0].rows
-    for name in set(DRAWER_FULL_LOOP):
+    for name in set(POOP_FACE_LOOP):
         rows = get_icon(name, 16)[0].rows
         for y in range(16):
             for x in range(16):

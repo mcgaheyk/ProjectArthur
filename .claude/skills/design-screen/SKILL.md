@@ -11,10 +11,15 @@ and still readable in one glance from across a room. Clear first, funny second.
 
 - **Arthur is an orange cat.** He is the mascot: draw him orange, give him poses, let him react.
 - **Kyle's office has a reddish theme.** The palette is warm: oranges, golds, warm white. Avoid
-  cool blues and purples as main colours. One cool accent (mint) is reserved for the robot
-  cleaning and "fresh", so that state still stands apart.
-- **In use is the funny moment.** Arthur and a poop emoji, alternating or together.
-- **Waiting:** the hourglass and countdown layout is liked; it uses the warm scheme.
+  cool blues and purples as main colours. The one cool colour is a soapy light blue, used only
+  for the robot cleaning and "fresh" (D-0012).
+- **In use is the funny moment.** Two pages take turns: the poop emoji (with a face that
+  blinks and looks around) beside a joke and "IN USE", then a smug Arthur with the timer.
+- **One layout per live state** (D-0012). In use, waiting and cleaning have no alternatives;
+  do not add variants back unless Kyle asks to compare something.
+- **No badges** (D-0012). Do not add corner marks; a condition either gets a screen, a bar
+  colour or a line of text, or it is not shown.
+- **Waiting:** the hourglass, "CLEAN IN" and the countdown, in the warm scheme.
 - **Idle** must show the **bin level and the litter level**, plus one more thing (last visit,
   visits today).
 - **Level bars carry meaning by colour** (D-0011). Litter follows the robot's own state word:
@@ -39,7 +44,8 @@ and still readable in one glance from across a room. Clear first, funny second.
   32x8 version to keep in step.
 - The clock draws a 1-pixel dark-red border over the outermost row and column when data is
   stale. Keep anything essential readable with that border on, and draw nothing there. The
-  one deliberate exception is the flashing red ring on `drawer_full` (D-0011).
+  deliberate exceptions are the flashing red ring on `drawer_full` (D-0011) and the moving
+  blue border on `cleaning` (D-0012).
 - Plan for about one frame a second. No smooth animation. Each changed frame is an HTTP push
   to the clock, so live states may change every second, but **idle must stay nearly still**
   (a blink or tail flick a couple of times a minute at most).
