@@ -1,0 +1,19 @@
+# Icon text-art. One character per pixel; see config/display.toml [palette_chars].
+# '.' transparent, '*' the screen's accent role, '%' level-fill area (drawn by code).
+# In use: Arthur in the litter box, looking straight out.
+................
+..O.........O...
+..OO.......OO...
+..ONO.....ONO...
+..OOOOSOSOOOO...
+.OOOOOOSOOOOOO..
+.OOE.EOOOE.EOO..
+.SOE.EOOOE.EOS..
+.OOOOOCNCOOOOO..
+.s.OOCCCCCOO.s..
+.gggggggggggggg.
+.gs::s:::::s::g.
+.g::::::::::::g.
+.g::::::::::::g.
+.gggggggggggggg.
+................

@@ -289,21 +289,6 @@ def bottom_gauge32(f: Frame, frac: float, role: str, cfg: Config) -> None:
     gauge(f, T32_X, G32_Y, T32_W, 1, frac, role, cfg)
 
 
-def icon_rising(
-    f: Frame, cfg: Config, name: str, x: int, y: int, size: int, drop: int, floor: int
-) -> None:
-    """Draw icon ``name`` ``drop`` rows lower than (x, y), cut off below row ``floor``: it
-    looks like it is rising out of the ground."""
-    scratch = Frame(f.width, f.height)
-    draw_icon(scratch, name, x, y + drop, cfg, size=size)
-    off = cfg.rgb("off")
-    for yy in range(min(floor + 1, f.height)):
-        for xx in range(f.width):
-            c = scratch.pixels[yy * f.width + xx]
-            if c != off:
-                f.pixel(xx, yy, c)
-
-
 # Tiny marks that label the idle gauges.
 BIN_MARK = ("..B..", ".BHB.", "BBBBB")  # a little poop: the waste drawer
 LITTER_MARK = ("s.s.s", ".s.s.", "sssss")  # a little sand pile: the litter
@@ -360,7 +345,7 @@ def rare_for(state: DisplayState, now: datetime) -> Rare:
         age = fmt_age(seconds_between(state.last_seen, now))
         return Rare("wifi_x", "alert", "OFFLINE", "alert",
                     first_fitting([f"SEEN {age}", f"{age} AGO", age], C52_W, sm),
-                    ("OFF", "LINE", age, "AGO"))
+                    ("LOST", age))
     if kind == "robot_off":
         return Rare("power", "attention", "ROBOT", "attention", "IS OFF", ("ROBOT", "IS", "OFF"))
     if kind == "fault":
@@ -441,17 +426,20 @@ def _drawer_full_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
 
 
 # =========================================================================================
-# In use: the funny moment. Arthur squats, a poop emoji pops up, stink lines wiggle.
+# In use: the funny moment. Arthur and a big poop emoji take turns.
 # =========================================================================================
 
-#: In-use loop, one entry per second: (Arthur pose, poop drop in rows (None = hidden), stink).
-IN_USE_LOOP: tuple[tuple[str, int | None, int], ...] = (
-    ("arthur_squat", 0, 1),
-    ("arthur_squat", 0, 2),
-    ("arthur_squat", 0, 1),
-    ("arthur_squat", None, 0),
-    ("arthur_strain", None, 0),
-    ("arthur_strain", 4, 0),
+#: In-use loop at 52x16, one entry per second. Page A (4 s): Arthur in the box giving a
+#: "do you mind?" look (eyes dart left, right, then squeeze shut with a sweat drop), big
+#: timer and drawer bar. Page B (2 s): the big poop emoji with wiggling stink lines, the
+#: caption as the headline and the timer small underneath.
+IN_USE_LOOP: tuple[str, ...] = (
+    "arthur_box_left",
+    "arthur_box_right",
+    "arthur_box_shut",
+    "arthur_box_shut",
+    "poop",
+    "poop",
 )
 
 
@@ -462,15 +450,20 @@ def _in_use_timer(state: DisplayState, now: datetime) -> str:
 @layout(S52, "in_use", "duo")
 def _in_use_duo_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     f = _f52()
-    pose, drop, stink = IN_USE_LOOP[phase(now, len(IN_USE_LOOP))]
-    icon52(f, cfg, pose)
-    cap = caption(state, cfg, "in_use", S52, C52_W, small_font(), fallback="BUSY")
-    small52(f, cfg, cap, "fur", y=L1_Y)
-    if drop is not None:
-        icon_rising(f, cfg, "poop", C52_X, 7, 8, drop, floor=14)
-    if stink:
-        draw_art(f, STINK_A if stink == 1 else STINK_B, 26, 9, cfg)
-    small52(f, cfg, _in_use_timer(state, now), "text", x=32)
+    p = phase(now, len(IN_USE_LOOP))
+    pose = IN_USE_LOOP[p]
+    if pose != "poop":
+        icon52(f, cfg, pose)
+        digits52(f, cfg, _in_use_timer(state, now), "text")
+        drawer_gauge52(f, state, cfg)
+        return f
+    icon52(f, cfg, "poop_big")
+    a, b = (STINK_A, STINK_B) if p % 2 == 0 else (STINK_B, STINK_A)
+    draw_art(f, a[:3], 1, 1, cfg)
+    draw_art(f, b[:3], 10, 1, cfg)
+    cap = caption(state, cfg, "in_use", S52, C52_W, large_font(), fallback="BUSY")
+    big52(f, cfg, cap, "fur")
+    small52(f, cfg, _in_use_timer(state, now), "text")
     return f
 
 
@@ -486,7 +479,7 @@ def _in_use_door_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
 @layout(S52, "in_use", "timer")
 def _in_use_timer_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     f = _f52()
-    icon52(f, cfg, "arthur_strain" if phase(now, 2) else "arthur_squat")
+    icon52(f, cfg, "arthur_box")
     digits52(f, cfg, _in_use_timer(state, now), "text")
     drawer_gauge52(f, state, cfg)
     return f
@@ -628,11 +621,14 @@ def _waiting_bar_32(state: DisplayState, now: datetime, cfg: Config) -> Frame:
 def drum(f: Frame, cfg: Config, size: int, now: datetime) -> None:
     """The robot's globe: a mint ring whose opening turns a step every second, with litter
     lying in the bottom."""
-    steps = 8 if size == 16 else 4
+    if size == 8:
+        _drum8(f, cfg, now)
+        return
+    steps = 8
     c = (size - 1) / 2
-    r = 6.4 if size == 16 else 2.8
+    r = 6.4
     theta = phase(now, steps) * 2 * math.pi / steps - math.pi / 2
-    gap = math.radians(38 if size == 16 else 50)
+    gap = math.radians(38)
     mint, sand = cfg.rgb("mint"), cfg.rgb("sand")
     for y in range(size):
         for x in range(size):
@@ -642,8 +638,23 @@ def drum(f: Frame, cfg: Config, size: int, now: datetime) -> None:
                 diff = (math.atan2(dy, dx) - theta + math.pi) % (2 * math.pi) - math.pi
                 if abs(diff) > gap:
                     f.pixel(x, y, mint)
-            elif size == 16 and d < r - 1.4 and dy > 1.5:
+            elif d < r - 1.4 and dy > 1.5:
                 f.pixel(x, y, sand)
+
+
+#: The 8x8 drum's ring, clockwise from the top. A warm-white dot steps round it.
+_RING8 = ((3, 1), (4, 1), (5, 2), (6, 3), (6, 4), (5, 5), (4, 6), (3, 6), (2, 5), (1, 4),
+          (1, 3), (2, 2))
+
+
+def _drum8(f: Frame, cfg: Config, now: datetime) -> None:
+    """A closed mint ring with a dot (and a short trail) going round: a turning globe."""
+    mint, dot, trail = cfg.rgb("mint"), cfg.rgb("text"), cfg.rgb("sand")
+    for x, y in _RING8:
+        f.pixel(x, y, mint)
+    i = (phase(now, 4) * 3) % len(_RING8)
+    f.pixel(*_RING8[i], dot)
+    f.pixel(*_RING8[i - 1], trail)
 
 
 def _clean_left(state: DisplayState, now: datetime) -> str:

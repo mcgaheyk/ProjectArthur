@@ -37,8 +37,8 @@ def test_every_configured_caption_fits_every_line_it_is_used_on():
 
 
 def _caption_row(f):
-    """The in-use caption: rows 1-5, columns 17-47 (right of Arthur)."""
-    return [f.get(x, y) for y in range(1, 6) for x in range(17, 48)]
+    """The in-use caption headline: rows 1-7, columns 17-47 (beside the poop emoji)."""
+    return [f.get(x, y) for y in range(1, 8) for x in range(17, 48)]
 
 
 def test_caption_is_fixed_for_a_visit_and_varies_between_visits():
@@ -48,11 +48,13 @@ def test_caption_is_fixed_for_a_visit_and_varies_between_visits():
         since = fx.now - timedelta(seconds=47 + 977 * visit)
         snap = replace(fx.snapshot, status_since=since)
         state = to_display_state(snap, fx.health, fx.now, CFG)
-        # Same visit, a minute apart, every frame of the loop: the caption row never changes.
+        # Same visit, across a minute: every time the poop page (the caption) comes round,
+        # it shows the same caption. The fixtures' "now" starts the 6 s loop; seconds 4-5
+        # are the poop page.
         rows = {
             tuple(_caption_row(render(state, fx.now + timedelta(seconds=t), CFG, "52x16",
                                       "duo")))
-            for t in range(0, 60, 7)
+            for t in [*range(4, 60, 6), *range(5, 60, 6)]
         }
         assert len(rows) == 1
         picks.add(rows.pop())

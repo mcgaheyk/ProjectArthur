@@ -24,7 +24,7 @@ eye       = "#38E038"  # Arthur: green eyes
 poop      = "#683010"  # the poop emoji: brown (kept dark so it never reads as Arthur's orange)
 poop_hi   = "#A86028"  # the poop emoji: lighter highlight
 gold      = "#FFC828"  # waiting digits, power and emptying
-sand      = "#F0A040"  # hourglass sand and the litter gauge
+sand      = "#E09020"  # hourglass sand and the litter gauge
 mint      = "#30FFB0"  # the one cool accent: cleaning and "fresh"
 stink     = "#A8D020"  # stink lines: a sickly yellow-green, used for nothing else
 ghost     = "#686868"  # grey ghost Arthur: we do not know what he is doing
@@ -72,8 +72,8 @@ page_s = 2                    # 32x8 rare states show one word at a time for thi
 # is skipped, never cut off (the tests list any that do not fit).
 # Rough widths: most letters are 4 px, M and W 6, I ! : and space 2.
 [captions]
-# 52x16 in use, top line next to Arthur: up to 31 px (about 7 letters)
-in_use = ["OCCUPIED", "BUSY", "IN SESH", "NO PEEK", "POOPIN?", "PEEIN?", "BRB", "SHH!",
+# 52x16 in use, headline beside the poop emoji, big font: up to 31 px (about 7 letters)
+in_use = ["PLOP?", "BUSY", "IN SESH", "NO PEEK", "POOPIN?", "PEEIN?", "BRB", "SHH!",
           "PRIVACY", "WORKIN", "THRONE", "VIP ONLY"]
 # 52x16 waiting, label variant, top line: up to 31 px
 waiting = ["FLUSH IN", "CLEAN IN", "SPIN IN", "SCOOP IN", "SIFT IN"]
