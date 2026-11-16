@@ -9,7 +9,7 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
   (D-0010); commit 91e4960 is the last one that has them.
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
-- **Built and tested (334 tests):**
+- **Built and tested (373 tests):**
   - Pipeline: `arthur/model.py`, `arthur/mapping.py`, `arthur/render/`, with variants for
     ready, in_use, waiting and cleaning.
   - Screens: second design pass done on 2026-11-16 to Kyle's direction (D-0009): orange
@@ -24,6 +24,11 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
   - Spike: `scripts/spike_log.py`. **Running on Kyle's Mac since the evening of 2026-11-15**,
     so the real login and live connection work. By the morning of the 16th it had logged two
     complete visits in `logs/spike-*.jsonl`. Nothing reads those logs yet.
+  - PETLIBRO spike: `scripts/spike_petlibro.py` (logic in `arthur/petlibro_spike.py`, 39
+    tests). Logs what the Granary and a fountain report through PETLIBRO's cloud, read only.
+    Kyle's Granary is the reachable kind (paired with the PETLIBRO app, not PETLIBRO Lite).
+    **Tested against a fake server only; never run against PETLIBRO.** API notes, unconfirmed:
+    `docs/reference/petlibro.md`.
 - **Not built:** the feeder service itself (`arthur/sources/`, the run loop). The studio has
   its own in-process stand-in that plays fixtures and scenarios.
 
@@ -50,6 +55,12 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
      5 s. `clean_cycle_wait_time_minutes` reads 8, which is not one of the documented values.
    - Raw `robotCycleStatus` does show cycle phases: `CYCLE_DUMP`, `CYCLE_DFI`, `CYCLE_LEVEL`,
      `CYCLE_HOME`. Raw `catDetect` never left `CAT_DETECT_CLEAR`.
+6. Kyle: run the PETLIBRO spike against the real Granary. In the PETLIBRO phone app, create a
+   second account (password of 18 characters or fewer), share the Granary to it and accept the
+   share; put that login in `.env` as `PETLIBRO_EMAIL` and `PETLIBRO_PASSWORD`; then
+   `uv run --env-file .env python scripts/spike_petlibro.py`. Its first run is the first test
+   of everything in `docs/reference/petlibro.md`, including whether a shared account can log in
+   at all. Fountain to buy: a plug-in model, PLWF105 or PLWF106 (see the research note).
 
 ## Later
 - Pi 5 deployment: Raspberry Pi OS Lite (64-bit), systemd unit, reconnect with backoff, log
@@ -62,10 +73,10 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
 - On-device watchdog script for a louder stale screen. Review NG's Berry agent skill first.
 - Alert sounds (the TC002 has a speaker) and acknowledgement with its knob or buttons.
 - Health nudges: no visit in N hours, unusually many visits.
-- Food and water: show the PETLIBRO Granary's low-food flag and a PETLIBRO fountain's water
-  level. Researched on 2026-11-16, nothing built or run:
-  `docs/research/2026-11-16-petlibro-food-and-water.md`. Blocked on knowing which app the
-  Granary is paired with (PETLIBRO works, PETLIBRO Lite does not).
+- Food and water on the display: a PETLIBRO source (`arthur/sources/petlibro.py`), mapping and
+  screens for the Granary's low-food flag and a fountain's water level. Waits on what the
+  PETLIBRO spike logs (Next, item 6). Research:
+  `docs/research/2026-11-16-petlibro-food-and-water.md`.
 - Experiment: the no-cloud ESPHome firmware for the robot itself.
 
 ## Known rough edges in the screens

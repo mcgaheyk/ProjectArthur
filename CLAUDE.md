@@ -13,6 +13,8 @@ simulates the clock so screens can be designed without the hardware on the desk.
 - `docs/DECISIONS.md`: why things are this way. Append-only.
 - `docs/states.md`: every display state and the robot fact that drives it.
 - `docs/reference/pylitterbot.md`, `docs/reference/awtrix-ng.md`: verified API notes.
+- `docs/reference/petlibro.md`: PETLIBRO cloud API notes (food and water). Read from a
+  third-party integration's source, not yet confirmed live.
 - `docs/research/`: the hardware and firmware comparison behind the decisions.
 - `docs/handoff.md`: the original brief. DECISIONS.md overrides it where they differ.
 
@@ -49,6 +51,8 @@ simulates the clock so screens can be designed without the hardware on the desk.
 - `uv run python -m arthur.sim` starts the studio (also the "studio" entry in `.claude/launch.json`)
 - `uv run python -m arthur.render.preview --all` prints every screen as text
 - `uv run --env-file .env python scripts/spike_log.py` logs the real robot (needs Kyle's `.env`)
+- `uv run --env-file .env python scripts/spike_petlibro.py` logs the real PETLIBRO devices,
+  read only (needs a second PETLIBRO account in Kyle's `.env`)
 
 ## Working here
 - Changing what a screen looks like: use the `design-screen` skill. Look at the result (preview
