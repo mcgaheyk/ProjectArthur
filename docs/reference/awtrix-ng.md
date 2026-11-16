@@ -118,3 +118,18 @@ full OFL-1.1 text, and the combined fonts are OFL-1.1). Keep the notice with any
 - **TC002:** 52x16, knob, speaker. NG arrived as a beta in late September 2026 and uses a USB
   installer. Light sensor, chip and current status are unverified.
 - 2.4 GHz Wi-Fi only.
+
+## Where our fake clock guesses (`arthur/sim/clock.py`)
+The simulator follows this file, but these points are assumptions about the real firmware.
+Check each one when a clock is flashed, by comparing `GET /api/v1/display/screen` on both.
+- Re-pushing an app clears the stale mark and restarts its lifetime.
+- With no app pushed, the screen is black.
+- Indicator pixels: AWTRIX 3's positions at 32x8, the same shapes at the right edge at 52x16,
+  drawn above everything including the stale mark. Blink is on for the first half of the
+  period; fade is a cosine over one period.
+- A base64 bitmap of the wrong length is refused with 422. NG's behaviour is not documented.
+- The fake clock answers "not simulated" (422 for keys, 501 for routes) for anything real in NG
+  that it does not render. A real clock would accept those.
+- The most recently pushed app shows; app rotation is not simulated.
+
+Error bodies use NG's shape: `{"error": {"code", "message", "field"?}}`.

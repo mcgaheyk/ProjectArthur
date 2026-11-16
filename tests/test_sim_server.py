@@ -1,0 +1,271 @@
+"""The simulator server: clock routes, studio API, the feeder end to end, and reload."""
+
+import base64
+import shutil
+import sys
+
+import pytest
+
+import arthur
+from arthur.config import DEFAULT_PATH
+from arthur.render import Frame
+from arthur.sim.clock import STALE_RGB
+from arthur.sim.server import CLOCKS, FEEDER, PIPE, check_reload, create_app
+
+
+class FakeTime:
+    def __init__(self, t: float = 5000.0) -> None:
+        self.t = t
+
+    def __call__(self) -> float:
+        return self.t
+
+
+def bitmap(w, h, rgb=(10, 20, 30)):
+    data = base64.b64encode(bytes(rgb) * (w * h)).decode()
+    return {"draw": [["bitmap", 0, 0, w, h, data]]}
+
+
+@pytest.fixture
+def fake_time():
+    return FakeTime()
+
+
+@pytest.fixture
+async def client(aiohttp_client, fake_time):
+    app = create_app(time_fn=fake_time, start_tasks=False)
+    c = await aiohttp_client(app)
+    app[FEEDER].base_url = str(c.make_url("")).rstrip("/")
+    return c
+
+
+@pytest.mark.parametrize("prefix,size", [("/clock/32x8", (32, 8)), ("/clock/52x16", (52, 16)),
+                                         ("", (32, 8))])
+async def test_clock_routes_at_every_base(client, prefix, size):
+    w, h = size
+    r = await client.put(f"{prefix}/api/v1/apps/pushed/litter", json=bitmap(w, h))
+    assert r.status == 200 and await r.json() == {"ok": True}
+    data = await (await client.get(f"{prefix}/api/v1/display/screen")).json()
+    assert (data["width"], data["height"]) == size
+    assert data["pixels"] == [0x0A141E] * (w * h)
+
+    r = await client.put(f"{prefix}/api/v1/indicators/1", json={"color": "#FF0000"})
+    assert r.status == 200
+    data = await (await client.get(f"{prefix}/api/v1/display/screen")).json()
+    assert data["pixels"][w - 1] == 0xFF0000
+    assert (await client.delete(f"{prefix}/api/v1/indicators/1")).status == 200
+    assert (await client.put(f"{prefix}/api/v1/indicators/9", json={"color": 1})).status == 404
+
+    r = await client.delete(f"{prefix}/api/v1/apps/litter")
+    assert r.status == 200
+    data = await (await client.get(f"{prefix}/api/v1/display/screen")).json()
+    assert data["pixels"] == [0] * (w * h)
+
+
+async def test_bare_api_aliases_config_size(client):
+    await client.put("/api/v1/apps/pushed/litter", json=bitmap(32, 8))
+    assert "litter" in client.app[CLOCKS]["32x8"].apps
+    assert "litter" not in client.app[CLOCKS]["52x16"].apps
+
+
+async def test_clock_errors_shaped_like_ng(client):
+    r = await client.put("/clock/32x8/api/v1/apps/pushed/litter", json={"bogus": 1})
+    assert r.status == 422
+    assert await r.json() == {"error": {"code": "validationFailed",
+                                        "message": "unknown key 'bogus'", "field": "bogus"}}
+    r = await client.put("/clock/32x8/api/v1/apps/pushed/litter", json={"text": "HI"})
+    assert r.status == 422 and (await r.json())["error"]["code"] == "notSimulated"
+    r = await client.put("/clock/32x8/api/v1/apps/pushed/bad!", json=bitmap(32, 8))
+    assert r.status == 400 and (await r.json())["error"]["code"] == "invalidName"
+    r = await client.get("/clock/32x8/api/v1/apps/pushed/litter")
+    assert r.status == 405 and (await r.json())["error"]["code"] == "methodNotAllowed"
+    r = await client.put("/clock/32x8/api/v1/apps/pushed/litter", data=b"x" * 9000,
+                         headers={"Content-Type": "application/json"})
+    assert r.status == 413 and (await r.json())["error"]["code"] == "payloadTooLarge"
+    r = await client.put("/clock/99x9/api/v1/apps/pushed/litter", json=bitmap(32, 8))
+    assert r.status == 404
+
+
+@pytest.mark.parametrize("path", ["/api/v1/settings", "/clock/52x16/api/v1/notifications",
+                                  "/api/v1/apps/active/x", "/api/v1"])
+async def test_not_simulated_catch_all(client, path):
+    r = await client.get(path)
+    assert r.status == 501
+    err = (await r.json())["error"]
+    assert err["code"] == "notSimulated" and "NOT SIMULATED" in err["message"]
+
+
+async def test_studio_meta(client):
+    meta = await (await client.get("/studio/meta")).json()
+    assert meta["sizes"] == ["32x8", "52x16"]
+    assert "ready" in meta["kinds"]
+    assert meta["variants"]["32x8"]["ready"][0]
+    assert any(f["name"] == "ready_badges" and f["description"] for f in meta["fixtures"])
+    sc = {s["name"]: s for s in meta["scenarios"]}["normal_visit"]
+    assert sc["duration_s"] > 0 and sc["steps"][0]["label"] == "ready"
+    assert meta["palette"]["stale"] == "#6E0700"
+    assert meta["timings"]["ttl_s"] == 90
+    assert "CAT_DETECTED" in meta["statuses"]
+
+
+async def test_gallery(client):
+    g = await (await client.get("/studio/gallery")).json()
+    rows = {r["fixture"]: r for r in g["rows"]}
+    assert set(g["sizes"]) == {"32x8", "52x16"}
+    tile = rows["ready"]["tiles"]["32x8"][0]
+    assert tile["default"] and len(tile["frames"][0]) == 32 * 8
+    assert len(rows["ready"]["tiles"]["52x16"][0]["frames"][0]) == 52 * 16
+    # in_use counts up every second, so it has a second frame
+    assert any(len(t["frames"]) == 2 for t in rows["in_use"]["tiles"]["32x8"])
+
+    gs = await (await client.get("/studio/gallery?stale=1")).json()
+    st_tile = {r["fixture"]: r for r in gs["rows"]}["ready"]["tiles"]["32x8"][0]
+    stale_int = (STALE_RGB[0] << 16) | (STALE_RGB[1] << 8) | STALE_RGB[2]
+    assert st_tile["frames"][0][0] == stale_int and st_tile["frames"][0][31] == stale_int
+
+
+async def test_png(client):
+    r = await client.get("/studio/png?fixture=ready&size=52x16&scale=4")
+    assert r.status == 200 and r.content_type == "image/png"
+    assert (await r.read()).startswith(b"\x89PNG")
+    assert (await client.get("/studio/png?fixture=nope")).status == 400
+
+
+async def test_page_and_scripts_served(client):
+    r = await client.get("/")
+    assert r.status == 200 and "app.js" in await r.text()
+    for name in ("app.js", "led.js", "live.js", "gallery.js", "net.js", "style.css"):
+        r = await client.get(f"/static/{name}")
+        assert r.status == 200, name
+    assert (await client.get("/static/../server.py")).status == 404
+
+
+async def test_control_validation_and_variants(client):
+    r = await client.post("/studio/control", json={"mode": "bogus"})
+    assert r.status == 400
+    r = await client.post("/studio/control", json={"fixture": "nope"})
+    assert r.status == 400
+    variants = client.app[PIPE].current.variants("ready", (32, 8))
+    pick = variants[-1]
+    r = await client.post("/studio/control", json={
+        "mode": "fixture", "fixture": "ready", "variants": {"32x8": {"ready": pick}}})
+    assert r.status == 200
+    st = await r.json()
+    assert st["mode"] == "fixture" and st["variants"]["32x8"]["ready"] == pick
+    assert st["clocks"]["32x8"]["variant"] == pick and st["clocks"]["32x8"]["kind"] == "ready"
+    r = await client.post("/studio/control", json={"variants": {"32x8": {"ready": "nope"}}})
+    assert r.status == 400
+
+
+async def test_feeder_pushes_rendered_frame_through_transport(client):
+    pipe = client.app[PIPE].current
+    await client.post("/studio/control", json={"mode": "fixture", "fixture": "ready"})
+    expected = pipe.fixture_frame("ready", (52, 16), None)
+    data = await (await client.get("/clock/52x16/api/v1/display/screen")).json()
+    assert Frame.from_ints(52, 16, data["pixels"]) == expected
+    st = await (await client.get("/studio/state")).json()
+    assert st["push_count"] >= 2 and st["clocks"]["32x8"]["lifetime_ms"] == 90_000
+
+
+async def test_dead_feeder_shows_stale_mark_with_fast_expiry(client, fake_time):
+    feeder = client.app[FEEDER]
+    r = await client.post("/studio/control", json={
+        "mode": "fixture", "fixture": "ready", "fast_expiry": True, "feeder_alive": True})
+    st = await r.json()
+    assert st["ttl_s"] < 10 and st["clocks"]["52x16"]["lifetime_ms"] == st["ttl_s"] * 1000
+    await client.post("/studio/control", json={"feeder_alive": False})
+    count = feeder.state()["push_count"]
+    fake_time.t += st["ttl_s"] + 0.5
+    await feeder.tick()  # dead: no push
+    assert feeder.state()["push_count"] == count
+    for sk, (w, h) in (("32x8", (32, 8)), ("52x16", (52, 16))):
+        data = await (await client.get(f"/clock/{sk}/api/v1/display/screen")).json()
+        f = Frame.from_ints(w, h, data["pixels"])
+        assert f.get(0, 0) == STALE_RGB and f.get(w - 1, h - 1) == STALE_RGB
+    st = await (await client.get("/studio/state")).json()
+    assert st["clocks"]["32x8"]["marked"] and st["clocks"]["52x16"]["marked"]
+    # Alive again: the next push clears the mark.
+    await client.post("/studio/control", json={"feeder_alive": True})
+    st = await (await client.get("/studio/state")).json()
+    assert not st["clocks"]["32x8"]["marked"]
+
+
+async def test_scenario_playback_controls(client, fake_time):
+    feeder = client.app[FEEDER]
+    await client.post("/studio/control", json={
+        "mode": "scenario", "scenario": "normal_visit", "playing": False, "position": 0})
+    r = await client.post("/studio/control", json={"position": 60, "speed": 60})
+    st = await r.json()
+    assert st["position"] == 60 and st["showing"]["kind"] == "in_use"
+    await client.post("/studio/control", json={"playing": True})
+    fake_time.t += 5  # 5 s at 60x = 300 s of scenario time
+    assert feeder.position() == pytest.approx(360)
+
+
+async def test_ws_hello(client):
+    ws = await client.ws_connect("/studio/ws")
+    msg = await ws.receive_json(timeout=5)
+    assert msg["type"] == "hello"
+    assert set(msg["clocks"]) == {"32x8", "52x16"}
+    assert "feeder_alive" in msg["state"]
+    await ws.close()
+
+
+# --- live reload of the config ------------------------------------------------------------
+
+
+@pytest.fixture
+def restore_modules():
+    saved = {n: m for n, m in sys.modules.items() if n.startswith("arthur.")}
+    attrs = {a: getattr(arthur, a) for a in ("model", "mapping", "fixtures", "render")
+             if hasattr(arthur, a)}
+    yield
+    for n in [n for n in sys.modules if n.startswith("arthur.")]:
+        if n not in saved:
+            del sys.modules[n]
+    sys.modules.update(saved)
+    for a, m in attrs.items():
+        setattr(arthur, a, m)
+
+
+async def test_config_reload_and_syntax_error_keeps_last_good(aiohttp_client, tmp_path,
+                                                             restore_modules):
+    cfg = tmp_path / "display.toml"
+    shutil.copy(DEFAULT_PATH, cfg)
+    app = create_app(cfg, start_tasks=False)
+    client = await aiohttp_client(app)
+    pipe = app[PIPE]
+    assert pipe.current.version == 1
+
+    text = cfg.read_text()
+    cfg.write_text(text.replace('ok        = "#00D040"', 'ok        = "#123456"'))
+    assert await check_reload(app) is True
+    assert pipe.current.version == 2 and pipe.current.cfg.rgb("ok") == (0x12, 0x34, 0x56)
+    meta = await (await client.get("/studio/meta")).json()
+    assert meta["palette"]["ok"] == "#123456" and meta["version"] == 2
+
+    cfg.write_text(text + "\n[timings\n")  # broken TOML mid-edit
+    assert await check_reload(app) is False
+    assert pipe.current.version == 2  # last good version still serving
+    st = await (await client.get("/studio/state")).json()
+    assert st["reload_error"]
+    assert (await client.get("/studio/gallery")).status == 200
+
+    cfg.write_text(text)  # fixed on the next save
+    assert await check_reload(app) is True
+    assert pipe.error is None and pipe.current.version == 3
+
+
+async def test_manual_mode(client):
+    r = await client.post("/studio/control", json={
+        "mode": "manual", "manual": {"status": "CAT_DETECTED", "waste_drawer_level": 90}})
+    st = await r.json()
+    assert st["showing"]["kind"] == "in_use"
+    assert "drawer_nearly_full" in st["showing"]["badges"]
+    st = await (await client.post("/studio/control", json={
+        "manual": {"health_error": "auth"}})).json()
+    assert st["showing"]["kind"] == "no_data"
+    r = await client.post("/studio/control", json={"manual": {"status": "NOPE"}})
+    assert r.status == 400
+    r = await client.post("/studio/control", json={"manual": {"waste_drawer_level": 101}})
+    assert r.status == 400

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Arthur Studio</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">Arthur <span>studio</span></div>
+    <nav class="tabs" role="tablist">
+      <button type="button" data-tab="live" class="on" role="tab">Live</button>
+      <button type="button" data-tab="gallery" role="tab">All states</button>
+    </nav>
+    <div class="conn" id="conn" data-state="connecting">connecting</div>
+  </header>
+
+  <div class="viewbar">
+    <label class="opt">Brightness
+      <input type="range" id="opt-brightness" min="3" max="100" step="1">
+      <output id="opt-brightness-out"></output>
+    </label>
+    <label class="opt">Room
+      <select id="opt-room">
+        <option value="dark">Dark room</option>
+        <option value="day">Daylight</option>
+      </select>
+    </label>
+    <label class="opt check"><input type="checkbox" id="opt-diffuser"> Diffuser</label>
+  </div>
+
+  <div id="reload-error" class="banner err" hidden>
+    <strong>Reload failed. The studio keeps showing the last good version until the next save.</strong>
+    <pre id="reload-error-text"></pre>
+  </div>
+  <div id="conn-banner" class="banner warn" hidden>Lost the connection to the studio server. Reconnecting…</div>
+
+  <main>
+    <section id="tab-live" class="tab">
+      <div class="clocks" id="clocks"></div>
+
+      <div class="panel">
+        <div class="card" id="card-source">
+          <h2>Source</h2>
+          <div class="seg" id="mode-seg"></div>
+          <p class="showing" id="showing"></p>
+
+          <div class="mode-block" data-mode="scenario">
+            <label class="row">Scenario <select id="scenario-select"></select></label>
+            <p class="muted small" id="scenario-desc"></p>
+            <div class="row gap">
+              <button type="button" id="play-btn" class="btn">Play</button>
+              <div class="seg small" id="speed-seg"></div>
+              <span class="mono" id="scenario-time"></span>
+            </div>
+            <div class="scrub">
+              <input type="range" id="scrubber" min="0" max="100" step="1" value="0">
+              <div class="ticks" id="ticks"></div>
+            </div>
+          </div>
+
+          <div class="mode-block" data-mode="fixture">
+            <label class="row">Fixture <select id="fixture-select"></select></label>
+            <p class="muted small" id="fixture-desc"></p>
+          </div>
+
+          <div class="mode-block" data-mode="manual">
+            <div class="grid2" id="manual-controls"></div>
+          </div>
+        </div>
+
+        <div class="card" id="card-feeder">
+          <h2>Feeder</h2>
+          <label class="switch"><input type="checkbox" id="feeder-alive"> <span>Feeder alive</span></label>
+          <label class="switch"><input type="checkbox" id="fast-expiry"> <span>Fast expiry</span></label>
+          <p class="muted small" id="feeder-timing"></p>
+          <p class="small" id="feeder-stats"></p>
+          <ul class="errors" id="feeder-errors"></ul>
+        </div>
+
+        <div class="card" id="card-variants">
+          <h2>Variants</h2>
+          <p class="muted small">Pick the layout each size uses for the states that have more than one.</p>
+          <div id="variant-pickers"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-gallery" class="tab" hidden>
+      <div class="gallery-bar">
+        <label class="switch"><input type="checkbox" id="gallery-stale"> <span>Stale border on every tile</span></label>
+        <label class="opt">Sizes
+          <select id="gallery-sizes">
+            <option value="both">Both</option>
+            <option value="32x8">32x8 only</option>
+            <option value="52x16">52x16 only</option>
+          </select>
+        </label>
+        <span class="muted small">Click a tile to send that state and variant to the live clocks.</span>
+      </div>
+      <div id="gallery" class="gallery"><p class="muted">Loading…</p></div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

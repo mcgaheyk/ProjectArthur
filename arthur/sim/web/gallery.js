@@ -1,0 +1,135 @@
+// The "All states" view: one row per fixture, every variant at both sizes.
+
+import { LedMatrix } from "./led.js";
+import { getJSON } from "./net.js";
+
+const $ = (id) => document.getElementById(id);
+
+function el(tag, attrs = {}, ...children) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v;
+    else if (k === "text") e.textContent = v;
+    else if (v !== undefined && v !== null && v !== false) e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of children) if (c != null) e.append(c);
+  return e;
+}
+
+export function initGallery({ control, toast }) {
+  let tiles = []; // { matrix, frames, fixture, size, variant, kind, node }
+  let phase = 0;
+  let loadedKey = null;
+  let loading = false;
+  let selected = null; // { fixture, size, variant }
+
+  function pitchFor() {
+    const w = $("gallery").clientWidth || window.innerWidth;
+    return w < 760 ? 4 : 5;
+  }
+
+  async function load(force = false) {
+    const stale = $("gallery-stale").checked;
+    const key = `${stale}`;
+    if (!force && key === loadedKey) return;
+    if (loading) return;
+    loading = true;
+    try {
+      const data = await getJSON(`/studio/gallery?stale=${stale ? 1 : 0}`);
+      render(data);
+      loadedKey = key;
+    } catch (e) {
+      $("gallery").textContent = "";
+      $("gallery").append(el("p", { class: "clock-err", text: `Could not load the gallery: ${e.message || e}` }));
+    } finally {
+      loading = false;
+    }
+  }
+
+  function render(data) {
+    const host = $("gallery");
+    host.textContent = "";
+    tiles = [];
+    const pitch = pitchFor();
+    const sizeFilter = $("gallery-sizes").value;
+    for (const row of data.rows || []) {
+      const sizesBox = el("div", { class: "gsizes" });
+      const r = el("div", { class: "grow" },
+        el("div", { class: "grow-head" },
+          el("b", { text: row.fixture }),
+          el("span", { class: "chip", text: row.kind }),
+          el("span", { class: "desc", text: row.description || "" })),
+        sizesBox);
+      if (row.error) r.append(el("div", { class: "clock-err", text: row.error }));
+      for (const size of data.sizes || Object.keys(row.tiles || {})) {
+        if (sizeFilter !== "both" && sizeFilter !== size) continue;
+        const [w, h] = size.split("x").map(Number);
+        const box = el("div", { class: "tiles" });
+        for (const t of (row.tiles && row.tiles[size]) || []) {
+          const fig = el("figure", { class: "tile", role: "button", tabindex: "0",
+            title: `Send ${row.fixture} / ${t.variant} (${size}) to the live clocks` });
+          let matrix = null;
+          if (t.error) {
+            fig.append(el("div", { class: "terr", text: t.error }));
+          } else {
+            const canvas = el("canvas");
+            fig.append(canvas);
+            matrix = new LedMatrix(canvas, w, h, pitch);
+            matrix.setPixels(t.frames && t.frames[0]);
+          }
+          const cap = el("figcaption", {}, el("em", { text: t.variant }), t.default && t.variant !== "default" ? " · default" : "",
+            t.frames && t.frames.length > 1 ? " · animates" : "");
+          fig.append(cap);
+          const info = { matrix, frames: t.frames || [], fixture: row.fixture, size, variant: t.variant, kind: row.kind, node: fig };
+          const send = () => pick(info);
+          fig.addEventListener("click", send);
+          fig.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); send(); } });
+          tiles.push(info);
+          box.append(fig);
+        }
+        sizesBox.append(el("div", { class: "gsize" }, el("div", { class: "lbl", text: size }), box));
+      }
+      host.append(r);
+    }
+    markSelected();
+  }
+
+  async function pick(t) {
+    const res = await control({ mode: "fixture", fixture: t.fixture, variants: { [t.size]: { [t.kind]: t.variant } } });
+    if (res && res.ok) {
+      selected = { fixture: t.fixture, size: t.size, variant: t.variant };
+      markSelected();
+      toast(`Live clocks: ${t.fixture}, ${t.size} variant "${t.variant}"`);
+    }
+  }
+
+  function markSelected() {
+    for (const t of tiles) {
+      const on = selected && t.fixture === selected.fixture && t.size === selected.size && t.variant === selected.variant;
+      t.node.classList.toggle("selected", !!on);
+    }
+  }
+
+  function step() {
+    phase = 1 - phase;
+    for (const t of tiles) {
+      if (t.matrix && t.frames.length > 1) t.matrix.setPixels(t.frames[phase % t.frames.length]);
+    }
+  }
+
+  function redraw() {
+    for (const t of tiles) if (t.matrix) t.matrix.draw();
+  }
+
+  $("gallery-stale").addEventListener("change", () => load(true));
+  $("gallery-sizes").addEventListener("change", () => load(true));
+  setInterval(() => {
+    if (!$("tab-gallery").hidden) step();
+  }, 1000);
+
+  return {
+    load,
+    redraw,
+    invalidate() { loadedKey = null; },
+  };
+}
