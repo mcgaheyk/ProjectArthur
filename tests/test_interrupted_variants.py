@@ -10,12 +10,14 @@ from arthur.config import default_config
 from arthur.fixtures import FIXTURES
 from arthur.mapping import to_display_state
 from arthur.render import list_variants, render
+from arthur.render.font import large_font
 from arthur.render.screens import (
     EDGE_RING,
     STROLL_STEPS,
     WALK_Y,
     loop_step,
     stroll_step,
+    turn_caption,
 )
 
 CFG = default_config()
@@ -121,7 +123,9 @@ def test_words_then_scene(variant, n):
     assert ATTENTION not in scene.pixels
 
 
-# --- stroll_pov: the walk in, the view from inside, then a hold loop -------------------------
+# --- stroll_pov: one 21-second episode, repeating ------------------------------------------
+
+EP = 21
 
 
 def _story(t, shift=0):
@@ -137,6 +141,14 @@ def _pts(f, colour=None, xs=range(52), ys=range(16)):
             if (f.get(x, y) == colour if colour else f.get(x, y) != OFF)}
 
 
+def _face(f):
+    return _pts(f, FUR, xs=range(16, 36), ys=range(11))
+
+
+def _words(f):
+    return _pts(f, ATTENTION, ys=range(2, 9))
+
+
 def test_stroll_pov_opens_with_him_walking_in():
     f = _story(0)
     assert _pts(f, FUR, xs=range(20))
@@ -148,36 +160,63 @@ def test_stroll_pov_then_only_the_paws():
 
 
 def test_stroll_pov_then_his_face():
-    assert _pts(_story(7), FUR, xs=range(16, 36), ys=range(11))
+    assert _face(_story(7))
 
 
 def test_stroll_pov_then_the_title():
     f = _story(10)
-    assert _pts(f, ATTENTION, ys=range(2, 9))
-    assert not _pts(f, FUR, xs=range(16, 36), ys=range(11))
+    assert _words(f)
+    assert not _face(f)
 
 
-def test_stroll_pov_never_walks_again():
-    # Columns 1-7 below the words (rows 9-14): the walking cat would be on rows 7-13, the
-    # paws start at column 8, and the big-font words (rows 2-8) start at column 1.
-    for t in range(12, 12 + 25):
-        assert not _pts(_story(t), xs=range(1, 8), ys=range(9, 15)), t
+def test_stroll_pov_back_to_his_face_then_a_second_phrase():
+    assert _face(_story(13))
+    second = _words(_story(16))
+    assert second and second != _words(_story(10))
 
 
-def test_stroll_pov_hold_words_take_turns():
-    for step in (5, 6, 7):
-        a = _pts(_story(12 + step), ATTENTION)
-        b = _pts(_story(12 + 8 + step), ATTENTION)
-        assert a and b and a != b, step
+def test_stroll_pov_rests_on_the_empty_globe():
+    allowed = {CFG.rgb("cream"), CFG.rgb("sand")}
+    for t in (19, 20):
+        f = _story(t)
+        lit = _pts(f)
+        assert lit and all(38 <= x <= 49 and 2 <= y <= 13 for x, y in lit), t
+        assert {f.get(x, y) for x, y in lit} <= allowed, t
+
+
+def test_stroll_pov_repeats_each_episode():
+    for t in range(EP):
+        a, b = _story(t), _story(t + EP)
+        if 16 <= t <= 18:
+            assert _words(a) != _words(b), t
+        else:
+            assert a == b, t
+
+
+def test_stroll_pov_second_phrase_is_never_the_title():
+    title = _words(_story(10))
+    for episode in range(8):
+        assert _words(_story(episode * EP + 16)) != title, episode
 
 
 def test_stroll_pov_follows_since():
-    # Every beat lands on the same second of the story. On a word beat only the phrase may
+    # Every beat lands on the same second of the story. On a phrase beat only the phrase may
     # differ: the order the phrases take turns in is shuffled per visit, seeded from since.
-    for t in range(30):
+    for t in range(2 * EP):
         a, b = _story(t), _story(t, shift=37)
-        if 12 <= t and (t - 12) % 8 >= 5:
+        if 16 <= t % EP <= 18:
             assert _pts(a) - _pts(a, ATTENTION) == _pts(b) - _pts(b, ATTENTION), t
-            assert _pts(a, ATTENTION, ys=range(2, 9)) and _pts(b, ATTENTION, ys=range(2, 9))
+            assert _words(a) and _words(b), t
         else:
             assert a == b, t
+
+
+def test_turn_caption_can_exclude_captions():
+    state, _ = _state()
+    font = large_font()
+    seen = {turn_caption(state, CFG, "interrupted_look", k, S, 50, font, fallback="X",
+                         exclude=("INTERRUPTION",)) for k in range(20)}
+    assert "INTERRUPTION" not in seen and len(seen) > 1
+    every = set(CFG.captions["interrupted_look"])
+    assert turn_caption(state, CFG, "interrupted_look", 0, S, 50, font, fallback="X",
+                        exclude=tuple(every)) == "X"

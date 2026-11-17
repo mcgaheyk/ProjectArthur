@@ -9,7 +9,7 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
   (D-0010); commit 91e4960 is the last one that has them.
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
-- **Built and tested (606 tests):**
+- **Built and tested (609 tests):**
   - Pipeline: `arthur/model.py`, `arthur/mapping.py`, `arthur/render/`, with variants for
     ready, in_use, waiting and cleaning.
   - Screens: second design pass done on 2026-11-16 to Kyle's direction (D-0009): orange
@@ -34,8 +34,9 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
     view from inside the box, paws on the edge). They are variants in the studio's All
     states view. The newest, `stroll_pov`, joins two of them into one story at his
     request: he walks up to the globe, it cuts to the view from inside with his eyes
-    opening, then "INTERRUPTION"; after that 12 s opening he stays, looking round, with a
-    new phrase every 8 s. **Kyle has not picked one.** The losers and their caption keys are to be
+    opening, then "INTERRUPTION", his face again, a second phrase (a new one each time),
+    two seconds of the globe alone, and the whole 21 s episode starts again.
+    **Kyle has not picked one.** The losers and their caption keys are to be
     removed once he has. `pawsed`, `frozen` and `robot` were dropped; commit eaf7b09 has
     them.
   - Transport: `arthur/transports/awtrix_ng.py`. Before pushing, it turns off the TC002's

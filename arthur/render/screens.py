@@ -464,15 +464,18 @@ def turn_caption(
     font: Font,
     *,
     fallback: str,
+    exclude: tuple[str, ...] = (),
 ) -> str:
     """The ``[captions] key`` joke for the ``turn``-th time its page comes round.
 
     The captions that fit are shuffled once per visit (seeded from when the state began, like
     :func:`caption`) and shown in that order, one per turn, so every one shows before any
-    repeats and two visits start in different places.
+    repeats and two visits start in different places. Captions in ``exclude`` are left out
+    (for a line that must not repeat words already on the screen).
     """
     CAPTION_USES.setdefault(key, set()).add((size, width, font, 1))
-    options = [c for c in cfg.captions.get(key, ()) if fits(c, width, font)]
+    options = [c for c in cfg.captions.get(key, ())
+               if c not in exclude and fits(c, width, font)]
     if not options:
         return fallback
     began = state.since or state.last_seen
@@ -1160,48 +1163,45 @@ def _interrupted_peek_pov_52(state: DisplayState, now: datetime, cfg: Config) ->
     return f
 
 
-#: stroll_pov, stroll_card and peek_pov joined into one story. A beat is (what, art, x):
-#: ``"walk"`` the walking cat ``art`` at ``x`` with the empty globe (the last stride drawn
-#: under the globe, his head through the opening), ``"paws"`` only the paws, ``"face"`` the
-#: paws and the face ``art``, ``"title"`` the paws and CARD_TITLE, ``"words"`` the paws and
-#: a phrase taking turns per hold loop.
+#: stroll_pov, stroll_card and peek_pov joined into one episode that repeats. A beat is
+#: (what, art, x): ``"walk"`` the walking cat ``art`` at ``x`` with the empty globe (the last
+#: stride drawn under the globe, his head through the opening), ``"paws"`` only the paws,
+#: ``"face"`` the paws and the face ``art``, ``"title"`` the paws and CARD_TITLE, ``"words"``
+#: the paws and a second phrase taking turns per episode, ``"rest"`` the empty globe alone.
 Beat = tuple[str, tuple[str, ...] | None, int]
-#: The opening, played once from when the state began: he walks up to the globe and goes in,
-#: then we are inside the box and he looks in at us, eyes opening, and the title.
-STORY_INTRO: tuple[Beat, ...] = (
+#: One 21 s episode, from the top each time: he strolls up to the globe and goes in; inside
+#: the box he looks in at us, eyes opening; cut to INTERRUPTION; back to his face; a second
+#: phrase; then the empty stage before he walks in again.
+STORY: tuple[Beat, ...] = (
     ("walk", WALK_A, 6), ("walk", WALK_B, 14), ("walk", WALK_A, 22), ("walk", WALK_B, 30),
     ("paws", None, 0),
     ("face", PEEK_BLINK, 0), ("face", PEEK_HALF, 0), ("face", PEEK_CENTRE, 0),
     ("face", PEEK_LEFT, 0), ("face", PEEK_RIGHT, 0),
     ("title", None, 0), ("title", None, 0),
-)
-#: Then, for as long as the state lasts, an 8 s loop: he looks round and blinks, then a
-#: phrase, a new one each time round.
-STORY_HOLD: tuple[Beat, ...] = (
-    ("face", PEEK_CENTRE, 0), ("face", PEEK_LEFT, 0), ("face", PEEK_CENTRE, 0),
-    ("face", PEEK_RIGHT, 0), ("face", PEEK_BLINK, 0),
+    ("face", PEEK_CENTRE, 0), ("face", PEEK_LEFT, 0), ("face", PEEK_RIGHT, 0),
+    ("face", PEEK_BLINK, 0),
     ("words", None, 0), ("words", None, 0), ("words", None, 0),
+    ("rest", None, 0), ("rest", None, 0),
 )
+#: The second phrase when none other fits.
+STORY_FALLBACK = "JUST LOOKING"
 
 
-def story_beat(state: DisplayState, now: datetime) -> tuple[str, int, int]:
-    """``("intro" | "hold", step, hold loop)`` of stroll_pov at ``now``, counted from when the
-    state began (the hold loop is 0 during the intro)."""
+def story_beat(state: DisplayState, now: datetime) -> tuple[int, int]:
+    """``(episode, step)`` of stroll_pov at ``now``: a :data:`STORY` step counted from when
+    the state began, so every interruption opens on the first stride."""
     t = max(0, tick(now) - (math.floor(state.since.timestamp()) if state.since else 0))
-    if t < len(STORY_INTRO):
-        return "intro", t, 0
-    loop, step = divmod(t - len(STORY_INTRO), len(STORY_HOLD))
-    return "hold", step, loop
+    return divmod(t, len(STORY))
 
 
 @layout(S52, "interrupted", "stroll_pov")
 def _interrupted_stroll_pov_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     f = _f52()
-    part, step, loop = story_beat(state, now)
-    what, art, x = (STORY_INTRO if part == "intro" else STORY_HOLD)[step]
-    if what == "walk":
-        assert art is not None
-        draw_art(f, art, x, WALK_Y, cfg)
+    episode, step = story_beat(state, now)
+    what, art, x = STORY[step]
+    if what in ("walk", "rest"):
+        if art is not None:
+            draw_art(f, art, x, WALK_Y, cfg)
         draw_art(f, GLOBE_EMPTY, GLOBE_X, GLOBE_Y, cfg)
         return f
     for px, py in POV_PAWS:
@@ -1211,8 +1211,8 @@ def _interrupted_stroll_pov_52(state: DisplayState, now: datetime, cfg: Config) 
         draw_art(f, art, POV_FACE_X, POV_FACE_Y, cfg)
     elif what in ("title", "words"):
         words = CARD_TITLE if what == "title" else turn_caption(
-            state, cfg, "interrupted_look", loop, S52, POV_R - POV_X + 1, large_font(),
-            fallback=CARD_TITLE)
+            state, cfg, "interrupted_look", episode, S52, POV_R - POV_X + 1, large_font(),
+            fallback=STORY_FALLBACK, exclude=(CARD_TITLE,))
         put_text(f, POV_X, POV_Y, words, cfg.rgb("attention"), large_font(), right=POV_R)
     return f
 
