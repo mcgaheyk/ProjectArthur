@@ -174,6 +174,14 @@ def _indicator_pixels(width: int, height: int) -> dict[int, tuple[tuple[int, int
 #: Settings keys the fake clock simulates.
 SIMULATED_SETTINGS = frozenset({"enlargeApps"})
 
+#: The TC002's built-in apps, in their default order, and whether each has settings (`config`
+#: in ``GET /api/v1/apps``). Both are in the rotation on a fresh install (pushed-apps.md, "Built-in
+#: apps"; seen on Kyle's TC002 on 2026-11-17).
+BUILTIN_APPS: dict[str, bool] = {"Time": True, "Status": False}
+
+#: Built-in apps of other boards. On a TC002 they are ignored in an order call (pushed-apps.md).
+OTHER_BOARD_BUILTINS = frozenset({"Date", "Temperature", "Humidity", "Battery"})
+
 
 @dataclass
 class FakeClock:
@@ -192,6 +200,10 @@ class FakeClock:
     indicators: dict[int, Indicator] = field(
         default_factory=lambda: {1: Indicator(), 2: Indicator(), 3: Indicator()}
     )
+    #: The saved rotation: ``PUT /api/v1/apps/order``'s two lists of names. A real clock keeps
+    #: both across a restart; pushed apps (``apps``) it does not.
+    order: list[str] = field(default_factory=list)
+    disabled: list[str] = field(default_factory=list)
     push_count: int = 0
     last_push_at: float | None = None
     _seq: int = 0
@@ -333,12 +345,98 @@ class FakeClock:
         return app.lifetime_ms > 0 and (now - app.received_at) * 1000 >= app.lifetime_ms
 
     def current_app(self, now: float | None = None) -> PushedApp | None:
-        """The app on screen: the most recently pushed one (rotation is not simulated)."""
+        """The app on screen: the most recently pushed one that is not switched off.
+
+        ASSUMPTION: the rotation is not simulated. Built-in apps are never drawn and do not take
+        turns, so a clock with Time and Status still in the rotation shows our app all the time
+        here, where a real one shows it a third of the time.
+        """
         now = self.time_fn() if now is None else now
         self._expire(now)
-        if not self.apps:
+        shown = [a for a in self.apps.values() if a.name not in self.disabled]
+        if not shown:
             return None
-        return max(self.apps.values(), key=lambda a: a.seq)
+        return max(shown, key=lambda a: a.seq)
+
+    # --- the rotation ------------------------------------------------------------------
+
+    def apps_list(self) -> list[dict[str, Any]]:
+        """The body of ``GET /api/v1/apps``: the arranged apps in order, then the rest.
+
+        Follows openapi.yaml and http.md at v1.2.3: ``enabled`` is "not named in ``disabled``",
+        ``inLoop`` is enabled and present, ``slot`` is the place in ``order`` (null when it has
+        none), ``present`` is false for a name that only holds a place, and ``origin`` is null
+        then. Apps not arranged come after the arranged ones: built-ins, then pushed apps in
+        the order they first arrived, then names that are only switched off.
+        ASSUMPTION: a name listed twice in ``order`` is listed once, with its first slot.
+        """
+        names: list[str] = []
+        for name in [*self.order, *BUILTIN_APPS, *self.apps, *self.disabled]:
+            if name not in names:
+                names.append(name)
+        out = []
+        for name in names:
+            builtin = name in BUILTIN_APPS
+            present = builtin or name in self.apps
+            enabled = name not in self.disabled
+            entry: dict[str, Any] = {
+                "name": name,
+                "enabled": enabled,
+                "inLoop": enabled and present,
+                "slot": self.order.index(name) if name in self.order else None,
+                "present": present,
+                "origin": "builtin" if builtin else "pushed" if present else None,
+            }
+            if builtin:
+                entry["config"] = BUILTIN_APPS[name]
+            out.append(entry)
+        return out
+
+    def in_rotation(self) -> list[str]:
+        """Names of the apps that take turns on the display (``inLoop``), in order."""
+        return [a["name"] for a in self.apps_list() if a["inLoop"]]
+
+    def set_order(self, raw: bytes, content_type: str | None = "application/json") -> None:
+        """``PUT /api/v1/apps/order`` with ``{"order"?: [names], "disabled": [names]}``.
+
+        From openapi.yaml and http.md at v1.2.3: ``disabled`` is required and is the complete
+        list of switched-off apps; ``order`` is optional and kept when left out; a body that is
+        not JSON, not an object or has no ``disabled`` is ``400 invalidJson``. Names of apps
+        that are not there are fine (they hold a place). Duplicates in ``order`` count. On a
+        TC002, Date, Temperature, Humidity and Battery are ignored.
+        ASSUMPTION (stricter than NG, which does not say): an empty body is 400 like other
+        non-JSON; a list item that is not a string is 400 ``invalidJson``; a name outside
+        ``[A-Za-z0-9_-]{1,32}`` is 400 ``invalidName``; another key, or a name in both lists,
+        is 422 ``validationFailed``. Validates everything before changing anything.
+        """
+        if not raw.strip():
+            raise ClockError(400, "invalidJson", "a JSON object with 'disabled' is required")
+        body = self._parse_body(raw, content_type)
+        if not isinstance(body, dict):
+            raise ClockError(400, "invalidJson", "body must be a JSON object")
+        if "disabled" not in body:
+            raise ClockError(400, "invalidJson", "'disabled' is required")
+        for key in body:
+            if key not in ("order", "disabled"):
+                raise validation(f"unknown key '{key}'", key)
+        lists: dict[str, list[str]] = {}
+        for key in ("order", "disabled"):
+            if key not in body:
+                continue
+            value = body[key]
+            if not isinstance(value, list) or not all(isinstance(n, str) for n in value):
+                raise ClockError(400, "invalidJson", f"'{key}' must be an array of app names")
+            for n in value:
+                if not NAME_RE.match(n):
+                    raise ClockError(400, "invalidName",
+                                     "name must match [A-Za-z0-9_-]{1,32}", key)
+            lists[key] = [n for n in value if n not in OTHER_BOARD_BUILTINS]
+        both = set(lists.get("order", ())) & set(lists["disabled"])
+        if both:
+            raise validation(f"'{min(both)}' is in both 'order' and 'disabled'", "disabled")
+        if "order" in lists:
+            self.order = lists["order"]
+        self.disabled = list(dict.fromkeys(lists["disabled"]))
 
     # --- settings ----------------------------------------------------------------------
 
@@ -495,6 +593,8 @@ class FakeClock:
             "expiry": None,
             "marked": False,
             "enlarge_apps": self.enlarge_apps,
+            "rotation": self.in_rotation(),
+            "disabled": list(self.disabled),
             "indicators": {
                 str(n): {"on": i.on, "color": "#{:02X}{:02X}{:02X}".format(*i.color),
                          "blinkMs": i.blink_ms, "fadeMs": i.fade_ms}

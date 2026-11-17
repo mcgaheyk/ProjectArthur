@@ -6,6 +6,10 @@ unchanged against a real clock and against the simulator: only ``base_url`` diff
 A TC002 draws pushed apps at double size on a 26x8 grid unless its ``enlargeApps`` setting is
 off, which would show only the top-left quarter of our 52x16 frame; so the transport turns that
 setting off before it pushes (docs/reference/awtrix-ng.md, "Double size on the TC002"; D-0010).
+
+A fresh install also has two built-in apps, Time and Status, taking turns with ours, so after a
+push the transport takes every other app out of the rotation (docs/reference/awtrix-ng.md,
+"Rotation").
 """
 
 from __future__ import annotations
@@ -43,6 +47,7 @@ class AwtrixNgTransport:
         timeout_s: float = 5,
         settings_check_s: float = 300,
         time_fn: Callable[[], float] = time.monotonic,
+        only_app: bool = True,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.app_name = app_name
@@ -53,6 +58,9 @@ class AwtrixNgTransport:
         self._own_session = session is None
         #: ``time_fn()`` of the last successful settings check; None means check before pushing.
         self._settings_ok_at: float | None = None
+        self.only_app = only_app
+        #: ``time_fn()`` of the last successful rotation check; None means check after pushing.
+        self._rotation_ok_at: float | None = None
 
     @staticmethod
     def payload(frame: FrameLike, ttl_s: float) -> dict:
@@ -71,11 +79,12 @@ class AwtrixNgTransport:
         return self._session
 
     async def _request(self, method: str, path: str, body: dict | None = None) -> str:
-        """Send one request; returns the response text. Any failure forgets the settings check."""
+        """Send one request; returns the response text. Any failure forgets both checks."""
         try:
             return await self._send(method, path, body)
         except TransportError:
             self._settings_ok_at = None
+            self._rotation_ok_at = None
             raise
 
     async def _send(self, method: str, path: str, body: dict | None) -> str:
@@ -124,11 +133,74 @@ class AwtrixNgTransport:
                                      None, json.dumps(updated))
         self._settings_ok_at = self.time_fn()
 
+    def _due(self, ok_at: float | None) -> bool:
+        return ok_at is None or self.time_fn() - ok_at > self.settings_check_s
+
+    async def _apps(self) -> list[dict]:
+        path = "/api/v1/apps"
+        text = await self._request("GET", path)
+        try:
+            data = json.loads(text)
+        except ValueError as exc:
+            raise TransportError(f"GET {path}: not JSON", None, text) from exc
+        if not (isinstance(data, list)
+                and all(isinstance(a, dict) and isinstance(a.get("name"), str) for a in data)):
+            raise TransportError(f"GET {path}: not an array of apps with names", None, text)
+        return data
+
+    def rotation_fix(self, apps: list[dict]) -> dict | None:
+        """The ``PUT /api/v1/apps/order`` body that leaves ours the only app in the rotation,
+        or None when it already is (exposed for tests).
+
+        ``apps`` is ``GET /api/v1/apps``. A fix is needed when another app (other than the
+        scripts below) has ``inLoop`` true, or ours is switched off. Because ``disabled`` is the complete list of switched-off apps
+        (every app it leaves out is switched on), it names every other app, including ones
+        already off and names that only hold a place, except two kinds that never take a turn
+        on their own and are left running: background scripts (``headless``) and on-demand
+        scripts (``ondemand``). Background scripts also go into ``order`` after ours, since
+        a background script runs only while ``order`` names it. Modules (no ``enabled``) are not
+        apps and are left out of both lists.
+        """
+        others = [a for a in apps if a["name"] != self.app_name and "enabled" in a]
+        keep = [a for a in others
+                if a.get("enabled") is not False and (a.get("headless") or a.get("ondemand"))]
+        keep_names = {a["name"] for a in keep}
+        ours_off = any(a["name"] == self.app_name and a.get("enabled") is False for a in apps)
+        if not ours_off and not any(
+            a.get("inLoop") is True for a in others if a["name"] not in keep_names
+        ):
+            return None
+        order = [self.app_name]
+        disabled: list[str] = []
+        for a in others:
+            name = a["name"]
+            if name in keep_names:
+                if a.get("headless") and name not in order:
+                    order.append(name)
+            elif name not in disabled:
+                disabled.append(name)
+        return {"order": order, "disabled": disabled}
+
+    async def ensure_only_app(self) -> None:
+        """Take every other app out of the rotation if any is in it. Skipped while the last good
+        check is younger than ``settings_check_s``. Never retries; a failure raises
+        :class:`TransportError` and makes the next call check again."""
+        if not self._due(self._rotation_ok_at):
+            return
+        self._rotation_ok_at = None
+        fix = self.rotation_fix(await self._apps())
+        if fix is not None:
+            await self._request("PUT", "/api/v1/apps/order", fix)
+        self._rotation_ok_at = self.time_fn()
+
     async def show(self, frame: FrameLike, ttl_s: float) -> None:
         await self.ensure_native_size()
         await self._request(
             "PUT", f"/api/v1/apps/pushed/{self.app_name}", self.payload(frame, ttl_s)
         )
+        # After the push: a pushed app lives in RAM and may not exist before the first one.
+        if self.only_app:
+            await self.ensure_only_app()
 
     async def clear(self) -> None:
         await self._request("DELETE", f"/api/v1/apps/{self.app_name}")

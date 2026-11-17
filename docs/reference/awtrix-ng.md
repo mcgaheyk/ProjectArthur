@@ -53,6 +53,51 @@ Keys we send:
   `progressColor`, `backgroundColor`, `effect`, `overlay`, `barChart`, `lineChart`, `scroll`,
   `font`, and others. The simulator should refuse them loudly rather than pretend.
 
+### Rotation: ours must be the only app
+**Confirmed 2026-11-17 against** `docs/api/openapi.yaml`, `docs/reference/http.md` ("GET
+/api/v1/apps", "PUT /api/v1/apps/order") and `docs/guides/pushed-apps.md` ("See which apps take
+turns", "Arrange the rotation", "The order is remembered across reboots"), all at `v1.2.3`, and
+on Kyle's TC002 the same day. A new TC002 has two built-in apps in the rotation, **Time** and
+**Status**, so a pushed app shows only a third of the time. The transport takes them out
+(`AwtrixNgTransport.ensure_only_app`, after each push on the settings schedule).
+
+- `GET /api/v1/apps` → an array, the arranged apps in order, then the rest. Per app: `name`,
+  `enabled` (it runs), `inLoop` (it takes turns), `present` (it exists now; false for a name
+  that only holds a place), `slot` (0-based place in the arranged order, `null` without one),
+  `origin` (`builtin`, `pushed`, `script`, `module`, or `null` while not present). Built-ins
+  carry `config`; pushed apps carry `icon` only when they set one. Scripts may carry
+  `headless` (never draws, never takes a turn), `ondemand` (runs only when started; `inLoop`
+  true while it runs), `skipped`, `error`, `meta`. A **module** has no `enabled`, `inLoop` or
+  `slot`.
+- `PUT /api/v1/apps/order {"order"?: [names], "disabled": [names]}` → `200 {"ok":true}`.
+  - **`disabled` is the complete list of switched-off apps:** every app it does not name is
+    switched on, also one that was off before. So a body must repeat apps that are already off.
+  - `disabled` is required; `order` is optional and kept when left out. No `disabled`, a body
+    that is not an object, or bad JSON → `400 invalidJson`.
+  - Unknown names are fine: a name in `order` reserves a place, a name in `disabled` stays off
+    while the app is absent, and both show in `GET /api/v1/apps` with `present: false`.
+    Duplicates in `order` count (the app is shown twice per round).
+  - On a TC002, `Date`, `Temperature`, `Humidity` and `Battery` in an order call are ignored.
+  - A background (`headless`) script runs only while `order` names it; a switched-off script
+    runs nothing at all.
+  - Apps not named in `order` join after the ordered ones, switched on.
+  - **Both lists persist** across a restart; a switched-off pushed app stays off when pushed
+    again. `507 insufficientStorage` "applied, not saved yet" means active until restart.
+  - Other methods → `405 methodNotAllowed` ("allowed: PUT"; GET seen on the real clock).
+  - **Not stated:** an app named in both lists; list items that are not strings; names that
+    break `[A-Za-z0-9_-]{1,32}`; other keys in the body; whether names are matched
+    case-insensitively. The response to all of these is unknown.
+- `PUT /api/v1/apps/{name}/enabled` with a bare `true`/`false` switches one app and leaves the
+  rest (persists). Not used.
+- **What the transport sends** when another app has `inLoop: true`, or ours is switched off:
+  `order` = ours, then any enabled `headless` scripts (to keep them running); `disabled` =
+  every other app except enabled `headless`/`ondemand` scripts and modules, including apps
+  already off. On Kyle's clock that is `{"order":["litter"],"disabled":["Time","Status"]}`.
+- **On the real clock (2026-11-17)** that body answered `200 {"ok":true}`; `GET /api/v1/apps`
+  then listed `litter` with `slot: 0` and Time and Status with `enabled: false, inLoop: false,
+  slot: null`, as the docs describe. Still to check: whether Time or Status come back after a
+  reboot (#141, #142). If they do, the transport puts them out again within `settings_check_s`.
+
 ### Double size on the TC002: `enlargeApps` must be off
 **Found 2026-11-16; our first notes missed it.** On a TC002, a pushed app or notification is
 drawn **at double size on a 26x8 grid** by default: each of its pixels lights a 2x2 square, its
@@ -115,8 +160,8 @@ Row-major order and "before brightness/gamma" are **not stated** in the spec.
 ## For later features
 - **Notifications:** `POST /api/v1/notifications` (`hold`, `stack`, `wakeup`, `sound`, `name`);
   `DELETE /api/v1/notifications/active` dismisses the one showing.
-- **Rotation and built-in apps:** `PUT /api/v1/apps/order {"order":[…],"disabled":[…]}`
-  persists; `PUT /api/v1/apps/active {"name","fast":true}` shows an app now.
+- **Showing an app now:** `PUT /api/v1/apps/active {"name","fast":true}`. Not used; the
+  rotation section above makes ours the only app instead.
 - **Buttons and knob** (confirmed against `docs/guides/device-controls.md`,
   `docs/reference/system.md#buttons` and `docs/reference/settings.md` at `v1.2.3`):
   - The TC002 has three buttons on top (left, select, right) and a knob. Out of the box: left and
@@ -202,6 +247,7 @@ Ulanzi's product page. Earlier notes here called NG on the TC002 "a beta from la
   pushed app only shows a third of the time. `PUT /api/v1/apps/order
   {"order":["litter"],"disabled":["Time","Status"]}` answered `200 {"ok":true}` and left only
   ours. `GET` on that route is 405. Not yet checked: whether this survives a reboot (#141, #142).
+  The transport now does this itself (see "Rotation" above).
 - **First frames (commit 7f3279a, `scripts/push_test.py`):** the transport's `enlargeApps:
   false` and bitmap push were accepted unchanged. Read-back of 12 animated frames matched what
   was sent on all 832 pixels, with `brightness` at 120 and `gamma` 1.9. So
@@ -233,6 +279,18 @@ Check each one once NG is on the TC002, by comparing `GET /api/v1/display/screen
 - A base64 bitmap of the wrong length is refused with 422. NG's behaviour is not documented.
 - The fake clock answers "not simulated" (422 for keys, 501 for routes) for anything real in NG
   that it does not render. A real clock would accept those.
-- The most recently pushed app shows; app rotation is not simulated.
+- The most recently pushed app that is not switched off shows; app rotation is not simulated.
+  The fake clock lists Time and Status in `GET /api/v1/apps` and starts with both in the
+  rotation, as a real TC002 does, but never draws them or takes turns, so it shows our app all
+  the time where a real clock with the built-ins on shows it a third of the time. With every
+  pushed app switched off the screen is black.
+- `GET /api/v1/apps` lists a name that is twice in `order` once, at its first slot. Unarranged
+  apps come after the arranged ones as built-ins, then pushed apps in the order they first
+  arrived, then names that are only switched off.
+- `PUT /api/v1/apps/order` where NG does not say: an empty body, a list item that is not a
+  string → `400 invalidJson`; a bad name → `400 invalidName`; another key or a name in both
+  lists → `422 validationFailed`. Names are matched case-sensitively.
+- The order and the switched-off list would survive a restart on a real clock; the fake clock
+  has no restart.
 
 Error bodies use NG's shape: `{"error": {"code", "message", "field"?}}`.

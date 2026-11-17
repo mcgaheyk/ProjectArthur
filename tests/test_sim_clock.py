@@ -314,3 +314,84 @@ def test_parse_color_forms():
     assert parse_color(["HSV", 120, 100, 100]) == (0, 255, 0)
     for bad in ("#12345", [1, 2], [1, 2, 300], True, None, "zzzzzz", -1):
         assert parse_color(bad) is None
+
+
+# --- the rotation -------------------------------------------------------------------------
+
+
+def test_fresh_clock_has_time_and_status_in_rotation():
+    clock, _ = make()
+    assert clock.apps_list() == [
+        {"name": "Time", "enabled": True, "inLoop": True, "slot": None, "present": True,
+         "origin": "builtin", "config": True},
+        {"name": "Status", "enabled": True, "inLoop": True, "slot": None, "present": True,
+         "origin": "builtin", "config": False},
+    ]
+    clock.push("litter", bitmap_body(pattern_frame(52, 16)))
+    assert clock.apps_list()[2] == {"name": "litter", "enabled": True, "inLoop": True,
+                                    "slot": None, "present": True, "origin": "pushed"}
+    assert clock.status()["rotation"] == ["Time", "Status", "litter"]
+
+
+def test_order_matches_what_the_real_clock_answered():
+    clock, _ = make()
+    clock.push("litter", bitmap_body(pattern_frame(52, 16)))
+    clock.set_order(body({"order": ["litter"], "disabled": ["Time", "Status"]}))
+    assert clock.apps_list() == [
+        {"name": "litter", "enabled": True, "inLoop": True, "slot": 0, "present": True,
+         "origin": "pushed"},
+        {"name": "Time", "enabled": False, "inLoop": False, "slot": None, "present": True,
+         "origin": "builtin", "config": True},
+        {"name": "Status", "enabled": False, "inLoop": False, "slot": None, "present": True,
+         "origin": "builtin", "config": False},
+    ]
+    assert clock.status()["rotation"] == ["litter"]
+
+
+def test_order_survives_the_app_going_away_and_disabled_is_complete():
+    clock, _ = make()
+    clock.set_order(body({"order": ["litter", "Time"], "disabled": ["Status"]}))
+    first = clock.apps_list()[0]  # not pushed yet: holds its place
+    assert first == {"name": "litter", "enabled": True, "inLoop": False, "slot": 0,
+                     "present": False, "origin": None}
+    clock.set_order(body({"disabled": []}))  # keeps the order, switches everything on
+    assert clock.order == ["litter", "Time"] and clock.in_rotation() == ["Time", "Status"]
+    clock.set_order(body({"disabled": ["Date", "Battery", "ghost"]}))  # other boards' ignored
+    assert clock.disabled == ["ghost"]
+    assert clock.apps_list()[-1]["name"] == "ghost"
+
+
+def test_disabled_pushed_app_does_not_show():
+    clock, _ = make()
+    f = pattern_frame(52, 16)
+    clock.push("litter", bitmap_body(f))
+    clock.set_order(body({"disabled": ["litter"]}))
+    assert clock.current_app() is None and clock.screen() == Frame(52, 16)
+    clock.push("litter", bitmap_body(f))  # stays off when pushed again
+    assert clock.current_app() is None
+    clock.set_order(body({"disabled": []}))
+    assert clock.screen() == f
+
+
+@pytest.mark.parametrize("raw, status, code", [
+    (b"", 400, "invalidJson"),
+    (b"not json", 400, "invalidJson"),
+    (b'["Time"]', 400, "invalidJson"),
+    (b'{"order": ["litter"]}', 400, "invalidJson"),
+    (b'{"disabled": "Time"}', 400, "invalidJson"),
+    (b'{"disabled": [1]}', 400, "invalidJson"),
+    (b'{"disabled": ["bad name"]}', 400, "invalidName"),
+    (b'{"disabled": [], "fast": true}', 422, "validationFailed"),
+    (b'{"order": ["Time"], "disabled": ["Time"]}', 422, "validationFailed"),
+])
+def test_order_validation_changes_nothing(raw, status, code):
+    clock, _ = make()
+    e = err(clock.set_order, raw)
+    assert (e.status, e.code) == (status, code)
+    assert clock.order == [] and clock.disabled == []
+    assert clock.in_rotation() == ["Time", "Status"]
+
+
+def test_order_non_json_content_type_is_415():
+    clock, _ = make()
+    assert err(clock.set_order, b'{"disabled": []}', "text/plain").status == 415

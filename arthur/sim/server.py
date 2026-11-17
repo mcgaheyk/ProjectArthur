@@ -5,6 +5,8 @@ Routes (the clock answers at the bare paths, like a real one, so
 ``CLOCK_URL=http://localhost:7001`` works):
 
 Clock (AWTRIX NG 1.2.3 subset)
+  GET     /api/v1/apps                 the rotation: built-ins Time and Status, pushed apps
+  PUT     /api/v1/apps/order           {"order"?, "disabled"}; other methods → 405
   PUT     /api/v1/apps/pushed/{name}   other methods → 405 methodNotAllowed
   DELETE  /api/v1/apps/{name}
   PUT     /api/v1/indicators/{id}
@@ -142,6 +144,32 @@ async def h_pushed(request: web.Request) -> web.Response:
     return _json({"ok": True}, headers=CORS)
 
 
+async def h_apps(request: web.Request) -> web.Response:
+    if (r := _preflight(request)) is not None:
+        return r
+    try:
+        clock = _clock_for(request)
+        if request.method != "GET":
+            raise _method_not_allowed("GET")
+    except ClockError as err:
+        return _clock_error(err)
+    return _json(clock.apps_list(), headers=CORS)
+
+
+async def h_order(request: web.Request) -> web.Response:
+    if (r := _preflight(request)) is not None:
+        return r
+    try:
+        clock = _clock_for(request)
+        if request.method != "PUT":
+            raise _method_not_allowed("PUT")
+        raw = await _read_body(request, clock)
+        clock.set_order(raw, request.headers.get("Content-Type"))
+    except ClockError as err:
+        return _clock_error(err)
+    return _json({"ok": True}, headers=CORS)
+
+
 async def h_app(request: web.Request) -> web.Response:
     if (r := _preflight(request)) is not None:
         return r
@@ -208,8 +236,8 @@ async def h_not_simulated(request: web.Request) -> web.Response:
     err = ClockError(
         501, "notSimulated",
         f"{request.method} {request.path} is NOT SIMULATED by the ProjectArthur fake clock "
-        "(it may or may not exist on a real AWTRIX NG 1.2.3 clock). Simulated: PUT "
-        "/api/v1/apps/pushed/{name}, DELETE /api/v1/apps/{name}, PUT|DELETE "
+        "(it may or may not exist on a real AWTRIX NG 1.2.3 clock). Simulated: GET "
+        "/api/v1/apps, PUT /api/v1/apps/order, PUT /api/v1/apps/pushed/{name}, DELETE /api/v1/apps/{name}, PUT|DELETE "
         "/api/v1/indicators/{id}, GET /api/v1/display/screen, GET|PATCH /api/v1/settings "
         "(enlargeApps only).",
     )
@@ -218,6 +246,8 @@ async def h_not_simulated(request: web.Request) -> web.Response:
 
 def _add_clock_routes(app: web.Application) -> None:
     r = app.router
+    r.add_route("*", "/api/v1/apps", h_apps)
+    r.add_route("*", "/api/v1/apps/order", h_order)  # before /apps/{name}, which would match
     r.add_route("*", "/api/v1/apps/pushed/{name}", h_pushed)
     r.add_route("*", "/api/v1/apps/{name}", h_app)
     r.add_route("*", "/api/v1/indicators/{id}", h_indicator)
