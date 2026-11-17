@@ -88,17 +88,19 @@ waiting_sleep = ["ZZZ", "SNOOZE", "NAPPING", "SLEEPY", "LATER"]
 cleaning = ["CLEANING"]
 # just cleaned, big word under a small "FRESHLY", up to 31 px
 just_cleaned = ["CLEANED"]
-# interrupted headline, big font, up to 31 px (the frozen variant draws it in the small font,
-# under its timer: up to 34 px)
+# interrupted headline, big font, up to 31 px
 interrupted = ["HEY!", "OI!", "WAIT!", "HOLD UP", "NOPE!", "RUDE!", "UH OH"]
-# interrupted, the robot variant: the robot's deadpan voice, headline beside it, big font, up
-# to 31 px
-interrupted_robot = ["AGAIN?", "REALLY?", "SIGH", "BRO.", "DUDE.", "SRSLY?", "NOT YOU"]
 # interrupted, the stroll variant: narration over the walk-back-in scene, small font, up to
 # 35 px
 interrupted_stroll = ["HE'S BACK", "ROUND 2", "ENCORE!", "DEJA POO", "ONE MORE", "YOU AGAIN"]
 # interrupted, the peek variant: Arthur's own voice beside his close-up, big font, up to 28 px
 interrupted_cat = ["WHAT?", "ME?", "MY BOX", "ONE SEC", "U MAD?", "FORGOT", "BUSY"]
+# interrupted, what Arthur is up to (he has come to have a look at the globe turning). Takes
+# turns, a new one each time a variant's loop comes round. Drawn across the full width in the
+# small font, up to 49 px; on the peek_pov card in the big font, up to 50 px (ones too wide
+# for a line are skipped there)
+interrupted_look = ["INTERRUPTION", "TAKIN' A LOOK", "JUST LOOKING", "OOH IT SPINS", "INSPECTING",
+                    "SUPERVISING", "IS IT DONE?", "QUICK LOOK"]
 # drawer full, small line under FULL, inside the flashing ring: up to 34 px, drawn with narrow
 # 3-px M and W (so here M and W count 4 px, like most letters)
 drawer_full = ["EMPTY NOW"]

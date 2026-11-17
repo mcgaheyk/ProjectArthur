@@ -9,18 +9,18 @@ Canvas rules (docs/states.md, design-screen skill):
 
 - The clock's stale border covers row 0, row 15, column 0 and column 51, so nothing is drawn
   there. One deliberate exception: a layout registered with ``edge_ring=True`` (listed in
-  :data:`EDGE_RING`; today ``drawer_full``, ``cleaning`` and the ``frozen`` variant of
-  ``interrupted``) may draw a 1-pixel ring on exactly those pixels. The stale overlay paints over the whole ring, so a stale frame still reads as
-  stale, and such a layout keeps its other content one pixel clear of the ring (rows 2-13,
-  columns 2-49).
+  :data:`EDGE_RING`; today ``drawer_full`` and ``cleaning``) may draw a 1-pixel ring on
+  exactly those pixels. The stale overlay paints over the whole ring, so a stale frame still
+  reads as stale, and such a layout keeps its other content one pixel clear of the ring
+  (rows 2-13, columns 2-49).
 - Every label goes through :func:`arthur.render.text.put_text` with the box it must fit, and
   nothing else may touch a label (the strict text check in the tests).
 - A 16x16 picture at x=0, content in x=17..47 (a big-font or small-font first line from row 1,
   a small-font second line on rows 9-13 or the drawer gauge on rows 13-14). Columns 48-50 are
   not reserved: most layouts leave them empty, but the idle Arthur layout shifts its bars and
   bottom line to columns 20-50 (to make room for his long tail in columns 16-18),
-  ``drawer_full`` uses columns up to 49 inside its ring, and some ``interrupted`` variants
-  (``frozen``, ``stroll``, ``peek``) lay out their own columns up to 49 or 50.
+  ``drawer_full`` uses columns up to 49 inside its ring, and the ``interrupted`` variants
+  other than the default lay out their own columns up to 49 or 50.
 - Level colours: the drawer bar is ``drawer`` (orange) below ``drawer_warn_pct`` and
   ``alert`` from there or when full; the litter bar follows the robot's own litter word
   (OPTIMAL ``ok``, REFILL/OVERFILL ``caution``, LOW/EMPTY ``alert``, else ``sand``).
@@ -664,14 +664,27 @@ DRUM_ART = (
 )
 
 
-def drum(f: Frame, cfg: Config, now: datetime, x0: int = DRUM_X, y0: int = DRUM_Y) -> None:
-    """The robot's globe at (x0, y0): a soapy-blue shell whose opening turns a step (an eighth
-    of a turn) every second, with litter lying in the bottom."""
-    steps = 8
+#: The drum's opening turns an eighth of a turn a second.
+DRUM_STEPS = 8
+
+
+def drum_angle(now: datetime) -> float:
+    """Where the drum's opening points at ``now``, in radians on screen axes (y down):
+    straight up at step 0, then clockwise."""
+    return phase(now, DRUM_STEPS) * 2 * math.pi / DRUM_STEPS - math.pi / 2
+
+
+def drum(
+    f: Frame, cfg: Config, now: datetime, x0: int = DRUM_X, y0: int = DRUM_Y,
+    role: str = "soap",
+) -> None:
+    """The robot's globe at (x0, y0): a shell in ``role`` (soapy blue on cleaning) whose
+    opening turns a step (an eighth of a turn) every second, with litter lying in the
+    bottom."""
     c = (len(DRUM_ART) - 1) / 2
-    theta = phase(now, steps) * 2 * math.pi / steps - math.pi / 2
+    theta = drum_angle(now)
     gap = math.radians(40)
-    soap, sand = cfg.rgb("soap"), cfg.rgb("sand")
+    soap, sand = cfg.rgb(role), cfg.rgb("sand")
     for y, row in enumerate(DRUM_ART):
         for x, ch in enumerate(row):
             if ch == "s":
@@ -731,91 +744,9 @@ def _interrupted_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
 
 
 # =========================================================================================
-# Interrupted, variants to compare: a stop paw, the cleaning screen frozen, the robot's
-# deadpan, a little walk-back-in scene, and a big-eyed close-up.
+# Interrupted, variants to compare: Arthur comes to have a look at the globe turning. Little
+# walk-in scenes (stroll) and big-eyed close-ups (peek).
 # =========================================================================================
-
-
-@layout(S52, "interrupted", "pawsed")
-def _interrupted_pawsed_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    f = _f52()
-    icon52(f, cfg, "paw" if blink(now) else "paw_claws")
-    big52(f, cfg, "PAWSED", "attention")
-    small52(f, cfg, "HE'S BACK", "text")
-    return f
-
-
-#: Arthur's face inside the stopped globe (the cleaning drum, 12x12): eyes open.
-FROZEN_OPEN = (
-    "....bbbb....",
-    "..bb....bb..",
-    ".bO......Ob.",
-    ".bOO....OOb.",
-    "b.OOOSSOOO.b",
-    "b.OEEOOEEO.b",
-    "b.OEEOOEEO.b",
-    "b.OOOCNCOO.b",
-    ".b.OCCCCO.b.",
-    ".bssssssssb.",
-    "..bbssssbb..",
-    "....bbbb....",
-)
-#: The same, blinking.
-FROZEN_BLINK = (
-    *FROZEN_OPEN[:5], "b.OOOOOOOO.b", "b.OSSOOSSO.b", *FROZEN_OPEN[7:],
-)
-#: Frozen's 6 s loop of faces: open, with one blink.
-FROZEN_LOOP = (FROZEN_OPEN, FROZEN_OPEN, FROZEN_OPEN, FROZEN_BLINK, FROZEN_OPEN, FROZEN_OPEN)
-#: Hazard dashes on the ring: runs of ``HAZARD_RUN`` lit, then as many unlit (132 ring pixels,
-#: so the pattern closes seamlessly). The two phases swap every second: a flicker in place.
-HAZARD_RUN = 3
-#: The pause symbol beside frozen's timer: two bold bars, rows 2-7.
-PAUSE_BARS = ("WW..WW",) * 6
-#: Frozen's timer starts here, fixed, so it does not move when the pause symbol is hidden:
-#: the symbol's 6 columns and a 3-pixel gap after it.
-FROZEN_DIGITS_X = RING_X + 9
-
-
-def hazard_ring(f: Frame, cfg: Config, now: datetime, role: str) -> None:
-    """Dashes on the outermost pixels, swapping with the gaps every second."""
-    color = cfg.rgb(role)
-    on = tick(now) % 2
-    for i, (x, y) in enumerate(ring_pixels(f.width, f.height)):
-        if (i // HAZARD_RUN) % 2 == on:
-            f.pixel(x, y, color)
-
-
-@layout(S52, "interrupted", "frozen", edge_ring=True)
-def _interrupted_frozen_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    f = _f52()
-    hazard_ring(f, cfg, now, "attention")
-    draw_art(f, FROZEN_LOOP[phase(now, len(FROZEN_LOOP))], DRUM_X, DRUM_Y, cfg)
-    if blink(now):
-        draw_art(f, PAUSE_BARS, RING_X, 2, cfg, override="attention")
-    bold_text(f, cfg, fmt_clock(seconds_between(state.since, now)), FROZEN_DIGITS_X, 2,
-              "attention")
-    width = RING_R - RING_X + 1
-    word = caption(state, cfg, "interrupted", S52, width, small_font(), fallback="HEY!")
-    small52(f, cfg, word, "text", y=9, x=RING_X, right=RING_R)
-    return f
-
-
-#: The robot's deadpan, one icon per second (a 6 s loop): it glances up at Arthur once, and
-#: Arthur blinks once.
-ROBOT_LOOP: tuple[str, ...] = (
-    "robot_flat", "robot_flat", "robot_up", "robot_flat", "robot_catblink", "robot_flat",
-)
-
-
-@layout(S52, "interrupted", "robot")
-def _interrupted_robot_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
-    f = _f52()
-    icon52(f, cfg, ROBOT_LOOP[phase(now, len(ROBOT_LOOP))])
-    head = caption(state, cfg, "interrupted_robot", S52, C52_W, large_font(),
-                   fallback="AGAIN?")
-    big52(f, cfg, head, "attention")
-    small52(f, cfg, "STOPPED", "text")
-    return f
 
 
 #: Stroll's caption: small font across the top, left of the globe.
@@ -885,11 +816,17 @@ STROLL_STEPS: tuple[tuple[tuple[tuple[str, ...], int] | None, tuple[str, ...]], 
 )
 
 
+def loop_step(state: DisplayState, now: datetime, n: int) -> tuple[int, int]:
+    """``(loop number, step)`` of an ``n``-second loop counted from when the state began, so
+    every interruption opens on step 0 of loop 0."""
+    t = tick(now) - (math.floor(state.since.timestamp()) if state.since is not None else 0)
+    return divmod(t, n)
+
+
 def stroll_step(state: DisplayState, now: datetime) -> int:
     """Which step of :data:`STROLL_STEPS` shows: counted from when the state began, so
     every interruption opens with him walking in."""
-    t = tick(now) - (math.floor(state.since.timestamp()) if state.since is not None else 0)
-    return t % len(STROLL_STEPS)
+    return loop_step(state, now, len(STROLL_STEPS))[1]
 
 
 @layout(S52, "interrupted", "stroll")
@@ -953,6 +890,273 @@ def _interrupted_peek_52(state: DisplayState, now: datetime, cfg: Config) -> Fra
     head = caption(state, cfg, "interrupted_cat", S52, width, large_font(), fallback="WHAT?")
     put_text(f, PEEK_TEXT_X, L1_Y, head, cfg.rgb("attention"), large_font(), right=PEEK_TEXT_R)
     small52(f, cfg, "STOPPED", "text", x=PEEK_TEXT_X, right=PEEK_TEXT_R)
+    return f
+
+
+#: The full-width caption line across the top: small font, rows 1-5, columns 2-50.
+LOOK_X, LOOK_R = 2, 50
+LOOK_W = LOOK_R - LOOK_X + 1
+
+
+def look_caption(state: DisplayState, cfg: Config, loop: int) -> str:
+    """What Arthur is up to, a new phrase each time the loop comes round: small font, the
+    full width."""
+    return turn_caption(state, cfg, "interrupted_look", loop, S52, LOOK_W, small_font(),
+                        fallback="INTERRUPTION")
+
+
+def look_line(f: Frame, cfg: Config, s: str) -> None:
+    small52(f, cfg, s, "attention", y=L1_Y, x=LOOK_X, right=LOOK_R)
+
+
+#: stroll_look's small globe, 8x8, cream with sand, its opening on the left.
+SMALL_GLOBE = (
+    "..CCCC..",
+    ".C....C.",
+    ".......C",
+    ".......C",
+    ".......C",
+    "C.ssss.C",
+    ".CssssC.",
+    "..CCCC..",
+)
+SMALL_GLOBE_X, SMALL_GLOBE_Y = 42, 7
+#: stroll_look's walking cat stands a row lower than stroll's: feet on row 14.
+LOOK_WALK_Y = 8
+#: Walk A with the tail lowered (column 0): for the flick while he stands looking in.
+WALK_A_LOW = (
+    "." + WALK_A[0][1:],
+    "S" + WALK_A[1][1:],
+    "O" + WALK_A[2][1:],
+    *WALK_A[3:],
+)
+#: stroll_look's 8 s loop: (cat art, x). Four strides, then he stands with his nose in the
+#: opening, flicking his tail.
+LOOK_STEPS: tuple[tuple[tuple[str, ...], int], ...] = (
+    (WALK_A, 2), (WALK_B, 10), (WALK_A, 18), (WALK_B, 26),
+    (WALK_A, 32), (WALK_A_LOW, 32), (WALK_A, 32), (WALK_A_LOW, 32),
+)
+
+
+@layout(S52, "interrupted", "stroll_look")
+def _interrupted_stroll_look_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
+    f = _f52()
+    loop, step = loop_step(state, now, len(LOOK_STEPS))
+    look_line(f, cfg, look_caption(state, cfg, loop))
+    art, x = LOOK_STEPS[step]
+    draw_art(f, art, x, LOOK_WALK_Y, cfg)
+    draw_art(f, SMALL_GLOBE, SMALL_GLOBE_X, SMALL_GLOBE_Y, cfg)  # over his nose
+    return f
+
+
+#: stroll_watch: the drum, in cream, at (8, 3) (columns 8-19, rows 3-14), on the same floor
+#: row as Arthur.
+WATCH_DRUM_X, WATCH_DRUM_Y = 8, 3
+#: Arthur from behind, sitting beside the drum: 7x8 at (1, 7). The first ``BACK_HEAD_ROWS``
+#: rows are his head, which leans a column right, towards the drum, to follow the opening.
+BACK = (
+    "O....O.",
+    "OO..OO.",
+    "OOOOOO.",
+    "OSOOSO.",
+    ".OOOOO.",
+    "OOSOSOO",
+    "OOOOOOO",
+    "OOOOOOO",
+)
+BACK_HEAD_ROWS = 4
+BACK_LEAN = (*("." + r[:-1] for r in BACK[:BACK_HEAD_ROWS]), *BACK[BACK_HEAD_ROWS:])
+BACK_X, BACK_Y = 1, 7
+#: Text right of the drum (column 20 stays a gap); WATCHING needs the condensed small font.
+WATCH_TEXT_X, WATCH_TEXT_R = 21, 50
+
+
+@layout(S52, "interrupted", "stroll_watch")
+def _interrupted_stroll_watch_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
+    f = _f52()
+    drum(f, cfg, now, WATCH_DRUM_X, WATCH_DRUM_Y, role="cream")
+    lean = math.cos(drum_angle(now)) > 1e-6  # the opening is in the drum's right half
+    draw_art(f, BACK_LEAN if lean else BACK, BACK_X, BACK_Y, cfg)
+    small52(f, cfg, "WATCHING", "text", y=L1_Y, x=WATCH_TEXT_X, right=WATCH_TEXT_R,
+            condensed=True)
+    put_text(f, WATCH_TEXT_X, 7, "IT SPIN", cfg.rgb("attention"), large_font(),
+             right=WATCH_TEXT_R)
+    return f
+
+
+#: stroll_card's title, big font, rows 2-8 (exactly 50 px wide).
+CARD_TITLE = "INTERRUPTION"
+CARD_X, CARD_R, CARD_Y = 1, 50, 2
+#: Dashes under the title on rows 11-12: runs of ``CARD_DASH`` lit then unlit, swapping
+#: every second. Rows 9-10 stay empty so nothing touches the title.
+CARD_DASH = 3
+CARD_DASH_Y = 11
+#: stroll_card's 10 s loop: three seconds of title card, then the scene at full height,
+#: (cat art and x, or None; globe; tail pose or None).
+CARD_STEPS: tuple[
+    tuple[tuple[tuple[str, ...], int] | None, tuple[str, ...], int | None] | None, ...
+] = (
+    None, None, None,
+    ((WALK_A, 2), GLOBE_EMPTY, None),
+    ((WALK_B, 10), GLOBE_EMPTY, None),
+    ((WALK_A, 18), GLOBE_EMPTY, None),
+    ((WALK_B, 26), GLOBE_EMPTY, None),
+    ((WALK_A, 30), GLOBE_EMPTY, None),  # the globe is drawn over him: his head is inside
+    (None, GLOBE_CAT, 0),
+    (None, GLOBE_CAT, 1),
+)
+
+
+def dashes(f: Frame, cfg: Config, now: datetime, x0: int, x1: int, y: int, h: int) -> None:
+    """A row of dashes from column ``x0`` to ``x1``, ``h`` rows tall from ``y``, in
+    ``attention``: lit and unlit runs swapping every second."""
+    color = cfg.rgb("attention")
+    on = tick(now) % 2
+    for x in range(x0, x1 + 1):
+        if ((x - x0) // CARD_DASH) % 2 == on:
+            for dy in range(h):
+                f.pixel(x, y + dy, color)
+
+
+@layout(S52, "interrupted", "stroll_card")
+def _interrupted_stroll_card_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
+    f = _f52()
+    _, step = loop_step(state, now, len(CARD_STEPS))
+    scene = CARD_STEPS[step]
+    if scene is None:
+        put_text(f, CARD_X, CARD_Y, CARD_TITLE, cfg.rgb("attention"), large_font(),
+                 right=CARD_R)
+        dashes(f, cfg, now, CARD_X, CARD_R, CARD_DASH_Y, 2)
+        return f
+    cat, globe, tail = scene
+    if cat is not None:
+        art, x = cat
+        draw_art(f, art, x, WALK_Y, cfg)
+    draw_art(f, globe, GLOBE_X, GLOBE_Y, cfg)
+    if tail is not None:
+        draw_art(f, STROLL_TAIL[tail], STROLL_TAIL_X, STROLL_TAIL_Y, cfg)
+    return f
+
+
+#: The top of Arthur's head, 20x8 (ears, forehead, eyes), cut off by the bottom edge.
+POP_CENTRE = (
+    ".OO..............OO.",
+    "OOOO............OOOO",
+    "ONNOOOOOOOOOOOOOONNO",
+    "OOOOOOSOOSSOOSOOOOOO",
+    "OOWWWWWOOOOOOWWWWWOO",
+    "OOWEEEWOOOOOOWEEEWOO",
+    "OOWE.EWOOOOOOWE.EWOO",
+    "OOWEEEWOOOOOOWEEEWOO",
+)
+POP_LEFT = (*POP_CENTRE[:6], POP_CENTRE[6].replace("WE.EW", "W.EEW"), *POP_CENTRE[7:])
+POP_RIGHT = (*POP_CENTRE[:6], POP_CENTRE[6].replace("WE.EW", "WEE.W"), *POP_CENTRE[7:])
+#: peek_pop's 8 s loop: (art, rows showing). He rises from the bottom edge, looks round and
+#: sinks.
+POP_STEPS: tuple[tuple[tuple[str, ...], int], ...] = (
+    (POP_CENTRE, 3), (POP_CENTRE, 6), (POP_CENTRE, 8), (POP_LEFT, 8), (POP_RIGHT, 8),
+    (POP_CENTRE, 8), (POP_CENTRE, 8), (POP_CENTRE, 3),
+)
+#: Where he pops up, a new place each loop.
+POP_XS = (3, 16, 29)
+
+
+@layout(S52, "interrupted", "peek_pop")
+def _interrupted_peek_pop_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
+    f = _f52()
+    loop, step = loop_step(state, now, len(POP_STEPS))
+    look_line(f, cfg, look_caption(state, cfg, loop))
+    art, n = POP_STEPS[step]
+    draw_art(f, art[:n], POP_XS[loop % len(POP_XS)], 15 - n, cfg)
+    return f
+
+
+#: peek_spin: an 18x14 head at (1, 1) with blank white eyes; code draws the irises.
+SPIN_HEAD = (
+    ".OO............OO.",
+    "OOOO..........OOOO",
+    "ONNOO........OONNO",
+    "ONNOOOOOOOOOOOONNO",
+    "OOOOOSOOSSOOSOOOOO",
+    "OOOOOSOOSSOOSOOOOO",
+    "OWWWWWOOOOOOWWWWWO",
+    "OWWWWWOOOOOOWWWWWO",
+    "OWWWWWOOOOOOWWWWWO",
+    "OWWWWWOOOOOOWWWWWO",
+    "OWWWWWOOCCOOWWWWWO",
+    "SOOOOOCCNNCCOOOOOS",
+    "OOOOOCCCNNCCCOOOOO",
+    ".OOOCCCSCCSCCCOOO.",
+)
+SPIN_X, SPIN_Y = 1, 1
+#: Top-left of each eye's 5x5 white, in the art.
+SPIN_WHITES = ((1, 6), (12, 6))
+#: A 3x3 iris with an unlit pupil (drawn in ``off`` over the white).
+SPIN_IRIS = ("EEE", "E.E", "EEE")
+#: The irises go round clockwise, a step a second, starting at the top.
+SPIN_PATH = ((0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1))
+SPIN_TEXT_X, SPIN_TEXT_R = 20, 50
+
+
+@layout(S52, "interrupted", "peek_spin")
+def _interrupted_peek_spin_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
+    f = _f52()
+    draw_art(f, SPIN_HEAD, SPIN_X, SPIN_Y, cfg)
+    dx, dy = SPIN_PATH[phase(now, len(SPIN_PATH))]
+    for wx, wy in SPIN_WHITES:
+        x, y = SPIN_X + wx + 1 + dx, SPIN_Y + wy + 1 + dy
+        draw_art(f, SPIN_IRIS, x, y, cfg)
+        f.pixel(x + 1, y + 1, cfg.rgb("off"))
+    small52(f, cfg, "WATCHING", "text", y=L1_Y, x=SPIN_TEXT_X, right=SPIN_TEXT_R,
+            condensed=True)
+    put_text(f, SPIN_TEXT_X, 7, "IT SPIN", cfg.rgb("attention"), large_font(),
+             right=SPIN_TEXT_R)
+    return f
+
+
+#: peek_pov: the view from inside the box. His paws hooked over the bottom edge, 7x4, either
+#: side of his face (rows 11-14).
+POV_PAW = (
+    ".CCCCC.",
+    "CCSCSCC",
+    "CCCCCCC",
+    "OOOOOOO",
+)
+POV_PAWS = ((8, 11), (37, 11))
+#: His face, the peek head, between the paws.
+POV_FACE_X, POV_FACE_Y = 16, 1
+#: Peek's head with the eyes half open.
+PEEK_HALF = (
+    *PEEK_CENTRE[:6],
+    "OOOOOOOOOOOOOOOOOOOO",
+    "OOWWWWWOOOOOOWWWWWOO",
+    "OOWE.EWOOOOOOWE.EWOO",
+    "OOWWWWWOOOOOOWWWWWOO",
+    "OOOOOOOOOCCOOOOOOOOO",
+    *PEEK_CENTRE[11:],
+)
+#: The words, big font across the full width, rows 2-8.
+POV_X, POV_R, POV_Y = 1, 50, 2
+#: peek_pov's 10 s loop: three seconds of words (None), then his face, eyes opening.
+POV_STEPS: tuple[tuple[str, ...] | None, ...] = (
+    None, None, None,
+    PEEK_BLINK, PEEK_HALF, PEEK_CENTRE, PEEK_LEFT, PEEK_RIGHT, PEEK_CENTRE, PEEK_CENTRE,
+)
+
+
+@layout(S52, "interrupted", "peek_pov")
+def _interrupted_peek_pov_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
+    f = _f52()
+    loop, step = loop_step(state, now, len(POV_STEPS))
+    for x, y in POV_PAWS:
+        draw_art(f, POV_PAW, x, y, cfg)
+    face = POV_STEPS[step]
+    if face is None:
+        words = turn_caption(state, cfg, "interrupted_look", loop, S52, POV_R - POV_X + 1,
+                             large_font(), fallback="INTERRUPTION")
+        put_text(f, POV_X, POV_Y, words, cfg.rgb("attention"), large_font(), right=POV_R)
+    else:
+        draw_art(f, face, POV_FACE_X, POV_FACE_Y, cfg)
     return f
 
 
