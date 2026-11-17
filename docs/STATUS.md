@@ -9,7 +9,7 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
   (D-0010); commit 91e4960 is the last one that has them.
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
-- **Built and tested (529 tests):**
+- **Built and tested (567 tests):**
   - Pipeline: `arthur/model.py`, `arthur/mapping.py`, `arthur/render/`, with variants for
     ready, in_use, waiting and cleaning.
   - Screens: second design pass done on 2026-11-16 to Kyle's direction (D-0009): orange
@@ -26,6 +26,10 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
     the gap beside him, and a yawn every five minutes. **Kyle has not reacted to pass 4 or the idle script
     yet.**
     Just cleaned is now five seconds of "FRESHLY CLEANED" (D-0015).
+    Interrupted has **five candidate designs to choose from** beside the current "HEY!"
+    screen, which is still what the clock shows: `pawsed`, `frozen`, `robot`, `stroll` and
+    `peek`. They are variants in the studio's All states view. **Kyle has not picked one.**
+    The losers, their icons and their caption keys are to be removed once he has.
   - Transport: `arthur/transports/awtrix_ng.py`. Before pushing, it turns off the TC002's
     double-size drawing (`enlargeApps`); without that the clock shows a quarter of the frame.
     Only ever run against the fake clock.
@@ -55,7 +59,8 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
 1. Kyle: leave the spike running for a few days, and watch real visits in the studio (Live
    view, Source: Robot log). Follow only works while the spike is running.
 2. Kyle: react to the redesigned screens in the studio's All states view: which jokes land,
-   which art does not read, which variants to keep. Regenerate a one-page overview any time
+   which art does not read, which variants to keep. Interrupted has six to choose from;
+   `frozen` would make a third screen that draws on the outer edge. Regenerate a one-page overview any time
    with `uv run python -m arthur.render.preview --sheet DIR`.
 3. Kyle, with Claude: install AWTRIX NG 1.2.3 on the TC002 with the desktop USB installer. The
    steps and the way back to Ulanzi's firmware are in `docs/reference/awtrix-ng.md`; installing
