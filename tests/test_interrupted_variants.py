@@ -1,6 +1,7 @@
 """Interrupted: the default layout plus variants to compare (Arthur comes to have a look at
 the globe turning)."""
 
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -20,9 +21,10 @@ from arthur.render.screens import (
 CFG = default_config()
 S = (52, 16)
 NEW = ["stroll", "peek", "stroll_look", "stroll_watch", "stroll_card", "peek_pop", "peek_spin",
-       "peek_pov"]
+       "peek_pov", "stroll_pov"]
 OFF = CFG.rgb("off")
 ATTENTION = CFG.rgb("attention")
+FUR = CFG.rgb("fur")
 
 
 def _state(name="interrupted"):
@@ -117,3 +119,65 @@ def test_words_then_scene(variant, n):
     assert any(words.get(x, y) == ATTENTION for x in range(52) for y in range(2, 9))
     scene = _at(variant, n, 5)
     assert ATTENTION not in scene.pixels
+
+
+# --- stroll_pov: the walk in, the view from inside, then a hold loop -------------------------
+
+
+def _story(t, shift=0):
+    """stroll_pov ``t`` seconds into an interruption that began ``shift`` seconds after the
+    fixture's."""
+    state, now = _state()
+    state = replace(state, since=now + timedelta(seconds=shift))
+    return render(state, state.since + timedelta(seconds=t), CFG, variant="stroll_pov")
+
+
+def _pts(f, colour=None, xs=range(52), ys=range(16)):
+    return {(x, y) for x in xs for y in ys
+            if (f.get(x, y) == colour if colour else f.get(x, y) != OFF)}
+
+
+def test_stroll_pov_opens_with_him_walking_in():
+    f = _story(0)
+    assert _pts(f, FUR, xs=range(20))
+    assert ATTENTION not in f.pixels
+
+
+def test_stroll_pov_then_only_the_paws():
+    assert not _pts(_story(4), ys=range(11))
+
+
+def test_stroll_pov_then_his_face():
+    assert _pts(_story(7), FUR, xs=range(16, 36), ys=range(11))
+
+
+def test_stroll_pov_then_the_title():
+    f = _story(10)
+    assert _pts(f, ATTENTION, ys=range(2, 9))
+    assert not _pts(f, FUR, xs=range(16, 36), ys=range(11))
+
+
+def test_stroll_pov_never_walks_again():
+    # Columns 1-7 below the words (rows 9-14): the walking cat would be on rows 7-13, the
+    # paws start at column 8, and the big-font words (rows 2-8) start at column 1.
+    for t in range(12, 12 + 25):
+        assert not _pts(_story(t), xs=range(1, 8), ys=range(9, 15)), t
+
+
+def test_stroll_pov_hold_words_take_turns():
+    for step in (5, 6, 7):
+        a = _pts(_story(12 + step), ATTENTION)
+        b = _pts(_story(12 + 8 + step), ATTENTION)
+        assert a and b and a != b, step
+
+
+def test_stroll_pov_follows_since():
+    # Every beat lands on the same second of the story. On a word beat only the phrase may
+    # differ: the order the phrases take turns in is shuffled per visit, seeded from since.
+    for t in range(30):
+        a, b = _story(t), _story(t, shift=37)
+        if 12 <= t and (t - 12) % 8 >= 5:
+            assert _pts(a) - _pts(a, ATTENTION) == _pts(b) - _pts(b, ATTENTION), t
+            assert _pts(a, ATTENTION, ys=range(2, 9)) and _pts(b, ATTENTION, ys=range(2, 9))
+        else:
+            assert a == b, t

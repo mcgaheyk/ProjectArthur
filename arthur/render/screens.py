@@ -1160,6 +1160,63 @@ def _interrupted_peek_pov_52(state: DisplayState, now: datetime, cfg: Config) ->
     return f
 
 
+#: stroll_pov, stroll_card and peek_pov joined into one story. A beat is (what, art, x):
+#: ``"walk"`` the walking cat ``art`` at ``x`` with the empty globe (the last stride drawn
+#: under the globe, his head through the opening), ``"paws"`` only the paws, ``"face"`` the
+#: paws and the face ``art``, ``"title"`` the paws and CARD_TITLE, ``"words"`` the paws and
+#: a phrase taking turns per hold loop.
+Beat = tuple[str, tuple[str, ...] | None, int]
+#: The opening, played once from when the state began: he walks up to the globe and goes in,
+#: then we are inside the box and he looks in at us, eyes opening, and the title.
+STORY_INTRO: tuple[Beat, ...] = (
+    ("walk", WALK_A, 6), ("walk", WALK_B, 14), ("walk", WALK_A, 22), ("walk", WALK_B, 30),
+    ("paws", None, 0),
+    ("face", PEEK_BLINK, 0), ("face", PEEK_HALF, 0), ("face", PEEK_CENTRE, 0),
+    ("face", PEEK_LEFT, 0), ("face", PEEK_RIGHT, 0),
+    ("title", None, 0), ("title", None, 0),
+)
+#: Then, for as long as the state lasts, an 8 s loop: he looks round and blinks, then a
+#: phrase, a new one each time round.
+STORY_HOLD: tuple[Beat, ...] = (
+    ("face", PEEK_CENTRE, 0), ("face", PEEK_LEFT, 0), ("face", PEEK_CENTRE, 0),
+    ("face", PEEK_RIGHT, 0), ("face", PEEK_BLINK, 0),
+    ("words", None, 0), ("words", None, 0), ("words", None, 0),
+)
+
+
+def story_beat(state: DisplayState, now: datetime) -> tuple[str, int, int]:
+    """``("intro" | "hold", step, hold loop)`` of stroll_pov at ``now``, counted from when the
+    state began (the hold loop is 0 during the intro)."""
+    t = max(0, tick(now) - (math.floor(state.since.timestamp()) if state.since else 0))
+    if t < len(STORY_INTRO):
+        return "intro", t, 0
+    loop, step = divmod(t - len(STORY_INTRO), len(STORY_HOLD))
+    return "hold", step, loop
+
+
+@layout(S52, "interrupted", "stroll_pov")
+def _interrupted_stroll_pov_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
+    f = _f52()
+    part, step, loop = story_beat(state, now)
+    what, art, x = (STORY_INTRO if part == "intro" else STORY_HOLD)[step]
+    if what == "walk":
+        assert art is not None
+        draw_art(f, art, x, WALK_Y, cfg)
+        draw_art(f, GLOBE_EMPTY, GLOBE_X, GLOBE_Y, cfg)
+        return f
+    for px, py in POV_PAWS:
+        draw_art(f, POV_PAW, px, py, cfg)
+    if what == "face":
+        assert art is not None
+        draw_art(f, art, POV_FACE_X, POV_FACE_Y, cfg)
+    elif what in ("title", "words"):
+        words = CARD_TITLE if what == "title" else turn_caption(
+            state, cfg, "interrupted_look", loop, S52, POV_R - POV_X + 1, large_font(),
+            fallback=CARD_TITLE)
+        put_text(f, POV_X, POV_Y, words, cfg.rgb("attention"), large_font(), right=POV_R)
+    return f
+
+
 # =========================================================================================
 # Idle: Arthur, the drawer and litter levels, and when he last went. Nearly still.
 # =========================================================================================

@@ -499,7 +499,7 @@ WIDE = {
     ("drawer_full", "default"),
     *(("interrupted", v) for v in (
         "stroll", "peek", "stroll_look", "stroll_watch", "stroll_card", "peek_pop",
-        "peek_spin", "peek_pov",
+        "peek_spin", "peek_pov", "stroll_pov",
     )),
 }
 
