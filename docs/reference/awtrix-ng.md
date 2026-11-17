@@ -117,7 +117,25 @@ Row-major order and "before brightness/gamma" are **not stated** in the spec.
   `DELETE /api/v1/notifications/active` dismisses the one showing.
 - **Rotation and built-in apps:** `PUT /api/v1/apps/order {"order":[…],"disabled":[…]}`
   persists; `PUT /api/v1/apps/active {"name","fast":true}` shows an app now.
-- **Buttons:** a `buttonCallback` URL receives `{"button","state","uid"}` over plain HTTP.
+- **Buttons and knob** (confirmed against `docs/guides/device-controls.md`,
+  `docs/reference/system.md#buttons` and `docs/reference/settings.md` at `v1.2.3`):
+  - The TC002 has three buttons on top (left, select, right) and a knob. Out of the box: left and
+    right show the previous or next app in the rotation; select once dismisses the notification
+    shown; select twice quickly switches the display off or on; select held 0.5 s opens the
+    on-clock menu (scripts, radio). The knob turns brightness or volume, 5 % a click (a short
+    press switches between them); held 0.5 s it starts the voice assistant, if one is set up.
+  - `buttonCallback` is a key in `PUT /api/v1/system` (not settings). AWTRIX `POST`s JSON to it
+    on every press **and** release: `{"button":"left|middle|right","state":true|false,"uid":…}`.
+    The knob sends `"button":"knob"` with `state` when pushed and `"turn":n` (clicks, positive
+    clockwise, summed while the listener is slow) when turned. Plain `http://` only, no login;
+    the answer is ignored and never retried. On the TC002 the call runs in the background, so a
+    slow listener never stalls the display; 16 calls queue, then presses are dropped. Long
+    press is ours to time from `true` to `false`. Debounce and double-press times are fixed.
+  - `blockNavigation` (setting, "Block buttons" in the web UI) stops the buttons switching apps
+    or the display and the menu opening, and stops the knob setting brightness or volume or
+    starting voice. Presses and turns still reach `buttonCallback`, MQTT and scripts.
+  - A shown Berry script gets each press first and can keep it by returning `true` from
+    `on_button()`.
 - **Scripts (Berry):** run on the clock, survive reboot, can draw at about 40 fps, make
   HTTP(S) requests and read `now_ms()`. The official `Doorstate` recipe turns the screen grey
   when its data is old; that is the pattern for our watchdog.
@@ -168,6 +186,27 @@ Ulanzi's product page. Earlier notes here called NG on the TC002 "a beta from la
 - **Getting back** (`docs/guides/reset-recovery.md`): holding the reset button for 5 s erases NG
   and reinstalls the Ulanzi firmware kept on the clock, which may be older than the one it
   shipped with. A damaged install shows "USB RECOVERY" and can be reinstalled.
+
+### What the real install showed (2026-11-17, Kyle's TC002, from a Mac)
+- Installer: `installer/tc002/AWTRIX-NG-TC002-Installer-macos-arm64.dmg` on `main` (app version
+  0.1.0). It is ad-hoc signed and not notarized, and no checksum is published. It downloads the
+  firmware itself.
+- On USB the clock is an ADB device named "Zkswe" (vendor 0x18D1, product 0xD002). A running
+  `adb` server on the Mac takes it and the installer says "USB is in use"; `adb kill-server`
+  first. Argent and Android tools restart that server.
+- macOS asks "Allow accessory to connect?" the first time. A poor cable shows as "USB did not
+  become stable" (the device dropped off USB every few seconds).
+- The clock joined Wi-Fi from the installer's Home Wi-Fi fields and announces itself as
+  `awtrixng-77a767` (`.local` by mDNS; the router also names it `awtrixng-77a767.lan`).
+- **A new install has two built-in apps in the rotation, Time and Status**, 7 s each, so a
+  pushed app only shows a third of the time. `PUT /api/v1/apps/order
+  {"order":["litter"],"disabled":["Time","Status"]}` answered `200 {"ok":true}` and left only
+  ours. `GET` on that route is 405. Not yet checked: whether this survives a reboot (#141, #142).
+- **First frames (commit 7f3279a, `scripts/push_test.py`):** the transport's `enlargeApps:
+  false` and bitmap push were accepted unchanged. Read-back of 12 animated frames matched what
+  was sent on all 832 pixels, with `brightness` at 120 and `gamma` 1.9. So
+  `GET /api/v1/display/screen` **is row-major from the top left and is before brightness and
+  gamma: confirmed on hardware.**
 
 ### Open reports that mention the TC002 (2026-11-16)
 - #141: the order of apps changes after a reboot. #142: a disabled Status app turns itself
