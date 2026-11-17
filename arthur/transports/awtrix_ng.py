@@ -133,6 +133,28 @@ class AwtrixNgTransport:
     async def clear(self) -> None:
         await self._request("DELETE", f"/api/v1/apps/{self.app_name}")
 
+    async def read_screen(self) -> dict:
+        """``GET /api/v1/display/screen``: ``{width, height, pixels: [0xRRGGBB, ...]}``.
+
+        Only the shape is checked. Pixel order and whether brightness is applied are not
+        documented (docs/reference/awtrix-ng.md, "Reading the screen back").
+        """
+        path = "/api/v1/display/screen"
+        text = await self._request("GET", path)
+        try:
+            data = json.loads(text)
+        except ValueError as exc:
+            raise TransportError(f"GET {path}: not JSON", None, text) from exc
+        if not (
+            isinstance(data, dict)
+            and isinstance(data.get("width"), int)
+            and isinstance(data.get("height"), int)
+            and isinstance(data.get("pixels"), list)
+            and all(isinstance(p, int) for p in data["pixels"])
+        ):
+            raise TransportError(f"GET {path}: not {{width, height, pixels[]}}", None, text)
+        return data
+
     async def close(self) -> None:
         if self._own_session and self._session is not None and not self._session.closed:
             await self._session.close()

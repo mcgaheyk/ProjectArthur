@@ -47,6 +47,12 @@ def frame_text(frame: Frame, cfg: Config) -> str:
     return frame.to_ascii(legend_for(cfg))
 
 
+def names_text(cfg: Config) -> str:
+    """What ``--list`` prints: each display kind with its variants, then every fixture name."""
+    lines = [f"{kind:15} {', '.join(list_variants(kind, cfg.size))}" for kind in list_kinds()]
+    return "\n".join([*lines, "", "fixtures: " + ", ".join(FIXTURES)])
+
+
 def render_fixture(
     fx: Fixture, cfg: Config, size: tuple[int, int] | None, variant: str | None, stale: bool
 ) -> Frame:
@@ -156,9 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_config(args.config)
 
     if args.list:
-        for kind in list_kinds():
-            print(f"{kind:15} {', '.join(list_variants(kind, cfg.size))}")
-        print("\nfixtures: " + ", ".join(FIXTURES))
+        print(names_text(cfg))
         return 0
 
     if args.fixtures:
