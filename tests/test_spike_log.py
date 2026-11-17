@@ -5,16 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 import stat
-from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
 from pylitterbot.enums import LitterBoxStatus
+from robotfakes import T0, Act, FakeAccount, FakeRobot, LiveFakeRobot, raw_data
 
 from arthur import spikelog as sl
-
-T0 = datetime(2026, 11, 15, 12, 0, 0, tzinfo=UTC)
 
 
 class Clock:
@@ -26,80 +24,6 @@ class Clock:
 
     def mono(self) -> float:
         return self.t
-
-
-def raw_data(**overrides):
-    data = {
-        "unitId": "UNIT-123",
-        "serial": "LR4C000001",
-        "userId": "USER-9",
-        "name": "Arthur's box",
-        "sessionId": "abc",
-        "robotStatus": "ROBOT_IDLE",
-        "robotCycleState": "CYCLE_STATE_NONE",
-        "robotCycleStatus": "CYCLE_IDLE",
-        "displayCode": "DC_MODE_IDLE",
-        "catDetect": "CAT_DETECT_CLEAR",
-        "isCatDetectPending": False,
-        "weightSensor": 0.0,
-        "pinchStatus": "CLEAR",
-        "isDFIFull": False,
-        "isDFIPartialFull": False,
-        "DFILevelPercent": 42,
-        "litterLevel": 451,
-        "litterLevelPercentage": 0.8,
-        "sleepStatus": "WAKE",
-        "unitPowerStatus": "ON",
-        "isBonnetRemoved": False,
-        "wifiRssi": -55,
-        "globeMotorFaultStatus": "FAULT_CLEAR",
-        "weekdaySleepModeEnabled": {"Monday": {"isEnabled": False, "sleepTime": 0}},
-        "ownerEmail": "kyle@example.com",
-        "lanIp": "192.168.1.20",
-    }
-    data.update(overrides)
-    return data
-
-
-class FakeRobot:
-    """Looks like pylitterbot's LitterRobot4 for the properties the logger reads."""
-
-    def __init__(self, **raw) -> None:
-        self._data = raw_data(**raw)
-        self.status = LitterBoxStatus.READY
-        self.status_code = "RDY"
-        self.status_text = "Ready"
-        self.is_online = True
-        self.is_on = True
-        self.is_sleeping = False
-        self.sleep_mode_enabled = False
-        self.waste_drawer_level = 42.0
-        self.is_waste_drawer_full = False
-        self.is_drawer_full_indicator_triggered = False
-        self.litter_level = 80.0
-        self.litter_level_state = None
-        self.pet_weight = 9.5
-        self.clean_cycle_wait_time_minutes = 7
-        self.is_laser_dirty = False
-        self.power_type = "AC"
-        self.last_seen = T0
-        self.cycle_count = 1234
-        self.cycle_capacity = 30
-        self.cycles_after_drawer_full = 0
-        self.globe_motor_fault_status = None
-        self.hopper_status = None
-        self.is_hopper_removed = False
-        self.name = "Arthur's box"
-        self.serial = "LR4C000001"
-
-    def to_dict(self):
-        return self._data
-
-    def set_status(self, status: LitterBoxStatus, robot_status: str) -> None:
-        self.status = status
-        self.status_code = status.value
-        self.status_text = status.text
-        self._data["robotStatus"] = robot_status
 
 
 # ---- record building ---------------------------------------------------------------------
@@ -496,12 +420,6 @@ async def test_poll_vs_push_source_tagging(tmp_path):
     assert [x["source"] for x in lines] == ["start", "ws", "poll"]
 
 
-@dataclass
-class Act:
-    timestamp: datetime
-    action: object
-
-
 def test_activity_history_is_deduplicated(tmp_path):
     spike = sl.SpikeLogger(tmp_path)
     acts = [
@@ -525,43 +443,6 @@ def test_format_duration(seconds, text):
 
 
 # ---- the run loop, with connect_account replaced by fakes ------------------------------------
-
-
-class FakeAccount:
-    def __init__(self, robot) -> None:
-        self.robot = robot
-        self.pets = []
-        self.disconnected = False
-
-    def get_robots(self, cls):
-        return [self.robot]
-
-    async def disconnect(self):
-        self.disconnected = True
-
-
-class LiveFakeRobot(FakeRobot):
-    def __init__(self) -> None:
-        super().__init__()
-        self.listeners = []
-        self.refreshes = 0
-
-    def on(self, event, callback):
-        self.listeners.append(callback)
-        return lambda: self.listeners.remove(callback)
-
-    def push(self, status, robot_status):
-        self.set_status(status, robot_status)
-        for cb in list(self.listeners):
-            cb()
-
-    async def refresh(self):
-        self.refreshes += 1
-        for cb in list(self.listeners):
-            cb()
-
-    async def get_activity_history(self, limit=100, start=None):
-        return [Act(T0, LitterBoxStatus.CLEAN_CYCLE_COMPLETE)]
 
 
 def opts(tmp_path, duration):

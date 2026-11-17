@@ -257,11 +257,15 @@ class Recorder:
     def elapsed(self) -> float:
         return self._mono() - self._t0
 
+    def wall(self) -> datetime:
+        """The wall time lines are stamped with."""
+        return self._wall()
+
     def _line(
         self, record: dict[str, Any], source: str, changed: dict, raw: Mapping | None
     ) -> dict[str, Any]:
         line: dict[str, Any] = {
-            "ts": utc_iso_ms(self._wall()),
+            "ts": utc_iso_ms(self.wall()),
             "t": round(self.elapsed(), 3),
             "kind": "state",
             "source": source,
@@ -600,19 +604,29 @@ class NoRobotFound(Exception):
 
 
 class SpikeLogger:
-    """Holds the recorder, files and timeline; turns robot updates into lines."""
+    """Holds the recorder, files and timeline; turns robot updates into lines.
+
+    ``echo`` False keeps it off the console (the feeder logs through :mod:`logging`
+    instead). ``on_record(record, source)`` is called with every observed record before it is
+    written (the feeder's live source feeds its tracker from it); it must not raise.
+    """
 
     def __init__(
         self,
         log_dir: Path,
         out: TextIO | None = None,
         recorder: Recorder | None = None,
+        *,
+        echo: bool = True,
+        on_record: Callable[[dict[str, Any], str], None] | None = None,
     ) -> None:
         self.recorder = recorder or Recorder()
         self.states = DailyJsonl(log_dir, "spike")
         self.activity = DailyJsonl(log_dir, "spike-activity")
         self.tracker = StatusTracker()
         self.out = out or sys.stdout
+        self.echo = echo
+        self.on_record = on_record
         self.robot: Any = None
         self._polling = False
         self._poll_task: asyncio.Task | None = None
@@ -634,6 +648,8 @@ class SpikeLogger:
         if result is False:
             return
         drawer = (line.get("record") or {}).get("waste_drawer_level")
+        if not self.echo:
+            return
         print(
             console_line(wall, old, status, line["source"], result, drawer),
             file=self.out,
@@ -646,7 +662,7 @@ class SpikeLogger:
         message = scrub(str(exc)) if isinstance(exc, BaseException) else scrub(exc)
         error_type = type(exc).__name__ if isinstance(exc, BaseException) else "Error"
         line = {
-            "ts": utc_iso_ms(datetime.now(UTC)),
+            "ts": utc_iso_ms(self.recorder.wall()),
             "t": round(self.recorder.elapsed(), 3),
             "kind": "error",
             "where": where,
@@ -658,13 +674,15 @@ class SpikeLogger:
             self.states.write(line)
         except OSError:
             pass
+        if not self.echo:
+            return
         retry = f"; retrying in {format_duration(retry_in)}" if retry_in else ""
         print(f"error ({where}): {error_type}: {message}{retry}", file=sys.stderr, flush=True)
 
     def log_info(self, event: str, **extra: Any) -> None:
         self.states.write(
             {
-                "ts": utc_iso_ms(datetime.now(UTC)),
+                "ts": utc_iso_ms(self.recorder.wall()),
                 "t": round(self.recorder.elapsed(), 3),
                 "kind": "info",
                 "event": event,
@@ -682,6 +700,8 @@ class SpikeLogger:
             raw = self.robot.to_dict()
         except Exception:  # noqa: BLE001
             raw = None
+        if self.on_record is not None:
+            self.on_record(record, source)
         self._emit(self.recorder.observe(record, source, raw))
 
     def current_source(self) -> str:
@@ -721,7 +741,7 @@ class SpikeLogger:
     def record_activity(self, activities: Iterable[Any], pets: Iterable[Any] = ()) -> int:
         """Append history entries not seen before. Returns how many were new."""
         new = 0
-        fetched_at = utc_iso_ms(datetime.now(UTC))
+        fetched_at = utc_iso_ms(self.recorder.wall())
         for act in sorted(activities, key=lambda a: str(a.timestamp)):
             action = act.action
             text = getattr(action, "text", None) or str(action)
@@ -759,8 +779,14 @@ class SpikeLogger:
                 new += 1
         return new
 
-    async def fetch_activity(self, pets: Iterable[Any], refresh_pets: bool) -> int:
-        activities = await self.robot.get_activity_history(limit=100, start=self._activity_since)
+    async def fetch_activity(
+        self, pets: Iterable[Any], refresh_pets: bool, first_since: datetime | None = None
+    ) -> list[Any]:
+        """Fetch the history since the newest entry seen (``first_since`` before any entry
+        has been seen; None asks for the API's default of about six days), append what is
+        new, and return the entries fetched (the feeder seeds its tracker from them)."""
+        start = self._activity_since or first_since
+        activities = list(await self.robot.get_activity_history(limit=100, start=start))
         pet_list = list(pets or ())
         if refresh_pets:
             for pet in pet_list:
@@ -768,7 +794,8 @@ class SpikeLogger:
                     await pet.fetch_weight_history()
                 except Exception as exc:  # noqa: BLE001 - pet weights are a nice-to-have
                     self.log_error("pet-weight-history", exc)
-        return self.record_activity(activities, pet_list)
+        self.record_activity(activities, pet_list)
+        return activities
 
     def close(self) -> None:
         self.states.close()

@@ -34,6 +34,7 @@ from typing import TextIO
 from arthur.config import Config, load_config
 from arthur.fixtures import FIXTURES
 from arthur.mapping import to_display_state
+from arthur.pusher import Pusher
 from arthur.render import Frame, list_variants, render
 from arthur.render.preview import names_text
 from arthur.transports import AwtrixNgTransport, TransportError
@@ -123,20 +124,17 @@ async def run(
     say(f"push_test: {opts.name} [{state.kind}] variant={variant} -> {base_url} "
         f"app={opts.app} ttl={ttl_s:g}s for {opts.seconds:g}s")
     transport = AwtrixNgTransport(base_url, app_name=opts.app)
-    pushes = 0
-    last: bytes | None = None
-    last_push_t = 0.0
+    pusher = Pusher(transport, time_fn=time_fn)
     t0 = time_fn()
     try:
         while True:
             elapsed = time_fn() - t0
             frame = render(state, fx.now + timedelta(seconds=elapsed), cfg, variant=variant)
-            data = frame.to_rgb888()
-            changed = data != last
-            if changed or time_fn() - last_push_t >= heartbeat_s:
-                await transport.show(frame, ttl_s)
-                last, last_push_t, pushes = data, time_fn(), pushes + 1
-                say(f"push {pushes} at +{elapsed:.1f}s ({'new frame' if changed else 'heartbeat'})")
+            result = await pusher.offer(frame, ttl_s, heartbeat_s)
+            if result is not None:
+                if result.error is not None:
+                    raise result.error
+                say(f"push {pusher.pushes} at +{elapsed:.1f}s ({result.reason})")
                 if opts.readback:
                     await sleep(READBACK_SETTLE_S)
                     for line in compare(frame, await transport.read_screen()):
@@ -148,7 +146,7 @@ async def run(
             await transport.clear()
             say(f"cleared app {opts.app}")
         else:
-            say(f"done after {pushes} pushes; the last frame stays up and is marked stale "
+            say(f"done after {pusher.pushes} pushes; the last frame stays up and is marked stale "
                 f"{ttl_s:g}s after its push")
     except asyncio.CancelledError:
         # Ctrl-C: leave the last frame (it goes stale on its own), or clear if asked.
@@ -156,7 +154,7 @@ async def run(
             await transport.clear()
             say(f"interrupted; cleared app {opts.app}")
         else:
-            say(f"interrupted after {pushes} pushes; the last frame stays up and goes stale")
+            say(f"interrupted after {pusher.pushes} pushes; the last frame stays up and goes stale")
     finally:
         await transport.close()
     return 0

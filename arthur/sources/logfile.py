@@ -396,7 +396,7 @@ class Timeline:
         return self._state(i, m)
 
     def contact_error(self) -> str | None:
-        """``"auth"`` or ``"api"`` when the spike's newest news is that it lost Whisker (an
+        """``"auth"``, ``"api"`` or ``"no_robots"`` when the spike's newest news is that it lost Whisker (an
         error line after the last state line), else None."""
         for ln in reversed(self.lines):
             if ln.kind == "state":
@@ -404,6 +404,8 @@ class Timeline:
             if ln.kind != "error" or ln.data.get("where") not in _CONTACT_ERRORS:
                 continue
             where = ln.data.get("where")
+            if ln.data.get("error") == "NoRobotFound":
+                return "no_robots"
             # The spike logs a rejected login at "login", and a token gone bad mid-run at
             # "poll" without a retry (it logs in again rather than retrying the poll).
             if where == "login" or (where == "poll" and ln.data.get("retry_in") is None):
