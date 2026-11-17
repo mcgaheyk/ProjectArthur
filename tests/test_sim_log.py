@@ -119,7 +119,8 @@ async def test_follow_picks_up_new_lines(client, wall, fake_time, logdir):
     st = feeder.state()
     assert st["showing"]["kind"] == "no_data" and st["showing"]["detail"] == "api"
     assert st["log"]["contact_error"] == "api"
-    write(logdir / "spike-20260302.jsonl", [state(900, "CAT_DETECTED", source="start")])
+    write(logdir / "spike-20260302.jsonl", [state(900, "CAT_DETECTED", source="start",
+                                                    pet_weight=9.7)])
     wall.dt = at(905)
     fake_time.t += 1.5
     await feeder.tick()
@@ -139,6 +140,12 @@ async def test_replay_through_the_mapping(client, fake_time):
         st = await control(client, {"log": {"position": pos, "playing": False}})
         assert st["showing"]["kind"] == kind, (pos, st["showing"])
         assert st["log"]["position"] == pytest.approx(pos)
+    # What the feeder observed is shown beside the robot's raw fields.
+    st = await control(client, {"log": {"position": pad + 61, "playing": False}})
+    obs = st["log"]["observed"]
+    assert obs["visit_started_at"] == at(100).isoformat()
+    assert obs["cat_left_at"] == at(160).isoformat()
+    assert obs["previous_status"] == "CAT_DETECTED"
     # Raw fields follow the line in force.
     st = await control(client, {"log": {"position": pad + 100}})
     assert st["log"]["raw"]["robotStatus"] == "ROBOT_CAT_DETECT_DELAY"

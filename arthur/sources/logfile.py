@@ -17,16 +17,21 @@ format, so the studio can drive the real pipeline from it:
 Pure standard library: no pylitterbot, no aiohttp. Bad data never raises; malformed lines are
 skipped and counted.
 
-Feeder-observed fields come from the log's own history:
+Feeder-observed fields come from the log's own history, through the same
+:class:`~arthur.sources.tracker.Tracker` the live source will use, fed every state line in
+``ts`` order (one frozen tracker state is kept per line, so a replay seek gives the same answer
+as playing through):
 
-- ``status_since``: the ``ts`` of the line where the status last changed to the current one.
-  For the very first status in the log, when nothing earlier is known, it is the first state
-  line's ``ts``.
-- ``previous_status``: the status before that change (None for the first status).
-- ``last_visit_at``: the latest of (a) the most recent state line, at or before the moment in
-  question, where the status became ``CAT_DETECTED``, and (b) the latest "Cat Detected"
-  activity entry at or before that moment (a "Pet Weight Recorded" entry counts only when no
-  "Cat Detected" precedes it within 15 minutes, since it is the same visit a minute later).
+- ``status_since`` / ``previous_status``: from the line where the status last changed. For the
+  very first status in the log, ``status_since`` is the first state line's ``ts`` and
+  ``previous_status`` is None.
+- ``visit_started_at`` / ``cat_left_at``: the visit under way, and the line where its pet
+  weight changed (see the tracker's rules).
+- ``last_visit_at``: the latest of (a) the tracker's, the start of the latest visit that
+  qualified (a weight, or ``visit_min_s`` long) at the moment in question, and (b) the latest
+  "Cat Detected" activity entry at or before that moment (a "Pet Weight Recorded" entry
+  counts only when no "Cat Detected" precedes it within 15 minutes, since it is the same
+  visit a minute later).
 - ``visits_today`` stays None.
 """
 
@@ -36,12 +41,13 @@ import bisect
 import json
 import math
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from arthur.model import FeederHealth, RobotSnapshot
+from arthur.sources.tracker import DEFAULT_VISIT_MIN_S, Observed, TrackerState
 
 # arthur.spikelog imports only the standard library at module level (pylitterbot is imported
 # lazily inside its network functions), so taking the constant from it is safe.
@@ -185,6 +191,8 @@ def snapshot_from_record(
     status_since: datetime | None = None,
     previous_status: str | None = None,
     last_visit_at: datetime | None = None,
+    visit_started_at: datetime | None = None,
+    cat_left_at: datetime | None = None,
 ) -> RobotSnapshot:
     """A :class:`RobotSnapshot` from a state line's ``record``. Odd values fall back to the
     model's defaults (the spike writes ``"<error: X>"`` for a property that raised)."""
@@ -208,6 +216,8 @@ def snapshot_from_record(
         previous_status=previous_status,
         last_visit_at=last_visit_at,
         visits_today=None,
+        visit_started_at=visit_started_at,
+        cat_left_at=cat_left_at,
     )
 
 
@@ -256,19 +266,21 @@ class StateAt:
 
     line: LogLine
     snapshot: RobotSnapshot
+    observed: Observed = field(default_factory=Observed)
 
 
 class Timeline:
     """Log lines ordered by ``ts``, with the derived per-line history."""
 
-    def __init__(self, just_cleaned_s: float = 60.0) -> None:
+    def __init__(
+        self, just_cleaned_s: float = 60.0, visit_min_s: float = DEFAULT_VISIT_MIN_S
+    ) -> None:
         self.just_cleaned_s = float(just_cleaned_s)
+        self.visit_min_s = float(visit_min_s)
         self.lines: list[LogLine] = []
         self.states: list[LogLine] = []
         self.activity: list[Activity] = []
-        self._since: list[datetime] = []
-        self._prev: list[str | None] = []
-        self._last_cd: list[datetime | None] = []
+        self._tracked: list[TrackerState] = []  # the tracker's state after each state line
         self._visit_starts: list[datetime] = []  # activity-based visit times, sorted
         self._visits: list[Visit] | None = None
 
@@ -295,23 +307,17 @@ class Timeline:
             self._visits = None
 
     def _derive(self) -> None:
-        self._since, self._prev, self._last_cd = [], [], []
-        since: datetime | None = None
-        prev: str | None = None
-        cur: str | None = None
-        last_cd: datetime | None = None
+        # The visit length that qualifies a visit is applied when the visit ends, so a change
+        # of visit_min_s re-derives (see set_visit_min_s).
+        out: list[TrackerState] = []
+        st = TrackerState()
         for ln in self.states:
-            s = ln.status
-            if cur is None:
-                since = ln.ts  # unknown start: the first line's time
-            elif s != cur:
-                prev, since = cur, ln.ts
-                if s == "CAT_DETECTED":
-                    last_cd = ln.ts
-            cur = s
-            self._since.append(since)  # type: ignore[arg-type]
-            self._prev.append(prev)
-            self._last_cd.append(last_cd)
+            rec = ln.record
+            if not rec.get("status"):
+                rec = {**rec, "status": ln.status}
+            st = st.feed(rec, ln.ts, self.visit_min_s)
+            out.append(st)
+        self._tracked = out
 
     def _derive_activity(self) -> None:
         starts: list[datetime] = []
@@ -325,6 +331,12 @@ class Timeline:
             ):
                 starts.append(a.at)
         self._visit_starts = starts
+
+    def set_visit_min_s(self, seconds: float) -> None:
+        """Change how long a detection must last to count as a visit."""
+        if float(seconds) != self.visit_min_s:
+            self.visit_min_s = float(seconds)
+            self._derive()
 
     def set_just_cleaned_s(self, seconds: float) -> None:
         """Change the "just cleaned" length (it sets the end of each visit's window)."""
@@ -356,14 +368,19 @@ class Timeline:
 
     def _state(self, i: int, moment: datetime) -> StateAt:
         ln = self.states[i]
-        candidates = [d for d in (self._last_cd[i], self._activity_visit(moment)) if d is not None]
+        obs = self._tracked[i].observed(moment, self.visit_min_s)
+        candidates = [d for d in (obs.last_visit_at, self._activity_visit(moment))
+                      if d is not None]
+        obs = replace(obs, last_visit_at=max(candidates) if candidates else None)
         snap = snapshot_from_record(
             ln.record,
-            status_since=self._since[i],
-            previous_status=self._prev[i],
-            last_visit_at=max(candidates) if candidates else None,
+            status_since=obs.status_since,
+            previous_status=obs.previous_status,
+            last_visit_at=obs.last_visit_at,
+            visit_started_at=obs.visit_started_at,
+            cat_left_at=obs.cat_left_at,
         )
-        return StateAt(ln, snap)
+        return StateAt(ln, snap, obs)
 
     def at(self, t: datetime) -> StateAt | None:
         """The state line in force at ``t`` (the last one at or before it), or None."""
@@ -465,9 +482,15 @@ class RobotLog:
     Call :meth:`refresh` to pick up new lines and files. Never writes to the directory.
     """
 
-    def __init__(self, directory: str | Path, *, just_cleaned_s: float = 60.0) -> None:
+    def __init__(
+        self,
+        directory: str | Path,
+        *,
+        just_cleaned_s: float = 60.0,
+        visit_min_s: float = DEFAULT_VISIT_MIN_S,
+    ) -> None:
         self.directory = Path(directory)
-        self.timeline = Timeline(just_cleaned_s)
+        self.timeline = Timeline(just_cleaned_s, visit_min_s)
         self.skipped = 0
         self._files: dict[Path, _FileState] = {}
         self._seq = 0
@@ -490,7 +513,7 @@ class RobotLog:
         return len(self.timeline.lines)
 
     def _reset(self) -> None:
-        self.timeline = Timeline(self.timeline.just_cleaned_s)
+        self.timeline = Timeline(self.timeline.just_cleaned_s, self.timeline.visit_min_s)
         self.skipped = 0
         self._files = {}
 

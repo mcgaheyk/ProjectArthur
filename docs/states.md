@@ -22,7 +22,7 @@ at a time.
 |---|---|---|
 | `stale` | Not a mapped state. The clock draws it when the pushed frame's lifetime runs out (feeder, Pi or LAN is down). | "What you see is old." Dark-red border over the last frame. |
 | `no_data` | Feeder is alive but cannot get data: login failed, API errors, an empty robot list, or no successful contact for `no_data_after_s`. | "I can't reach Whisker." Not the same as the robot being offline. |
-| `robot_offline` | `is_online` is false (status `OFFLINE`). | The robot lost Wi-Fi or power; how long ago it was last seen. |
+| `robot_offline` | `is_online` is false (status `OFFLINE`). | The robot lost Wi-Fi or power; how long ago we saw it go offline. The robot's own `last_seen` is not used: it sat frozen on one date for the whole spike. No age if it was already offline when the feeder started. |
 | `robot_off` | `is_on` is false (status `OFF`). | The robot is switched off. |
 
 ## Layer 2: needs you
@@ -37,9 +37,9 @@ at a time.
 
 | id | Trigger | Must convey |
 |---|---|---|
-| `in_use` | Status `CAT_DETECTED`. | Arthur is in there now. Two pages take turns: the poop emoji with a joke and "IN USE", then Arthur with how long he has been. |
-| `waiting` | Status `CAT_SENSOR_TIMING`. | He has left; countdown to the clean cycle, from `clean_cycle_wait_time_minutes` (3, 7, 15, 25 or 30). If `is_sleeping`, the robot will not cycle yet, so show waiting without a countdown. |
-| `cleaning` | Status `CLEAN_CYCLE`. | Cycling: soapy blue, a moving border, "CLEANING" and a countdown that is a timed estimate (`clean_cycle_estimate_s`). The library does not expose dump, level and home phases. |
+| `in_use` | Status `CAT_DETECTED` or `CAT_SENSOR_TIMING`, and no weight reading yet this visit. | Arthur is in there now. Two pages take turns: the poop emoji with a joke and "IN USE", then Arthur with how long he has been. |
+| `waiting` | Status `CAT_DETECTED` or `CAT_SENSOR_TIMING`, and the weight reading has arrived. | He has left; countdown to the clean cycle, `clean_cycle_wait_time_minutes` after the weight arrived (the robot reports 8). Waiting without a countdown if `is_sleeping` (the robot will not cycle yet), or if no weight has arrived `cat_left_fallback_s` after detection. |
+| `cleaning` | Status `CLEAN_CYCLE`. | Cycling: soapy blue, a moving border, "CLEANING" and a countdown that is a timed estimate (`clean_cycle_estimate_s`, 130 s; real cycles took 123 to 134 s). The raw phases are not used; see below. |
 | `interrupted` | Status `CAT_SENSOR_INTERRUPTED`. | He stepped back in mid-cycle and it stopped. Visibly different from `cleaning`. A little story that repeats, counted from when the interruption began: he strolls up to the globe, the view cuts to inside the box and he looks in, "INTERRUPTION", his face again, a second phrase, the globe alone (D-0016). |
 | `paused` | Status `PAUSED`. | The cycle is paused. |
 | `emptying` | Status `EMPTY_CYCLE`. | A person started an empty cycle. |
@@ -47,7 +47,22 @@ at a time.
 | `just_cleaned` | Synthetic: status `READY` within `just_cleaned_s` (5 s) of leaving `CLEAN_CYCLE`. | A brief "done" before returning to idle: "FRESHLY CLEANED" in soapy blue (D-0015). |
 
 A normal visit: `ready → in_use → waiting → cleaning → just_cleaned → ready`. An interruption
-loops `cleaning → interrupted → waiting → cleaning`.
+goes `cleaning → interrupted → cleaning`: in the two interruptions in the robot's history the
+cycle resumed and finished without a new wait. No interruption has been logged live yet.
+
+### How a visit is read (D-0017)
+Measured on seven real visits, 2026-11-15 to 17. The two statuses do not say where the cat is:
+`CAT_SENSOR_TIMING` arrived 6 to 10 seconds after detection in four visits and never in the
+other three, which stayed `CAT_DETECTED` until the clean cycle. What does track him:
+
+- **He has left when the weight reading arrives.** The push that changes `pet_weight` came 48
+  to 86 seconds after detection, and the clean cycle started 476 to 482 seconds after it every
+  time, against a wait setting of 8 minutes. The robot counts its wait from that moment.
+- A second weight reading in the same visit restarts the countdown (he went back in).
+- **A detection only counts as a visit** if a weight arrived or it lasted `visit_min_s` (30 s).
+  Detections of 2 to 14 seconds with no weight were a person at the box or a manual clean.
+- The feeder observes these: `visit_started_at` and `cat_left_at` are dated from when it saw
+  the change, like `status_since` (D-0015).
 
 ## Layer 4: idle
 
@@ -91,10 +106,12 @@ Badges were removed (D-0012). What they used to mark:
 - **No visit in N hours.** A cat that stops going is a health warning worth a gentle alert.
 - **Unusually many visits** in a short window.
 
-## What the spike has to answer
-- How long after Arthur steps in does `CAT_DETECTED` arrive?
-- How long does each phase really last?
-- Do the raw fields (`robotCycleStatus`, `robotCycleState`, `catDetect`, `displayCode`) reveal
-  cycle phases or anything else worth showing?
-- What does sleep mode do to the waiting state?
-- Does `DRAWER_FULL` appear while cycles still run?
+## What the spike answered, and what is still open
+- **Answered:** how a visit unfolds and how long each part lasts (above). Raw
+  `robotCycleStatus` does show the clean cycle's phases, always `CYCLE_DUMP`, `CYCLE_DFI`,
+  `CYCLE_LEVEL`, `CYCLE_HOME`, but each varies as much as the whole (home alone 3 to 18 s), so
+  they would not end the countdown more accurately. `catDetect` and `robotCycleState` carry
+  nothing usable.
+- **Open:** what a live interruption looks like and how long it lasts; what sleep mode does to
+  the waiting state; whether `DRAWER_FULL` appears while cycles still run; how long after
+  Arthur steps in `CAT_DETECTED` arrives (the push trails the robot's own clock by up to 5 s).

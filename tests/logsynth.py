@@ -34,7 +34,7 @@ def record(status: str, **kw: Any) -> dict[str, Any]:
         "litter_level": 80.0,
         "litter_level_state": "OPTIMAL",
         "pet_weight": 9.5,
-        "clean_cycle_wait_time_minutes": 7,
+        "clean_cycle_wait_time_minutes": 8,
         "is_laser_dirty": False,
         "power_type": "AC",
         "last_seen": "2026-03-01T11:00:00+00:00",
@@ -75,12 +75,19 @@ def write(path: Path, objs: list[dict[str, Any]], tail: str = "", mode: str = "w
 
 
 def visit_lines(start: float = 100.0, *, wait: bool = True) -> list[dict[str, Any]]:
-    """ready → CAT_DETECTED 60 s → (CAT_SENSOR_TIMING 420 s) → CLEAN_CYCLE 130 s → READY."""
+    """ready → CAT_DETECTED 60 s → (CAT_SENSOR_TIMING 420 s) → CLEAN_CYCLE 130 s → READY.
+
+    The pet weight changes (the cat has left) 60 s after detection: on the CAT_SENSOR_TIMING
+    line, or on a CAT_DETECTED line of its own when ``wait`` is false.
+    """
     lines = [state(0, "READY", source="start"), state(start, "CAT_DETECTED")]
     t = start + 60
     if wait:
-        lines.append(state(t, "CAT_SENSOR_TIMING"))
+        lines.append(state(t, "CAT_SENSOR_TIMING", pet_weight=9.7))
         t += 420
-    lines.append(state(t, "CLEAN_CYCLE"))
-    lines.append(state(t + 130, "READY"))
+    else:
+        lines.append(state(t, "CAT_DETECTED", pet_weight=9.7))
+        t += 420
+    lines.append(state(t, "CLEAN_CYCLE", pet_weight=9.7))
+    lines.append(state(t + 130, "READY", pet_weight=9.7))
     return lines

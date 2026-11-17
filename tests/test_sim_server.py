@@ -406,3 +406,48 @@ async def test_manual_mode(client):
     assert r.status == 400
     r = await client.post("/studio/control", json={"manual": {"waste_drawer_level": 101}})
     assert r.status == 400
+
+
+async def test_manual_wait_accepts_any_whole_minute(client):
+    meta = await (await client.get("/studio/meta")).json()
+    assert meta["wait_minutes_range"] == [1, 60]
+    for v in (1, 8, 60):
+        r = await client.post("/studio/control", json={"manual": {"wait_time_minutes": v}})
+        assert r.status == 200 and (await r.json())["manual"]["wait_time_minutes"] == v
+    for bad in (0, 61, 7.5, True, "8"):
+        r = await client.post("/studio/control", json={"manual": {"wait_time_minutes": bad}})
+        assert r.status == 400, bad
+
+
+async def test_manual_cat_left_switch_drives_in_use_to_waiting(client):
+    feeder = client.app[FEEDER]
+    clock = [feeder.wall_fn()]
+    feeder.wall_fn = lambda: clock[0]
+    st = await (await client.post("/studio/control", json={
+        "mode": "manual", "manual": {"status": "CAT_SENSOR_TIMING", "wait_time_minutes": 8}})).json()
+    assert st["showing"]["kind"] == "in_use" and st["manual"]["cat_left"] is False
+    clock[0] += timedelta(seconds=30)
+    st = await (await client.post("/studio/control", json={"manual": {"cat_left": True}})).json()
+    assert st["showing"]["kind"] == "waiting"
+    snap, _, now = feeder._manual_source()
+    assert snap.cat_left_at == now and snap.visit_started_at == now - timedelta(seconds=30)
+    st = await (await client.post("/studio/control", json={"manual": {"cat_left": False}})).json()
+    assert st["showing"]["kind"] == "in_use"
+    # Without the weight, it falls back to WAIT after cat_left_fallback_s.
+    clock[0] += timedelta(seconds=200)
+    assert feeder.compute()["kind"] == "waiting"
+    # Leaving the visit turns the switch off.
+    st = await (await client.post("/studio/control", json={"manual": {"cat_left": True}})).json()
+    st = await (await client.post("/studio/control", json={"manual": {"status": "READY"}})).json()
+    assert st["manual"]["cat_left"] is False
+
+
+async def test_manual_offline_age_is_from_the_switch(client):
+    feeder = client.app[FEEDER]
+    clock = [feeder.wall_fn()]
+    feeder.wall_fn = lambda: clock[0]
+    await client.post("/studio/control", json={"mode": "manual", "manual": {"is_online": False}})
+    clock[0] += timedelta(minutes=5)
+    snap, health, now = feeder._manual_source()
+    state = feeder.pipe.current.state(snap, health, now)
+    assert state.kind == "robot_offline" and state.last_seen == now - timedelta(minutes=5)

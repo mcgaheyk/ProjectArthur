@@ -19,6 +19,12 @@ FAULT_CODES: dict[str, str] = {
     "CAT_SENSOR_FAULT": "CSF",
 }
 
+#: Statuses that mean a visit is under way. Which of in_use and waiting they show is decided
+#: by what the feeder observed (``visit_started_at``, ``cat_left_at``), not by which of the
+#: two it is: the real robot sometimes goes CAT_SENSOR_TIMING while the cat is still inside,
+#: and sometimes stays CAT_DETECTED until the clean cycle.
+VISIT_STATUSES: frozenset[str] = frozenset({"CAT_DETECTED", "CAT_SENSOR_TIMING"})
+
 #: Live statuses → display kind (layer 3). READY is handled separately (just_cleaned).
 LIVE_KINDS: dict[str, str] = {
     "CAT_DETECTED": "in_use",
@@ -54,13 +60,33 @@ def _no_data_reason(
     return None
 
 
+def _visit_kind(s: RobotSnapshot, now: datetime, cfg: Config) -> tuple[str, dict[str, object]]:
+    """in_use or waiting, from what the feeder observed during the visit."""
+    if s.cat_left_at is not None:
+        # The weight arrived: he has left, and the robot counts its wait from now.
+        deadline = None
+        if not s.is_sleeping:
+            deadline = s.cat_left_at + timedelta(minutes=s.wait_time_minutes)
+        return "waiting", {"since": s.cat_left_at, "deadline": deadline}
+    if s.visit_started_at is not None:
+        gave_up = s.visit_started_at + timedelta(seconds=cfg.timings.cat_left_fallback_s)
+        if now >= gave_up:
+            # No weight yet, but it is long past when it usually comes: assume he has left,
+            # without a countdown since we do not know when the wait began.
+            return "waiting", {"since": gave_up, "deadline": None}
+    return "in_use", {"since": s.visit_started_at or s.status_since}
+
+
 def _kind_and_fields(
     s: RobotSnapshot, now: datetime, cfg: Config
 ) -> tuple[str, dict[str, object]]:
     status = s.status
     # Layer 1: trust (no_data is decided before this).
     if not s.is_online or status == "OFFLINE":
-        return "robot_offline", {}
+        # When we saw it go offline; unknown if it was already offline when we first looked.
+        # Never the robot's own last_seen, which has been seen frozen for days.
+        seen = s.status_since if s.previous_status is not None else None
+        return "robot_offline", {"last_seen": seen}
     if not s.is_on or status == "OFF":
         return "robot_off", {}
 
@@ -75,12 +101,9 @@ def _kind_and_fields(
         return "bonnet_removed", {"since": s.status_since}
 
     # Layer 3: live.
+    if status in VISIT_STATUSES:
+        return _visit_kind(s, now, cfg)
     kind = LIVE_KINDS.get(status)
-    if kind == "waiting":
-        deadline = None
-        if not s.is_sleeping and s.status_since is not None:
-            deadline = s.status_since + timedelta(minutes=s.wait_time_minutes)
-        return kind, {"since": s.status_since, "deadline": deadline}
     if kind == "cleaning":
         end = None
         if s.status_since is not None:
@@ -117,7 +140,6 @@ def to_display_state(
         drawer_pct=snapshot.waste_drawer_level,
         litter_pct=snapshot.litter_level,
         litter_state=snapshot.litter_level_state,
-        last_seen=snapshot.last_seen,
         last_visit_at=snapshot.last_visit_at,
         visits_today=snapshot.visits_today,
         pet_weight_lbs=snapshot.pet_weight_lbs,

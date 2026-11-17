@@ -98,8 +98,54 @@ def test_last_visit_from_state_lines(tmp_path):
     rl = load(tmp_path, ("spike-20260301.jsonl", visit_lines(100)))
     tl = rl.timeline
     assert tl.at(at(50)).snapshot.last_visit_at is None
-    assert tl.at(at(120)).snapshot.last_visit_at == at(100)
+    assert tl.at(at(120)).snapshot.last_visit_at is None  # 20 s, no weight: not yet a visit
+    assert tl.at(at(130)).snapshot.last_visit_at == at(100)  # visit_min_s
     assert tl.at(at(5000)).snapshot.last_visit_at == at(100)
+
+
+def test_visit_fields_from_the_tracker(tmp_path):
+    rl = load(tmp_path, ("spike-20260301.jsonl", visit_lines(100)))
+    tl = rl.timeline
+    s = tl.at(at(130)).snapshot
+    assert (s.visit_started_at, s.cat_left_at) == (at(100), None)
+    s = tl.at(at(200)).snapshot
+    assert (s.status, s.visit_started_at, s.cat_left_at) == ("CAT_SENSOR_TIMING", at(100), at(160))
+    s = tl.at(at(600)).snapshot  # cleaning: the visit is over
+    assert (s.visit_started_at, s.cat_left_at) == (None, None)
+
+
+def test_blips_are_not_visits(tmp_path):
+    rl = load(tmp_path, ("spike-20260301.jsonl", [
+        state(0, "READY", source="start"),
+        state(100, "CAT_DETECTED"),
+        state(109, "READY"),  # someone at the box
+        state(300, "CAT_DETECTED"),
+        state(304, "CLEAN_CYCLE"),  # a manual clean
+        state(430, "READY"),
+    ]))
+    tl = rl.timeline
+    for t in (105, 200, 302, 500):
+        assert tl.at(at(t)).snapshot.last_visit_at is None
+
+
+def test_visit_min_s_comes_from_the_caller(tmp_path):
+    write(tmp_path / "spike-20260301.jsonl", [state(0, "READY", source="start"),
+                                              state(100, "CAT_DETECTED"),
+                                              state(115, "READY")])
+    rl = RobotLog(tmp_path, visit_min_s=10)
+    rl.refresh()
+    assert rl.timeline.at(at(200)).snapshot.last_visit_at == at(100)
+    rl.timeline.set_visit_min_s(30)
+    assert rl.timeline.at(at(200)).snapshot.last_visit_at is None
+
+
+def test_replay_seek_matches_playing_through(tmp_path):
+    rl = load(tmp_path, ("spike-20260301.jsonl", visit_lines(100)))
+    tl = rl.timeline
+    (v,) = tl.visits()
+    played = [replay_view(tl, v, t).snapshot for t in range(int(v.window_s) + 1)]
+    for t in (0, 25, 31, 75, 95, 300, 520, 670):
+        assert replay_view(tl, v, t).snapshot == played[t]
 
 
 def test_last_visit_falls_back_to_activity(tmp_path):

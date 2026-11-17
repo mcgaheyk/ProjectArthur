@@ -74,11 +74,17 @@ MANUAL_DEFAULTS: dict[str, Any] = {
     "is_on": True,
     "ws_connected": True,
     "health_error": None,
-    "wait_time_minutes": 7,
+    "wait_time_minutes": 8,
+    # Feeder-observed: the pet weight has arrived, so the cat has left (dated when switched).
+    "cat_left": False,
 }
 LITTER_STATES = (None, "OVERFILL", "OPTIMAL", "REFILL", "LOW", "EMPTY")
 POWER_TYPES = ("AC", "DC", "NC")
-WAIT_MINUTES = (3, 7, 15, 25, 30)
+#: Manual mode accepts any whole-minute wait in this range: the robot reports values outside
+#: the documented 3, 7, 15, 25 and 30 (a real one reports 8).
+WAIT_MINUTES_RANGE = (1, 60)
+#: Statuses during which a visit is under way (see arthur/sources/tracker.py).
+_VISIT_STATUSES = frozenset({"CAT_DETECTED", "CAT_SENSOR_TIMING"})
 _FAULT_CODES = {"PINCH_DETECT": "PD", "OVER_TORQUE_FAULT": "OTF", "CAT_SENSOR_FAULT": "CSF",
                 "UNKNOWN": "UNK"}
 
@@ -131,6 +137,8 @@ class StudioFeeder:
         self._manual_since = now - timedelta(hours=2)
         self._manual_prev: str | None = "CLEAN_CYCLE"
         self._offline_since: datetime | None = None
+        self._visit_start: datetime | None = None
+        self._cat_left_at: datetime | None = None
 
         # "log" source. The log is read only once the mode is first used.
         self.log_dir = Path(log_dir) if log_dir is not None else DEFAULT_LOG_DIR
@@ -286,8 +294,12 @@ class StudioFeeder:
                     raise ControlError(f"health_error must be null or one of "
                                        f"{tuple(p.model.HEALTH_ERRORS)}")
             elif k == "wait_time_minutes":
-                if v not in WAIT_MINUTES:
-                    raise ControlError(f"wait_time_minutes must be one of {WAIT_MINUTES}")
+                lo, hi = WAIT_MINUTES_RANGE
+                if (isinstance(v, bool) or not isinstance(v, (int, float))
+                        or v != int(v) or not lo <= v <= hi):
+                    raise ControlError(
+                        f"wait_time_minutes must be a whole number from {lo} to {hi}")
+                v = int(v)
             elif not isinstance(v, bool):
                 raise ControlError(f"{k} must be true or false")
             out[k] = v
@@ -295,9 +307,21 @@ class StudioFeeder:
 
     def _apply_manual(self, m: dict[str, Any]) -> None:
         now = self.wall_fn()
+        m = dict(m)
         if "status" in m and m["status"] != self.manual["status"]:
+            was_visit = self.manual["status"] in _VISIT_STATUSES
+            now_visit = m["status"] in _VISIT_STATUSES
+            if now_visit != was_visit:
+                # A visit starts or ends: either way the cat-left switch starts off.
+                self._visit_start = now if now_visit else None
+                self._cat_left_at = None
+                m.setdefault("cat_left", False)
+                if m["cat_left"] and now_visit:
+                    self._cat_left_at = now
             self._manual_prev = self.manual["status"]
             self._manual_since = now
+        if "cat_left" in m and m["cat_left"] != self.manual["cat_left"]:
+            self._cat_left_at = now if m["cat_left"] else None
         if "is_online" in m and m["is_online"] != self.manual["is_online"]:
             self._offline_since = None if m["is_online"] else now
         self.manual.update(m)
@@ -355,13 +379,17 @@ class StudioFeeder:
     def _robot_log(self, force: bool = False) -> RobotLog:
         """The log, refreshed if it is time (or ``force``). Created on first use."""
         jc = float(self.pipe.current.cfg.timings.just_cleaned_s)
+        vm = float(self.pipe.current.cfg.timings.visit_min_s)
         if self.robot_log is None:
-            self.robot_log = RobotLog(self.log_dir, just_cleaned_s=jc)
+            self.robot_log = RobotLog(self.log_dir, just_cleaned_s=jc, visit_min_s=vm)
         self.robot_log.timeline.set_just_cleaned_s(jc)
+        self.robot_log.timeline.set_visit_min_s(vm)
         now_t = self.time_fn()
         if force or self._log_refresh_t is None or now_t - self._log_refresh_t >= LOG_REFRESH_S:
             self.robot_log.refresh()
-            self.robot_log.timeline.set_just_cleaned_s(jc)  # a reset makes a new timeline
+            # A reset makes a new timeline.
+            self.robot_log.timeline.set_just_cleaned_s(jc)
+            self.robot_log.timeline.set_visit_min_s(vm)
             self._log_refresh_t = now_t
         return self.robot_log
 
@@ -452,6 +480,7 @@ class StudioFeeder:
             log_time=view.now.isoformat() if view else None,
             line_ts=view.line.ts.isoformat() if (view and view.line) else None,
             raw=view.raw if view else None,
+            observed=_observed_json(view.snapshot if view else None),
         )
         return block
 
@@ -508,6 +537,10 @@ class StudioFeeder:
         m = self.manual
         now = self.wall_fn()
         status = m["status"]
+        since, prev = self._manual_since, self._manual_prev
+        if not m["is_online"] and self._offline_since is not None:
+            since, prev = self._offline_since, status  # went offline when switched
+        visit = status in _VISIT_STATUSES
         snap = p.model.RobotSnapshot(
             status=status,
             status_code=_FAULT_CODES.get(status, status),
@@ -520,12 +553,15 @@ class StudioFeeder:
             is_laser_dirty=m["is_laser_dirty"],
             power_type=m["power_type"],
             wait_time_minutes=m["wait_time_minutes"],
-            last_seen=self._offline_since if not m["is_online"] and self._offline_since else now,
+            last_seen=now,
             pet_weight_lbs=10.4,
-            status_since=self._manual_since,
-            previous_status=self._manual_prev,
-            last_visit_at=now - timedelta(hours=2),
+            status_since=since,
+            previous_status=prev,
+            last_visit_at=(self._visit_start if visit and self._visit_start
+                           else now - timedelta(hours=2)),
             visits_today=3,
+            visit_started_at=self._visit_start if visit else None,
+            cat_left_at=self._cat_left_at if visit else None,
         )
         health = p.model.FeederHealth(
             last_contact_at=now, ws_connected=m["ws_connected"], error=m["health_error"]
@@ -666,6 +702,21 @@ def _rebuild(obj: Any, cls: Any) -> Any:
     names = {f.name for f in dataclasses.fields(cls)}
     return cls(**{f.name: getattr(obj, f.name) for f in dataclasses.fields(obj)
                   if f.name in names})
+
+
+#: Feeder-observed snapshot fields shown beside the robot's raw ones in the studio.
+OBSERVED_FIELDS = ("status_since", "previous_status", "visit_started_at", "cat_left_at",
+                   "last_visit_at")
+
+
+def _observed_json(snap: Any) -> dict[str, Any] | None:
+    if snap is None:
+        return None
+    out: dict[str, Any] = {}
+    for k in OBSERVED_FIELDS:
+        v = getattr(snap, k, None)
+        out[k] = v.isoformat() if isinstance(v, datetime) else v
+    return out
 
 
 def _visit_json(tl: Any, v: Visit) -> dict[str, Any]:

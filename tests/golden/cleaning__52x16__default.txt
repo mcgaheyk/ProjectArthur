@@ -1,12 +1,12 @@
 legend: .=off  W=text  :=dim  G=ok  Y=attention  R=alert  O=fur  S=stripe  C=cream  N=nose  E=eye  B=poop  H=poop_hi  A=gold  s=sand  b=soap  i=soap_hi  K=stink  g=ghost  x=stale  D=drawer  U=caution
 biibbbbbbbbbiibbbbbbbbbiibbbbbbbbbiibbbbbbbbbiibbbbb
 b..................................................b
-b.................WW......WWWWW....WWWW............b
-b................WWW...WW.....WW..WW..WW...........b
-b..b........b.....WW........WWW...WW..WW...........b
-b..b........b.....WW..........WW..WW..WW...........i
-b.b..........b....WW...WW.....WW..WW..WW...........i
-b.b..........b...WWWW.....WWWWW....WWWW............b
+b.................WW........WW.....WWWW............b
+b................WWW...WW..WWW....WW..WW...........b
+b..b........b.....WW........WW....WW..WW...........b
+b..b........b.....WW........WW....WW..WW...........i
+b.b..........b....WW...WW...WW....WW..WW...........i
+b.b..........b...WWWW......WWWW....WWWW............b
 b.b..........b.....................................b
 i.b.ssssssss.b...b..b...bbb.bb..b..b.b.b..b..bb....b
 i..bssssssssb...b.b.b...b...b.b.bb.b.b.bb.b.b......b

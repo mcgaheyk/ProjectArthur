@@ -40,7 +40,7 @@ BASE = RobotSnapshot(
     is_sleeping=False,
     is_laser_dirty=False,
     power_type="AC",
-    wait_time_minutes=7,
+    wait_time_minutes=8,
     last_seen=ago(5),
     pet_weight_lbs=10.4,
     status_since=ago(2 * 3600),
@@ -85,7 +85,12 @@ _LIST: list[Fixture] = [
     _fx("no_data_no_robots", "no_data", "Account has no robots",
         snapshot=None, health=FeederHealth(last_contact_at=ago(5), error="no_robots")),
     _fx("robot_offline", "robot_offline", "Robot lost Wi-Fi 25 minutes ago",
-        status="OFFLINE", status_code="OFFLINE", is_online=False, last_seen=ago(25 * 60)),
+        status="OFFLINE", status_code="OFFLINE", is_online=False, status_since=ago(25 * 60),
+        previous_status="READY"),
+    _fx("robot_offline_unknown", "robot_offline",
+        "Robot was already offline when the feeder started: no age",
+        status="OFFLINE", status_code="OFFLINE", is_online=False, status_since=ago(25 * 60),
+        previous_status=None),
     _fx("robot_off", "robot_off", "Robot switched off",
         status="OFF", status_code="OFF", is_on=False, status_since=ago(3600)),
     # --- layer 2: needs you
@@ -99,15 +104,31 @@ _LIST: list[Fixture] = [
     _fx("bonnet_removed", "bonnet_removed", "Bonnet is off",
         status="BONNET_REMOVED", status_code="BR", status_since=ago(45)),
     # --- layer 3: live
-    _fx("in_use", "in_use", "Arthur has been in for 47 s",
-        status="CAT_DETECTED", status_code="CD", status_since=ago(47), previous_status="READY"),
-    _fx("waiting", "waiting", "Arthur left 2:18 ago; 7-minute wait",
-        status="CAT_SENSOR_TIMING", status_code="CST", status_since=ago(138),
-        previous_status="CAT_DETECTED"),
+    _fx("in_use", "in_use", "Arthur has been in for 47 s, no weight yet",
+        status="CAT_DETECTED", status_code="CD", status_since=ago(47), previous_status="READY",
+        visit_started_at=ago(47)),
+    _fx("in_use_timing", "in_use",
+        "Arthur in for 47 s; the robot already says CAT_SENSOR_TIMING, but no weight yet",
+        status="CAT_SENSOR_TIMING", status_code="CST", status_since=ago(39),
+        previous_status="CAT_DETECTED", visit_started_at=ago(47)),
+    _fx("waiting", "waiting", "Weight came 2:18 ago (he left); 8-minute wait",
+        status="CAT_SENSOR_TIMING", status_code="CST", status_since=ago(190),
+        previous_status="CAT_DETECTED", visit_started_at=ago(198), cat_left_at=ago(138),
+        last_visit_at=ago(198)),
+    _fx("waiting_detected", "waiting",
+        "Weight came 2:18 ago; the robot still says CAT_DETECTED, as it often does",
+        status="CAT_DETECTED", status_code="CD", status_since=ago(198),
+        previous_status="READY", visit_started_at=ago(198), cat_left_at=ago(138),
+        last_visit_at=ago(198)),
+    _fx("waiting_no_weight", "waiting",
+        "Detected 2:30 ago and no weight came: assume he left, no countdown (WAIT)",
+        status="CAT_DETECTED", status_code="CD", status_since=ago(150),
+        previous_status="READY", visit_started_at=ago(150), last_visit_at=ago(150)),
     _fx("waiting_sleeping", "waiting", "Waiting while in sleep mode: no countdown",
-        status="CAT_SENSOR_TIMING", status_code="CST", status_since=ago(138), is_sleeping=True,
-        previous_status="CAT_DETECTED"),
-    _fx("cleaning", "cleaning", "Clean cycle 60 s in (of ~150 s)",
+        status="CAT_SENSOR_TIMING", status_code="CST", status_since=ago(190), is_sleeping=True,
+        previous_status="CAT_DETECTED", visit_started_at=ago(198), cat_left_at=ago(138),
+        last_visit_at=ago(198)),
+    _fx("cleaning", "cleaning", "Clean cycle 60 s in (of ~130 s)",
         status="CLEAN_CYCLE", status_code="CCP", status_since=ago(60),
         previous_status="CAT_SENSOR_TIMING"),
     _fx("interrupted", "interrupted", "Arthur has just stepped back in mid-cycle",
@@ -198,8 +219,17 @@ def _visit(
     name: str,
     description: str,
     *,
-    interrupted: bool,
+    timing_after_s: float | None,
+    interrupted: bool = False,
 ) -> Scenario:
+    """A visit shaped like the real ones in the spike's log.
+
+    Detection; the status either goes CAT_SENSOR_TIMING ``timing_after_s`` later (while he is
+    still inside) or, with None, stays CAT_DETECTED throughout; the pet weight changes 60 s
+    after detection, which is when he has left; the robot waits its 8 minutes from then;
+    a 130 s clean cycle. Interrupted: he steps back in 50 s into the cycle and it resumes
+    cleaning 25 s later, as the two interruptions in the robot's history did.
+    """
     base = replace(
         BASE,
         status_since=_t(-3 * 3600),
@@ -207,34 +237,36 @@ def _visit(
         last_seen=_t(0),
         visits_today=2,
         waste_drawer_level=42.0,
+        wait_time_minutes=8,
     )
     steps: list[Step] = [Step(0, "ready", base)]
 
-    def add(at: float, label: str, status: str, code: str, prev: str, **kw: object) -> None:
+    def add(at: float, label: str, status: str | None = None, code: str | None = None,
+            **kw: object) -> None:
         prior = steps[-1].snapshot
         assert prior is not None
-        steps.append(
-            Step(at, label, replace(prior, status=status, status_code=code, status_since=_t(at),
-                                    previous_status=prev, last_seen=_t(at), **kw))
-        )
+        changes: dict[str, object] = {"last_seen": _t(at), **kw}
+        if status is not None and status != prior.status:
+            changes.update(status=status, status_code=code, status_since=_t(at),
+                           previous_status=prior.status)
+        steps.append(Step(at, label, replace(prior, **changes)))
 
     in_at = 30
-    add(in_at, "in_use", "CAT_DETECTED", "CD", "READY")
-    out_at = in_at + 90
-    add(out_at, "waiting", "CAT_SENSOR_TIMING", "CST", "CAT_DETECTED",
+    add(in_at, "in_use", "CAT_DETECTED", "CD", visit_started_at=_t(in_at), cat_left_at=None)
+    if timing_after_s is not None:
+        add(in_at + timing_after_s, "in_use (timing)", "CAT_SENSOR_TIMING", "CST")
+    out_at = in_at + 60
+    add(out_at, "waiting", cat_left_at=_t(out_at), pet_weight_lbs=10.6,
         last_visit_at=_t(in_at), visits_today=3)
-    clean_at = out_at + 7 * 60
-    add(clean_at, "cleaning", "CLEAN_CYCLE", "CCP", "CAT_SENSOR_TIMING")
+    clean_at = out_at + 8 * 60
+    add(clean_at, "cleaning", "CLEAN_CYCLE", "CCP", visit_started_at=None, cat_left_at=None)
     if interrupted:
         int_at = clean_at + 50
-        add(int_at, "interrupted", "CAT_SENSOR_INTERRUPTED", "CSI", "CLEAN_CYCLE")
-        rewait_at = int_at + 25
-        add(rewait_at, "waiting", "CAT_SENSOR_TIMING", "CST", "CAT_SENSOR_INTERRUPTED",
-            last_visit_at=_t(int_at), visits_today=4)
-        clean_at = rewait_at + 7 * 60
-        add(clean_at, "cleaning", "CLEAN_CYCLE", "CCP", "CAT_SENSOR_TIMING")
-    done_at = clean_at + 150
-    add(done_at, "just_cleaned", "READY", "RDY", "CLEAN_CYCLE", waste_drawer_level=44.0)
+        add(int_at, "interrupted", "CAT_SENSOR_INTERRUPTED", "CSI")
+        clean_at = int_at + 25
+        add(clean_at, "cleaning", "CLEAN_CYCLE", "CCP")
+    done_at = clean_at + 130
+    add(done_at, "just_cleaned", "READY", "RDY", waste_drawer_level=44.0)
     # just_cleaned turns into ready by itself after just_cleaned_s; a final step marks it.
     steps.append(Step(done_at + 5, "ready", steps[-1].snapshot))
     return Scenario(name, description, SCENARIO_START, tuple(steps), done_at + 120)
@@ -258,30 +290,58 @@ def _outage() -> Scenario:
 
 def _sleep_wait() -> Scenario:
     base = replace(BASE, status_since=_t(-3600), last_seen=_t(0), is_sleeping=True)
-    wait = replace(base, status="CAT_SENSOR_TIMING", status_code="CST", status_since=_t(60),
-                   previous_status="CAT_DETECTED", last_visit_at=_t(20))
+    in_use = replace(base, status="CAT_DETECTED", status_code="CD", status_since=_t(20),
+                     previous_status="READY", visit_started_at=_t(20))
+    wait = replace(in_use, status="CAT_SENSOR_TIMING", status_code="CST", status_since=_t(28),
+                   previous_status="CAT_DETECTED")
+    left = replace(wait, cat_left_at=_t(80), pet_weight_lbs=10.6, last_visit_at=_t(20))
     return Scenario(
         "sleep_wait",
         "A visit during sleep mode: waiting shows no countdown",
         SCENARIO_START,
         (
             Step(0, "ready", base),
-            Step(20, "in_use", replace(base, status="CAT_DETECTED", status_code="CD",
-                                       status_since=_t(20), previous_status="READY")),
-            Step(60, "waiting", wait),
+            Step(20, "in_use", in_use),
+            Step(28, "in_use (timing)", wait),
+            Step(80, "waiting", left),
         ),
-        180,
+        200,
+    )
+
+
+def _no_weight() -> Scenario:
+    base = replace(BASE, status_since=_t(-3600), last_seen=_t(0))
+    in_use = replace(base, status="CAT_DETECTED", status_code="CD", status_since=_t(20),
+                     previous_status="READY", visit_started_at=_t(20))
+    counted = replace(in_use, last_visit_at=_t(20))  # visit_min_s (30 s) after detection
+    return Scenario(
+        "no_weight",
+        "A visit whose weight never arrives: in use, then WAIT with no countdown from 120 s",
+        SCENARIO_START,
+        (
+            Step(0, "ready", base),
+            Step(20, "in_use", in_use),
+            Step(50, "in_use (a visit now)", counted),
+            Step(140, "waiting (no weight)", counted),
+        ),
+        240,
     )
 
 
 SCENARIOS: dict[str, Scenario] = {
     s.name: s
     for s in (
-        _visit("normal_visit", "ready → in_use 90 s → waiting 7 min → cleaning 150 s → "
-               "just_cleaned → ready", interrupted=False),
+        _visit("normal_visit", "ready → in_use (CAT_DETECTED, CAT_SENSOR_TIMING after 8 s) → "
+               "weight at 60 s: waiting 8 min → cleaning 130 s → just_cleaned → ready",
+               timing_after_s=8),
+        _visit("visit_stays_detected", "As a normal visit, but the robot stays CAT_DETECTED "
+               "until the clean cycle, as it does in about half the real visits",
+               timing_after_s=None),
         _visit("interrupted_visit", "As a normal visit, but Arthur steps back in 50 s into "
-               "the cycle: cleaning → interrupted → waiting → cleaning", interrupted=True),
+               "the cycle: cleaning → interrupted → cleaning again", timing_after_s=8,
+               interrupted=True),
         _outage(),
         _sleep_wait(),
+        _no_weight(),
     )
 }

@@ -233,7 +233,7 @@ def test_waiting_has_one_layout_that_says_clean_in():
     with strict_text() as records:
         f = _waiting_52(s, fx.now, CFG)
         check_text(f, records)
-    assert [r.text for r in records] == ["CLEAN IN", "4:42"]
+    assert [r.text for r in records] == ["CLEAN IN", "5:42"]  # 8 min from 2:18 ago
     assert f == render(s, fx.now, CFG)
 
 

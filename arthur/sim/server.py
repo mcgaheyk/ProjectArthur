@@ -59,7 +59,7 @@ from arthur.sim.feeder import (
     MODES,
     POWER_TYPES,
     SPEEDS,
-    WAIT_MINUTES,
+    WAIT_MINUTES_RANGE,
     ControlError,
     StudioFeeder,
 )
@@ -288,7 +288,7 @@ def _meta(app: web.Application) -> dict[str, Any]:
         manual_defaults=MANUAL_DEFAULTS,
         litter_states=list(LITTER_STATES),
         power_types=list(POWER_TYPES),
-        wait_minutes=list(WAIT_MINUTES),
+        wait_minutes_range=list(WAIT_MINUTES_RANGE),
         log_sub_modes=list(LOG_SUB_MODES),
         reload_error=pipe.error,
     )

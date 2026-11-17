@@ -12,6 +12,7 @@ const MANUAL_FIELDS = [
   ["power_type", "Power", "power"],
   ["health_error", "Health error", "health"],
   ["wait_time_minutes", "Wait (min)", "wait"],
+  ["cat_left", "Cat has left (weight arrived)", "bool"],
   ["is_sleeping", "Sleeping", "bool"],
   ["is_laser_dirty", "Laser dirty", "bool"],
   ["is_online", "Online", "bool"],
@@ -21,6 +22,14 @@ const MANUAL_FIELDS = [
 
 const MODE_LABELS = { scenario: "Scenario", fixture: "Fixture", manual: "Manual", log: "Robot log" };
 const LOG_SUB_LABELS = { follow: "Follow", replay: "Replay" };
+const OBSERVED_LABELS = [
+  // [key, label] of what the feeder observed, shown beside the robot's own fields
+  ["status_since", "since"],
+  ["previous_status", "prev"],
+  ["visit_started_at", "visit start"],
+  ["cat_left_at", "cat left"],
+  ["last_visit_at", "last visit"],
+];
 const RAW_LABELS = [
   // [key, label] of the robot's own fields shown next to the mapped state
   ["status", "status"],
@@ -204,18 +213,26 @@ export function initLive({ control, getMeta }) {
         host.append(el("label", { class: "field" }, el("span", {}, `${label} `, out), input));
         continue;
       }
+      if (type === "wait") {
+        const [lo, hi] = meta.wait_minutes_range || [1, 60];
+        input = el("input", { type: "number", min: lo, max: hi, step: 1, "data-key": key });
+        input.onchange = () => {
+          const v = Number(input.value);
+          if (Number.isInteger(v) && v >= lo && v <= hi) sendManual(key, v);
+        };
+        host.append(el("label", { class: "field" }, `${label} (${lo}-${hi})`, input));
+        continue;
+      }
       let options;
       if (type === "status") options = (meta.statuses || []).map((s) => [s, s]);
       else if (type === "litter") options = (meta.litter_states || []).map((s) => [s === null ? "" : s, s === null ? "(none)" : s]);
       else if (type === "power") options = (meta.power_types || []).map((s) => [s, s]);
       else if (type === "health") options = [["", "none"], ...(meta.health_errors || []).map((s) => [s, s])];
-      else if (type === "wait") options = (meta.wait_minutes || []).map((s) => [String(s), String(s)]);
       input = el("select", { "data-key": key });
       for (const [v, t] of options || []) input.append(el("option", { value: v, text: t }));
       input.onchange = () => {
         let v = input.value;
         if (type === "litter" || type === "health") v = v === "" ? null : v;
-        if (type === "wait") v = Number(v);
         sendManual(key, v);
       };
       host.append(el("label", { class: "field" }, label, input));
@@ -404,6 +421,16 @@ export function initLive({ control, getMeta }) {
         line.append(el("span", { class: "muted", text: "nothing (no state line)" }));
       }
       showing.append(line);
+      const obs = (st.log && st.log.observed) || null;
+      if (obs) {
+        const oline = el("div", { class: "raw small" }, "Feeder saw ");
+        for (const [k, label] of OBSERVED_LABELS) {
+          const v = obs[k];
+          const text = v == null ? "–" : (k === "previous_status" ? String(v) : fmtLocal(v, k === "last_visit_at"));
+          oline.append(el("span", { class: "chip", title: k }, el("b", { text: `${label} ` }), text));
+        }
+        showing.append(oline);
+      }
     }
     renderLog(st);
 

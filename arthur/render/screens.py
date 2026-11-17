@@ -325,6 +325,9 @@ def rare_for(state: DisplayState, now: datetime) -> Rare:
         line2s = _NO_DATA_REASON.get(state.detail or "", ("WHISKER",))
         return Rare("ghost_q", "text", "NO DATA", "alert", first_fitting(line2s, C52_W, sm))
     if kind == "robot_offline":
+        if state.last_seen is None:  # already offline when the feeder first looked
+            return Rare("wifi_x", "alert", "OFFLINE", "alert",
+                        first_fitting(["NO SIGNAL", "NO WIFI"], C52_W, sm))
         age = fmt_age(seconds_between(state.last_seen, now))
         return Rare("wifi_x", "alert", "OFFLINE", "alert",
                     first_fitting([f"SEEN {age}", f"{age} AGO", age], C52_W, sm))

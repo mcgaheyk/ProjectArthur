@@ -38,7 +38,9 @@ def _state(name, since_s=None, cfg=CFG, **snap):
     fx = FIXTURES[name]
     s = fx.snapshot
     if since_s is not None:
-        s = replace(s, status_since=fx.now - timedelta(seconds=since_s))
+        began = fx.now - timedelta(seconds=since_s)
+        s = replace(s, status_since=began,
+                    visit_started_at=began if s.visit_started_at is not None else None)
     if snap:
         s = replace(s, **snap)
     return to_display_state(s, fx.health, fx.now, cfg), fx.now

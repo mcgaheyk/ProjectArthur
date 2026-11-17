@@ -202,10 +202,37 @@ own fault set.
   `fetch_weight_history()` is one more request per pet. `Pet.weight` is
   `lastWeightReading` or else the profile's estimated `weight`.
 
-## Timings (from Whisker support and reviews, not measured by us)
-- Wait before cleaning: 7 minutes by default, counted from when the cat leaves.
-- Clean cycle: about 2 to 2.5 minutes.
-- Cat-detected latency over the WebSocket: no published measurement. The spike measures it.
+## Timings (measured: spike log, 10 cycles, 2026-11-15 to 17)
+Whisker's support pages say the wait is 7 minutes by default, counted from when the cat
+leaves, and a cycle takes 2 to 2.5 minutes. What Kyle's robot did:
+
+- **Detection.** The first `CAT_DETECTED` is `displayCode` `DC_CAT_DETECT` while `robotStatus`
+  is still `ROBOT_IDLE`. 5 to 10 s later `robotStatus` becomes `ROBOT_CAT_DETECT` (status stays
+  `CAT_DETECTED`; 3 visits) or `ROBOT_CAT_DETECT_DELAY` (status `CAT_SENSOR_TIMING`; 4 visits).
+  Nothing in the log says which it will be, and neither is the cat leaving.
+- **The cat leaving** is the push that changes `pet_weight` (`catWeight`): 48 to 86 s after
+  detection. The clean cycle started 476.2 to 482.4 s after that push in all 7 visits, with
+  `clean_cycle_wait_time_minutes` = 8. In the robot's own history, "Pet Weight Recorded" to
+  "Clean Cycle In Progress" is 476 to 478 s in every visit.
+- **Caveats on the weight.** Two visits weighing exactly the same produce no change to see.
+  One visit in the history (2026-11-09) has two weights 523 s apart, and the cycle started
+  512 s after the second. `catWeight` over the WebSocket was broken for two months in 2026
+  (below).
+- **Clean cycle:** `CLEAN_CYCLE` to `READY` took 123 to 134 s (median 131). Raw
+  `robotCycleStatus` goes `CYCLE_DUMP` (51–62 s) → `CYCLE_DFI` (2–13 s) → `CYCLE_LEVEL`
+  (46–59 s) → `CYCLE_HOME` (3–18 s) → `CYCLE_IDLE` every time. The drawer level updates a few
+  seconds into `CYCLE_LEVEL`.
+- **Short detections with no weight** (2 to 14 s, then `READY` or straight to `CLEAN_CYCLE`)
+  never get a "Cat Detected" entry in the history: a person at the box or a manual clean.
+- **Push lag** against the robot's own timestamps: detection −1 to +5 s; weight, cycle start
+  and cycle end +7 to +14 s.
+- **Fields that turned out useless:** `last_seen` (`lastSeen`) was frozen at one date for the
+  whole spike; `unitTime` is null; `catDetect` changed once, during a manual clean, and stayed
+  there; `weightSensor` and `isCatDetectPending` never changed; `robotCycleState` flips within
+  phases; `displayCode` sometimes stays `DC_MODE_IDLE` through a whole cycle.
+- **Interruptions** appear only in the history from before the spike (two "Cat Sensor
+  Interrupted" entries): the cycle resumed and finished with no new "Clean Cycle In Progress".
+- **Polling found nothing the WebSocket had not already pushed** in 43 hours (0 of 271 lines).
 
 ## History of breakage (so we know what to expect)
 - April 2026: Whisker blocked the default User-Agent (403), then the LR4 endpoint returned 404.

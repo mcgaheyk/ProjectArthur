@@ -65,7 +65,9 @@ class RobotSnapshot:
 
     ``status`` is the NAME of pylitterbot's ``LitterBoxStatus`` (e.g. ``"CAT_DETECTED"``);
     ``status_code`` is the raw code (e.g. ``"CD"``, or the raw ``robotStatus`` when the status
-    is ``UNKNOWN``). The last four fields are observed by the feeder, not reported by the robot.
+    is ``UNKNOWN``). The fields from ``status_since`` on are observed by the feeder, not reported
+    by the robot. ``last_seen`` is the robot's own and has been seen frozen for days: never
+    show it.
     """
 
     status: str
@@ -78,7 +80,9 @@ class RobotSnapshot:
     is_sleeping: bool = False
     is_laser_dirty: bool = False
     power_type: str = "AC"  # "AC", "DC" or "NC"
-    wait_time_minutes: int = 7  # clean_cycle_wait_time_minutes: 3, 7, 15, 25 or 30
+    # clean_cycle_wait_time_minutes, whatever the robot reports. The docs list 3, 7, 15, 25
+    # and 30, but a real LR4 has reported 8 and waited 8 minutes.
+    wait_time_minutes: int = 7
     last_seen: datetime | None = None
     pet_weight_lbs: float | None = None
     # Feeder-observed timing:
@@ -86,6 +90,11 @@ class RobotSnapshot:
     previous_status: str | None = None  # status before the current one
     last_visit_at: datetime | None = None
     visits_today: int | None = None
+    # The visit under way (status CAT_DETECTED or CAT_SENSOR_TIMING): when it began (None
+    # when unknown, e.g. the feeder started mid-visit) and when the cat left, which is when
+    # the pet-weight update arrived (None until then). See arthur/sources/tracker.py.
+    visit_started_at: datetime | None = None
+    cat_left_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -103,10 +112,13 @@ class DisplayState:
 
     Which fields are set depends on ``kind``:
 
-    - ``since``: when the current status began (in_use, waiting, interrupted, paused, emptying,
-      powering, just_cleaned, drawer_full, fault, bonnet_removed).
+    - ``since``: when the current status began (interrupted, paused, emptying, powering,
+      just_cleaned, drawer_full, fault, bonnet_removed); in_use → when the visit began;
+      waiting → when the cat left (or when we gave up waiting for the weight).
+    - ``last_seen``: robot_offline → when the feeder saw it go offline (None when it was
+      already offline at the first observation); no_data → the feeder's last contact.
     - ``deadline``: waiting → when the clean cycle should start (None while sleeping or when
-      the start is unknown); just_cleaned → when it returns to ready.
+      the cat leaving was not seen); just_cleaned → when it returns to ready.
     - ``cycle_start`` / ``cycle_end``: cleaning → start and estimated end.
     - ``fault_code``: fault → ``PD``, ``OTF``, ``CSF`` or the raw code.
     - ``detail``: extra word for the kind: powering → ``"up"``/``"down"``; no_data → the reason

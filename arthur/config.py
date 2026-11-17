@@ -118,8 +118,11 @@ class Timings:
     heartbeat_s: float = 30
     ttl_s: float = 90
     just_cleaned_s: float = 5
-    clean_cycle_estimate_s: float = 150
+    clean_cycle_estimate_s: float = 130
     no_data_after_s: float = 600
+    cat_left_fallback_s: float = 120
+    visit_min_s: float = 30
+    poll_s: float = 300
     in_use_joke_s: float = 6
     in_use_cat_s: float = 4
     interrupted_title_s: float = 2

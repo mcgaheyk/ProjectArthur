@@ -271,3 +271,33 @@ the title shows.
 **Rejected along the way** (commits eaf7b09, f3990d2 and 4c352a2 have them): a stop-paw pun
 ("PAWSED"), the cleaning screen frozen inside a hazard border, a deadpan robot, and single
 screens of the walk or the close-up with a caption.
+
+## D-0017 — A visit is read from the weight reading, not from the status
+
+**2026-11-17.** The spike logged seven real visits and three short detections. They showed
+that the two visit statuses do not follow the cat: `CAT_SENSOR_TIMING` arrived 6 to 10 seconds
+after detection in four visits and never in the other three. Mapped by status, in-use either
+flashed by or ran for nine minutes, and the countdown ended up to 81 seconds early.
+
+- **He has left when the weight reading arrives.** The push that changes `pet_weight` came 48
+  to 86 s after detection, and the clean cycle started 476 to 482 s after it in every visit,
+  with a wait setting of 8 minutes. So `CAT_DETECTED` and `CAT_SENSOR_TIMING` are treated
+  alike: in use until the weight arrives, then waiting, counting `wait_time_minutes` from that
+  moment. A second weight in the same visit restarts the count.
+- **No weight after `cat_left_fallback_s` (120 s):** waiting without a countdown. That is
+  honest about two visits weighing the same, and about Whisker's weight pushes breaking again
+  as they did for two months in 2026.
+- **A detection is a visit** only if a weight arrived or it lasted `visit_min_s` (30 s).
+- **Cleaning stays a timed estimate, now 130 s** (real cycles: 123 to 134 s). The raw phases
+  are real but each varies as much as the whole, and resyncing at each one would make the
+  digits jump.
+- **The offline age is ours.** It counts from when the feeder saw the robot go offline. The
+  robot's `last_seen` was frozen at one date for the whole spike.
+- The observed facts (`status_since`, `visit_started_at`, `cat_left_at`, `last_visit_at`) are
+  kept by one tracker, `arthur/sources/tracker.py`, used by both the log reader and the live
+  source, so replaying the real log in the studio runs the same code as the feeder.
+
+**Not known.** What a live interruption looks like; the two in the robot's history resumed
+without a new wait, so the scenario now does too. Whether the weight push ever arrives after
+the robot has already started its count by some other rule: seven visits is a small sample.
+

@@ -38,15 +38,22 @@ STATUS_KIND = {
 }
 
 
+def _as(status):
+    """BASE in ``status``; in CAT_SENSOR_TIMING the cat has left (its weight came a minute
+    ago), since that, not the status, is what makes waiting."""
+    snap = replace(BASE, status=status, previous_status="READY")
+    if status == "CAT_SENSOR_TIMING":
+        snap = replace(snap, visit_started_at=ago(120), cat_left_at=ago(60))
+    return snap
+
+
 @pytest.mark.parametrize(("status", "kind"), sorted(STATUS_KIND.items()))
 def test_every_lr4_status_maps(status, kind):
-    snap = replace(BASE, status=status, previous_status="READY")
-    assert state(snap).kind == kind
+    assert state(_as(status)).kind == kind
 
 
 def test_mapping_covers_every_kind():
-    produced = {state(replace(BASE, status=s, previous_status="READY")).kind
-                for s in STATUS_KIND}
+    produced = {state(_as(s)).kind for s in STATUS_KIND}
     produced |= {"no_data", "just_cleaned"}
     assert produced == set(KINDS)
 
@@ -161,18 +168,77 @@ def test_ready_after_something_else_is_not_just_cleaned():
 # --- live-state data -------------------------------------------------------------------
 
 
-def test_waiting_deadline_from_wait_time():
-    snap = replace(BASE, status="CAT_SENSOR_TIMING", status_since=ago(60), wait_time_minutes=15)
-    s = state(snap)
-    assert s.kind == "waiting"
-    assert s.deadline == ago(60) + timedelta(minutes=15)
+VISIT_STATUSES = ("CAT_DETECTED", "CAT_SENSOR_TIMING")
+
+
+def _visit(status, *, started=90, left=None, **kw):
+    """A visit that began ``started`` s ago, the weight ``left`` s ago (None: not yet)."""
+    since = ago(30) if started is None else ago(started - 8)
+    return replace(BASE, status=status, status_since=since, previous_status="READY",
+                   visit_started_at=None if started is None else ago(started),
+                   cat_left_at=None if left is None else ago(left), **kw)
+
+
+@pytest.mark.parametrize("status", VISIT_STATUSES)
+def test_visit_without_weight_is_in_use_from_its_start(status):
+    s = state(_visit(status, started=90))
+    assert (s.kind, s.since, s.deadline) == ("in_use", ago(90), None)
+
+
+@pytest.mark.parametrize("status", VISIT_STATUSES)
+def test_weight_makes_waiting_with_deadline_from_when_he_left(status):
+    s = state(_visit(status, started=90, left=30, wait_time_minutes=8))
+    assert (s.kind, s.since) == ("waiting", ago(30))
+    assert s.deadline == ago(30) + timedelta(minutes=8)
     assert not s.sleeping
 
 
-def test_sleeping_wait_has_no_deadline():
-    snap = replace(BASE, status="CAT_SENSOR_TIMING", status_since=ago(60), is_sleeping=True)
-    s = state(snap)
-    assert (s.kind, s.deadline, s.sleeping) == ("waiting", None, True)
+def test_waiting_deadline_follows_any_wait_time():
+    for minutes in (3, 8, 15, 60):
+        s = state(_visit("CAT_DETECTED", left=10, wait_time_minutes=minutes))
+        assert s.deadline == ago(10) + timedelta(minutes=minutes)
+
+
+@pytest.mark.parametrize("status", VISIT_STATUSES)
+def test_sleeping_wait_has_no_deadline(status):
+    s = state(_visit(status, left=30, is_sleeping=True))
+    assert (s.kind, s.since, s.deadline, s.sleeping) == ("waiting", ago(30), None, True)
+
+
+@pytest.mark.parametrize("status", VISIT_STATUSES)
+def test_no_weight_falls_back_to_wait_without_countdown(status):
+    fb = CFG.timings.cat_left_fallback_s
+    assert state(_visit(status, started=fb - 1)).kind == "in_use"
+    s = state(_visit(status, started=fb))
+    assert (s.kind, s.deadline) == ("waiting", None)
+    assert s.since == ago(fb) + timedelta(seconds=fb)
+
+
+def test_fallback_uses_the_configured_time():
+    cfg = replace(CFG, timings=replace(CFG.timings, cat_left_fallback_s=300))
+    snap = _visit("CAT_DETECTED", started=200)
+    assert to_display_state(snap, HEALTHY, NOW, cfg).kind == "in_use"
+    assert to_display_state(snap, HEALTHY, NOW + timedelta(seconds=100), cfg).kind == "waiting"
+
+
+@pytest.mark.parametrize("status", VISIT_STATUSES)
+def test_unknown_visit_start_stays_in_use_from_status_since(status):
+    # The feeder started mid-visit: no start, so no fallback; time counts from the status.
+    s = state(_visit(status, started=None))
+    assert (s.kind, s.since) == ("in_use", ago(30))
+    snap = replace(_visit(status, started=None), status_since=ago(3600))
+    assert state(snap).kind == "in_use"
+
+
+def test_weight_wins_over_unknown_start():
+    s = state(_visit("CAT_DETECTED", started=None, left=20))
+    assert (s.kind, s.deadline) == ("waiting", ago(20) + timedelta(minutes=BASE.wait_time_minutes))
+
+
+def test_cat_left_outside_a_visit_is_ignored():
+    snap = replace(BASE, status="CLEAN_CYCLE", status_since=ago(30), cat_left_at=ago(500),
+                   visit_started_at=ago(560))
+    assert state(snap).kind == "cleaning"
 
 
 def test_cleaning_cycle_estimate():
@@ -186,9 +252,23 @@ def test_in_use_since():
     assert s.since == ago(42)
 
 
-def test_offline_carries_last_seen():
-    s = state(replace(BASE, status="OFFLINE", is_online=False, last_seen=ago(600)))
-    assert s.last_seen == ago(600)
+def test_offline_age_is_when_we_saw_it_go_offline():
+    snap = replace(BASE, status="OFFLINE", is_online=False, status_since=ago(600),
+                   previous_status="READY", last_seen=ago(4 * 86400))
+    s = state(snap)
+    assert (s.kind, s.last_seen) == ("robot_offline", ago(600))
+
+
+def test_offline_from_the_first_look_has_no_age():
+    snap = replace(BASE, status="OFFLINE", is_online=False, status_since=ago(600),
+                   previous_status=None, last_seen=ago(4 * 86400))
+    s = state(snap)
+    assert (s.kind, s.last_seen) == ("robot_offline", None)
+
+
+def test_robots_last_seen_is_never_shown():
+    for status in ("READY", "CAT_DETECTED", "CLEAN_CYCLE", "DRAWER_FULL"):
+        assert state(replace(BASE, status=status, last_seen=ago(4 * 86400))).last_seen is None
 
 
 def test_ready_carries_levels_and_visits():
