@@ -14,12 +14,17 @@ from arthur.render.screens import CAPTION_USES
 CFG = default_config()
 
 
+#: How long to play every fixture so every caption line has been drawn: interrupted's second
+#: phrase first shows 16 s into its episode.
+PLAY_S = 24
+
+
 def _render_everything():
     for fx in FIXTURES.values():
         state = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
         for size in list_sizes():
             for v in list_variants(fx.kind, size):
-                for dt in range(8):
+                for dt in range(PLAY_S):
                     render(state, fx.now + timedelta(seconds=dt), CFG, size=size, variant=v)
 
 

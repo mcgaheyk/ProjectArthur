@@ -70,6 +70,9 @@ clean_cycle_estimate_s = 150  # timed progress estimate for cleaning (library ha
 no_data_after_s = 600         # no successful contact for this long shows no_data
 in_use_joke_s = 6             # in use: seconds of the joke page (poop emoji, joke, IN USE)
 in_use_cat_s = 4              # in use: seconds of the cat page (Arthur, timer, drawer bar)
+interrupted_title_s = 2       # interrupted: seconds of INTERRUPTION in each episode
+interrupted_phrase_s = 3      # interrupted: seconds of the second phrase in each episode
+interrupted_rest_s = 2        # interrupted: seconds of the empty globe before he walks in again
 
 # Captions are jokes. One is picked per visit (from when the state began), so it stays put for
 # the whole visit and changes between visits. Add your own; a caption too wide for its line
@@ -88,19 +91,10 @@ waiting_sleep = ["ZZZ", "SNOOZE", "NAPPING", "SLEEPY", "LATER"]
 cleaning = ["CLEANING"]
 # just cleaned, big word under a small "FRESHLY", up to 31 px
 just_cleaned = ["CLEANED"]
-# interrupted headline, big font, up to 31 px
-interrupted = ["HEY!", "OI!", "WAIT!", "HOLD UP", "NOPE!", "RUDE!", "UH OH"]
-# interrupted, the stroll variant: narration over the walk-back-in scene, small font, up to
-# 35 px
-interrupted_stroll = ["HE'S BACK", "ROUND 2", "ENCORE!", "DEJA POO", "ONE MORE", "YOU AGAIN"]
-# interrupted, the peek variant: Arthur's own voice beside his close-up, big font, up to 28 px
-interrupted_cat = ["WHAT?", "ME?", "MY BOX", "ONE SEC", "U MAD?", "FORGOT", "BUSY"]
-# interrupted, what Arthur is up to (he has come to have a look at the globe turning). Takes
-# turns, a new one each time a variant's loop comes round. Drawn across the full width in the
-# small font, up to 49 px; on the peek_pov card in the big font, up to 50 px (ones too wide
-# for a line are skipped there)
-interrupted_look = ["INTERRUPTION", "TAKIN' A LOOK", "JUST LOOKING", "OOH IT SPINS", "INSPECTING",
-                    "SUPERVISING", "IS IT DONE?", "QUICK LOOK"]
+# interrupted, the second phrase of each episode (after the fixed title "INTERRUPTION", which
+# is not listed here): big font across the full width, up to 50 px, a new one each episode
+interrupted_look = ["TAKIN' A LOOK", "JUST LOOKING", "OOH IT SPINS", "INSPECTING", "SUPERVISING",
+                    "IS IT DONE?", "QUICK LOOK"]
 # drawer full, small line under FULL, inside the flashing ring: up to 34 px, drawn with narrow
 # 3-px M and W (so here M and W count 4 px, like most letters)
 drawer_full = ["EMPTY NOW"]

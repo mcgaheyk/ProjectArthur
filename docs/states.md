@@ -40,7 +40,7 @@ at a time.
 | `in_use` | Status `CAT_DETECTED`. | Arthur is in there now. Two pages take turns: the poop emoji with a joke and "IN USE", then Arthur with how long he has been. |
 | `waiting` | Status `CAT_SENSOR_TIMING`. | He has left; countdown to the clean cycle, from `clean_cycle_wait_time_minutes` (3, 7, 15, 25 or 30). If `is_sleeping`, the robot will not cycle yet, so show waiting without a countdown. |
 | `cleaning` | Status `CLEAN_CYCLE`. | Cycling: soapy blue, a moving border, "CLEANING" and a countdown that is a timed estimate (`clean_cycle_estimate_s`). The library does not expose dump, level and home phases. |
-| `interrupted` | Status `CAT_SENSOR_INTERRUPTED`. | He stepped back in mid-cycle and it stopped. Visibly different from `cleaning`. |
+| `interrupted` | Status `CAT_SENSOR_INTERRUPTED`. | He stepped back in mid-cycle and it stopped. Visibly different from `cleaning`. A little story that repeats, counted from when the interruption began: he strolls up to the globe, the view cuts to inside the box and he looks in, "INTERRUPTION", his face again, a second phrase, the globe alone (D-0016). |
 | `paused` | Status `PAUSED`. | The cycle is paused. |
 | `emptying` | Status `EMPTY_CYCLE`. | A person started an empty cycle. |
 | `powering` | Status `POWER_UP` or `POWER_DOWN`. | Starting up or shutting down. |

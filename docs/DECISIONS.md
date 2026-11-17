@@ -242,3 +242,32 @@ the feeder learned of the change, not a robot timestamp that may arrive late.
 **Studio.** Fixtures are now mapped once, at the fixture's own time, while the render clock
 runs (gallery tiles and fixture mode). Otherwise the just-cleaned tile turned into idle after a
 few seconds of its loop.
+
+## D-0016 — Interrupted is a little story, not a shocked cat
+
+**2026-11-17.** Kyle said the interruption happens often and wanted something good for it. The
+old screen was a wide-eyed Arthur, "HEY!" and "STOPPED". Over four rounds in the studio he
+compared twelve candidates and chose a combination of two of them.
+
+- One 21-second episode, counted from when the interruption began, then again from the top:
+  Arthur strolls up to the globe and puts his head in (4 s); the view cuts to inside the box,
+  his paws hook over the bottom edge and his face appears, eyes opening, looking left and
+  right (6 s); "INTERRUPTION" across the full width (2 s); his face again (4 s); a second
+  phrase, a new one each episode, from `interrupted_look` in the config (3 s); the globe
+  alone (2 s).
+- The wording is Kyle's: "INTERRUPTION", "TAKIN' A LOOK", "watching it spin". The story is
+  that Arthur comes to have a look, not that he was caught. The paws-on-the-edge view from
+  inside the box was his idea too.
+- The title, phrase and rest lengths are in `[timings]`; the walk and the face's script are
+  in the renderer, like idle's script.
+
+**Given up.** Words are on screen for 5 seconds in every 21, and nothing says "stopped". A
+glance usually lands on a picture. Kyle preferred the story; the walking cat and the face in
+the box appear on no other screen, so they identify the state by themselves.
+
+**Not known.** How long a real interruption lasts. One shorter than ten seconds ends before
+the title shows.
+
+**Rejected along the way** (commits eaf7b09, f3990d2 and 4c352a2 have them): a stop-paw pun
+("PAWSED"), the cleaning screen frozen inside a hazard border, a deadpan robot, and single
+screens of the walk or the close-up with a caption.

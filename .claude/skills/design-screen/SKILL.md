@@ -20,6 +20,9 @@ and still readable in one glance from across a room. Clear first, funny second.
 - **No badges** (D-0012). Do not add corner marks; a condition either gets a screen, a bar
   colour or a line of text, or it is not shown.
 - **Waiting:** the hourglass, "CLEAN IN" and the countdown, in the warm scheme.
+- **Interrupted is a little story** (D-0016): Arthur strolls up to the globe, the view cuts
+  to inside the box where he looks in at us, then "INTERRUPTION" and a second phrase. He
+  has come to have a look; he is not being told off.
 - **Idle** must show the **bin level and the litter level**, plus one more thing (last visit,
   visits today).
 - **Level bars carry meaning by colour** (D-0011). Litter follows the robot's own state word:

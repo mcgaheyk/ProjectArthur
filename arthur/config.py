@@ -122,6 +122,9 @@ class Timings:
     no_data_after_s: float = 600
     in_use_joke_s: float = 6
     in_use_cat_s: float = 4
+    interrupted_title_s: float = 2
+    interrupted_phrase_s: float = 3
+    interrupted_rest_s: float = 2
 
 
 #: An empty caption table, for configs without [captions].

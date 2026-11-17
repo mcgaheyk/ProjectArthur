@@ -491,17 +491,9 @@ def test_idle_bars_keep_length_and_colours():
 
 
 #: Layouts allowed to draw in columns 48-50 (column 51 is the border): idle Arthur moved its
-#: bars and bottom line there, drawer_full's FULL and caption run to column 49, and the
-#: interrupted variants other than the default lay out their own columns (globes, heads and
-#: full-width lines of text).
-WIDE = {
-    ("ready", "arthur"),
-    ("drawer_full", "default"),
-    *(("interrupted", v) for v in (
-        "stroll", "peek", "stroll_look", "stroll_watch", "stroll_card", "peek_pop",
-        "peek_spin", "peek_pov", "stroll_pov",
-    )),
-}
+#: bars and bottom line there, drawer_full's FULL and caption run to column 49, and
+#: interrupted lays out its own scene (the globe, full-width words).
+WIDE = {("ready", "arthur"), ("drawer_full", "default"), ("interrupted", "default")}
 
 
 @pytest.mark.parametrize(("name", "size", "variant"), list(cases()))

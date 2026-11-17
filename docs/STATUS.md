@@ -9,7 +9,7 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
   (D-0010); commit 91e4960 is the last one that has them.
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
-- **Built and tested (609 tests):**
+- **Built and tested (544 tests):**
   - Pipeline: `arthur/model.py`, `arthur/mapping.py`, `arthur/render/`, with variants for
     ready, in_use, waiting and cleaning.
   - Screens: second design pass done on 2026-11-16 to Kyle's direction (D-0009): orange
@@ -26,19 +26,11 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
     the gap beside him, and a yawn every five minutes. **Kyle has not reacted to pass 4 or the idle script
     yet.**
     Just cleaned is now five seconds of "FRESHLY CLEANED" (D-0015).
-    Interrupted has **nine candidate designs to choose from** beside the current "HEY!"
-    screen, which is still what the clock shows. Kyle liked `stroll` (a little scene) and
-    `peek` (a big close-up) and asked for his own wording ("INTERRUPTION", "TAKIN' A
-    LOOK", "WATCHING IT SPIN"), so there are three more of each: `stroll_look`,
-    `stroll_watch`, `stroll_card`, `peek_pop`, `peek_spin` and `peek_pov` (his idea: the
-    view from inside the box, paws on the edge). They are variants in the studio's All
-    states view. The newest, `stroll_pov`, joins two of them into one story at his
-    request: he walks up to the globe, it cuts to the view from inside with his eyes
-    opening, then "INTERRUPTION", his face again, a second phrase (a new one each time),
-    two seconds of the globe alone, and the whole 21 s episode starts again.
-    **Kyle has not picked one.** The losers and their caption keys are to be
-    removed once he has. `pawsed`, `frozen` and `robot` were dropped; commit eaf7b09 has
-    them.
+    Interrupted is now a little story that repeats every 21 s (D-0016), built over several
+    rounds with Kyle on 2026-11-16 and 17: Arthur strolls up to the globe, the view cuts to
+    inside the box where he looks in at us, "INTERRUPTION", his face again, a second
+    phrase, a short rest on the empty globe. **Kyle chose it in the studio; it has not
+    been seen on LEDs.**
   - Transport: `arthur/transports/awtrix_ng.py`. Before pushing, it turns off the TC002's
     double-size drawing (`enlargeApps`); without that the clock shows a quarter of the frame.
     Only ever run against the fake clock.
@@ -68,7 +60,7 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
 1. Kyle: leave the spike running for a few days, and watch real visits in the studio (Live
    view, Source: Robot log). Follow only works while the spike is running.
 2. Kyle: react to the redesigned screens in the studio's All states view: which jokes land,
-   which art does not read, which variants to keep. Interrupted has ten to choose from. Regenerate a one-page overview any time
+   which art does not read, which variants to keep. Regenerate a one-page overview any time
    with `uv run python -m arthur.render.preview --sheet DIR`.
 3. Kyle, with Claude: install AWTRIX NG 1.2.3 on the TC002 with the desktop USB installer. The
    steps and the way back to Ulanzi's firmware are in `docs/reference/awtrix-ng.md`; installing
@@ -125,6 +117,11 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
 - **In use:** the joke page and the poop's face loop share a rhythm (pages 6 s + 4 s, face
   15 s), so the same blinks land on the same pages every third round. Arthur's smirk and the
   rising stink lines have only been judged on a monitor.
+- **Interrupted:** words are on screen for 5 seconds in every 21, so a quick glance is
+  more likely to catch a picture than a word, and an interruption shorter than ten seconds
+  ends before "INTERRUPTION" shows. No real interruption is in the spike's logs yet, so
+  how long they last is unknown. The walk repeats every episode although he only walks up
+  once.
 - **Jokes** are capped at about seven letters. "POOPIN?" and "PEEIN?" carry question marks
   because we cannot tell which.
 - **Idle gestures:** the tail wag is a small lift (the tip moves two rows) and the ear twitch
@@ -145,6 +142,9 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
   some owners report it jumping from about 70 % to full.
 - Idle shows the last-visit time but not visits today.
 - Brown and the dim shades have only been judged on a monitor, not on LEDs.
+- The studio's live reload does not pick up a new key in `config/display.toml`: it keeps
+  the config code it started with, logs "unknown key" and stays on the last good version.
+  Restart the studio after adding a key.
 - In the studio, All states tiles and fixture mode on the live clock play a 30-second loop and
   then jump back, so a timer counts 30 seconds and restarts. Scenario, Manual and Robot log
   modes run with time moving normally.
