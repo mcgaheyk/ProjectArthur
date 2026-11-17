@@ -193,6 +193,16 @@ own fault set.
   `"Litter Dispensed: x"`, `"Battery Backup"`, or the raw value when unmapped. A null answer
   raises `LitterRobotException`. The mapping is `ACTIVITY_STATUS_MAP` in
   `robot/litterrobot4.py` (e.g. `robotCycleStatusIdle` → `CLEAN_CYCLE_COMPLETE`).
+- (installed source, for the feeder's seeding) `LitterBoxStatus.text` (`enums.py`:151) gives
+  the words the history shows: `CAT_DETECTED` "Cat Detected", `CLEAN_CYCLE` "Clean Cycle In
+  Progress", `CLEAN_CYCLE_COMPLETE` "Clean Cycle Complete" (`enums.py`:117–119). The weight
+  entry is `ACTIVITY_STATUS_MAP["catWeight"] = "Pet Weight Recorded"`, formatted
+  `f"{action}: {actionValue} lbs"` in `_parse_activity` (`robot/litterrobot4.py`:59, 423–428).
+  Timestamps are aware UTC (`utils.to_timestamp`); a naive `start` is taken as UTC.
+- Without `start` the answer is capped at `limit` entries and which ones is not documented:
+  the spike's first fetch hit the cap of 100. The feeder asks for the last 72 hours instead.
+- **No timeout of its own.** `session.py` sets none, so `refresh()` and the history calls are
+  bounded only by aiohttp's default (300 s in total). Pushes still arrive meanwhile.
 - `get_insight()` counts cycles, not visits.
 - `account.pets` (with `load_pets=True`): `Pet.weight`, `weight_history`
   (`WeightMeasurement(timestamp, weight)`), `get_visits_since(start)`,

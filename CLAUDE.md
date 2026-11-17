@@ -23,11 +23,12 @@ simulates the clock so screens can be designed without the hardware on the desk.
 
 | Stage | Module | Rule |
 |---|---|---|
-| source | `arthur/sources/` | `logfile.py` reads the spike's log for the studio. The Whisker source is not built yet; it will be the only code that imports pylitterbot |
+| source | `arthur/sources/` | `whisker.py` is the live robot and writes `logs/spike-*.jsonl`; `logfile.py` reads that log for the studio; `tracker.py` keeps what the feeder observed over time (when a status began, when the cat left) for both. pylitterbot is imported only by `whisker.py` and `arthur/spikelog.py` |
 | mapping | `arthur/mapping.py` | Pure function. Knows nothing about displays or pixels |
 | render | `arthur/render/` | Pure function of DisplayState, time, config and size. Knows nothing about AWTRIX |
 | transport | `arthur/transports/` | Behind an interface. The only code that knows the clock's API |
 | simulator | `arthur/sim/` | A fake clock that speaks the same API subset, plus the studio page |
+| feeder | `arthur/feeder.py`, `arthur/pusher.py` | The run loop: every 0.25 s it asks the source, maps, renders and pushes when the frame changed or the heartbeat is due |
 
 ## Invariants
 - **The feeder draws every pixel.** The clock only shows a bitmap (D-0003). Do not move layout
@@ -37,7 +38,8 @@ simulates the clock so screens can be designed without the hardware on the desk.
 - **One config file.** Colours, thresholds and timings live in `config/display.toml`.
 - **Credentials** come from the environment or a gitignored `.env` that Kyle fills in himself.
   Never read `.env` or `.whisker-token.json`, never print or log their contents.
-- **Whisker's API is unofficial.** One shared connection, poll no faster than every few
+- **Whisker's API is unofficial.** One shared connection, so **only one of the feeder and
+  `scripts/spike_log.py` may run on the account at a time**; poll no faster than every few
   minutes, and fail visibly: on any auth or API error show NO DATA and keep retrying. Never
   leave an old state on screen as if it were current.
 - **Verify before you use.** Before using any pylitterbot or AWTRIX NG name that is not already
@@ -51,7 +53,13 @@ simulates the clock so screens can be designed without the hardware on the desk.
 - `uv run python -m arthur.sim` starts the studio (also the "studio" entry in `.claude/launch.json`).
   Its Robot log source follows or replays the spike's `logs/spike-*.jsonl`
 - `uv run python -m arthur.render.preview --all` prints every screen as text
-- `uv run --env-file .env python scripts/spike_log.py` logs the real robot (needs Kyle's `.env`)
+- `uv run --env-file .env python -m arthur.feeder --clock http://ADDRESS` runs the feeder
+  against the real robot and clock (needs Kyle's `.env`). It writes the same log the spike did.
+  Check for a running one first: `pgrep -fl arthur.feeder`
+- `uv run python scripts/push_test.py --clock http://ADDRESS NAME` shows one screen on a real
+  clock; stop the feeder first or the two fight over the screen
+- `uv run --env-file .env python scripts/spike_log.py` logs the real robot without a clock.
+  Superseded by the feeder; never run both
 - `uv run --env-file .env python scripts/spike_petlibro.py` logs the real PETLIBRO devices,
   read only (needs a second PETLIBRO account in Kyle's `.env`)
 

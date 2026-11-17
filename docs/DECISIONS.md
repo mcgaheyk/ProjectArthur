@@ -301,3 +301,30 @@ flashed by or ran for nine minutes, and the countdown ended up to 81 seconds ear
 without a new wait, so the scenario now does too. Whether the weight push ever arrives after
 the robot has already started its count by some other rule: seven visits is a small sample.
 
+## D-0018 — The feeder is also the logger, and it never gives up
+
+**2026-11-17.** The feeder was built and started on Kyle's Mac against the real robot and the
+real clock. Two things it does differently from the spike it grew out of:
+
+- **It replaces the spike.** Whisker allows us one connection (D-0005), so the feeder and
+  `scripts/spike_log.py` cannot both run. The feeder writes the same `logs/spike-*.jsonl`
+  files in the same format, so the studio's Robot log source still follows the real robot and
+  the data keeps accumulating. The spike script stays for logging without a clock.
+- **A rejected login is retried, slowly:** after 10 minutes, doubling to an hour. The spike
+  exits instead, to avoid locking the account; the feeder has to keep the screen honest, so it
+  shows NO DATA and tries again at a pace that cannot lock anything. Missing credentials are
+  not retried: NO DATA until it is restarted.
+- **The activity history fills in what the feeder did not watch.** At start it reads the last
+  72 hours for the last visit and, if a visit is under way, when it began and whether he has
+  left. If a visit has no weight push after `cat_left_fallback_s`, it asks the history once
+  for that visit. These are the robot's own timestamps, the one exception to D-0015.
+- **When the feeder stops, it does not clear the clock.** The last frame stays and the clock
+  marks it stale after `ttl_s` (D-0004). On the Mac that also happens whenever the Mac sleeps.
+- The transport keeps ours the only app in the clock's rotation, rechecked every five minutes,
+  because a new install rotates Time and Status with it and reports say the rotation can
+  change after a reboot.
+
+**Not tested, because it has not happened yet:** a real login failure, Whisker's connection
+dropping and pylitterbot reconnecting, a poll that hangs, a visit with no weight push, an
+interruption, and a clock reboot under a running feeder.
+

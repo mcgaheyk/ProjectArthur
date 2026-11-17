@@ -1,6 +1,6 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-17._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-17, evening._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
 - **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
@@ -11,7 +11,24 @@ _Last updated: 2026-11-17._ Current state only. History belongs in git and DECIS
   (D-0010); commit 91e4960 is the last one that has them.
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
-- **Built and tested (544 tests):**
+- **The clock is live.** The feeder (`python -m arthur.feeder`) has been **running on Kyle's
+  Mac since 18:12 on 2026-11-17**, detached under `caffeinate`, against the real robot and
+  the real clock (D-0018). It logged in, read the robot and showed idle; the clock's screen
+  read-back matched our render of the robot's state on all 832 pixels. **No real visit has
+  been watched on the clock yet.** It stops on a Mac restart and the clock shows the stale
+  border while the Mac sleeps. Its messages go to `logs/feeder-console.log`. Stop it with
+  `pkill -f arthur.feeder`; start it with the command in CLAUDE.md. Never run a second copy,
+  or `scripts/spike_log.py`, on the same account.
+- **Built and tested (686 tests):**
+  - Feeder: `arthur/feeder.py` (the loop), `arthur/pusher.py` (when to push),
+    `arthur/sources/whisker.py` (the one Whisker connection). On a login or API failure it
+    shows NO DATA and retries; it reloads `config/display.toml` when the file changes; it
+    writes `logs/spike-*.jsonl` in the spike's format, so the studio's Robot log source
+    follows it.
+  - Visit rules (D-0017): in use lasts until the weight reading arrives, the countdown runs
+    from that moment, cleaning is a 130-second estimate. `arthur/sources/tracker.py` keeps
+    these observed facts for both the live source and the log reader. Replayed over the log's
+    seven real visits, the countdown ended within 4 s of the real clean start every time.
   - Pipeline: `arthur/model.py`, `arthur/mapping.py`, `arthur/render/`, with variants for
     ready, in_use, waiting and cleaning.
   - Screens: second design pass done on 2026-11-16 to Kyle's direction (D-0009): orange
@@ -34,13 +51,13 @@ _Last updated: 2026-11-17._ Current state only. History belongs in git and DECIS
     phrase, a short rest on the empty globe. **Kyle chose it in the studio; it has not
     been seen on LEDs.**
   - Transport: `arthur/transports/awtrix_ng.py`. Before pushing, it turns off the TC002's
-    double-size drawing (`enlargeApps`); without that the clock shows a quarter of the frame.
-    Run against the real clock on 2026-11-17: idle animated for ten minutes and the clock's
-    screen read-back matched the frames sent, pixel for pixel. Kyle said idle looks good on
-    the LEDs. No other screen has been seen on hardware.
+    double-size drawing (`enlargeApps`); after pushing, it takes every other app out of the
+    clock's rotation (a new install rotates Time and Status with ours). Both are rechecked
+    every five minutes. Kyle said idle looks good on the LEDs; no other screen has been seen
+    on hardware.
   - Push test: `scripts/push_test.py --clock http://HOST [NAME] [--seconds N] [--readback]`
-    (logic in `arthur/pushtest.py`) shows any screen on a real clock. A test tool, not the
-    feeder: nothing pushes to the clock unless it is running.
+    shows any one screen on a real clock. Stop the feeder first, or the two fight over the
+    screen.
   - Simulator: `arthur/sim/`. One fake TC002 that starts with `enlargeApps` on, as a real
     clock does, and a studio page (live clock, all-states grid, scenario playback,
     kill-the-feeder switch) with live reload of screens and config. Its **Robot log** source
@@ -49,9 +66,9 @@ _Last updated: 2026-11-17._ Current state only. History belongs in git and DECIS
     state.
   - Log source: `arthur/sources/logfile.py` turns the spike's log lines into `RobotSnapshot`s
     (read only; it never talks to Whisker).
-  - Spike: `scripts/spike_log.py`. **Running on Kyle's Mac since the evening of 2026-11-15**,
-    so the real login and live connection work. By the morning of the 16th it had logged two
-    complete visits in `logs/spike-*.jsonl`. The studio's Robot log source reads them.
+  - Spike: `scripts/spike_log.py` ran from 2026-11-15 to 18:11 on 2026-11-17 and logged ten
+    cycles, seven of them real visits. **Stopped: the feeder replaced it** and writes the same
+    log.
   - PETLIBRO spike: `scripts/spike_petlibro.py` (logic in `arthur/petlibro_spike.py`, 39
     tests). Logs what the Granary and a fountain report through PETLIBRO's cloud, read only.
     **Running on Kyle's Mac since 10:33 on 2026-11-16**, detached, against the real Granary
@@ -60,51 +77,33 @@ _Last updated: 2026-11-17._ Current state only. History belongs in git and DECIS
     `logs/petlibro-*.jsonl` and `logs/petlibro-console.log`. It stops on a Mac restart and
     pauses during sleep; stop it with `pkill -f spike_petlibro`. Never start a second copy on
     the same account.
-- **Not built:** the feeder service itself (`arthur/sources/whisker.py`, the run loop). The
-  studio has its own in-process stand-in that plays fixtures, scenarios and the spike's log.
-
+- **Not built:** the Pi deployment (systemd unit, log retention), night dimming, food and
+  water. See Later.
 ## Next
-1. Kyle: leave the spike running for a few days, and watch real visits in the studio (Live
-   view, Source: Robot log). Follow only works while the spike is running.
-2. Kyle: react to the redesigned screens in the studio's All states view: which jokes land,
-   which art does not read, which variants to keep. Regenerate a one-page overview any time
-   with `uv run python -m arthur.render.preview --sheet DIR`.
-3. Kyle, with Claude: look at the other screens on the real clock with `scripts/push_test.py`
-   (drawer full, in use, cleaning, interrupted, no data) and check the remaining guesses at
-   the end of `docs/reference/awtrix-ng.md`: the stale mark, re-pushing clearing it, the
-   indicator pixels, and whether Time and Status stay out of the rotation after a reboot.
-4. Build the feeder service: `arthur/sources/whisker.py` and the run loop with heartbeat. With
-   the hardware here it is the main missing piece. Just cleaned now lasts 5 s (D-0015), so the
-   feeder must date a status change from when it saw it.
-5. Decide with Kyle how to fix what the first two real visits showed, then change
-   `arthur/mapping.py`, `docs/states.md` and `config/display.toml`. Nothing has been changed
-   yet. Replayed through the real mapping:
-   - **In use and waiting cannot be told apart from `status` alone.** Sunday: `CAT_DETECTED`
-     for 6 s, then `CAT_SENSOR_TIMING` (raw `ROBOT_CAT_DETECT_DELAY`) while he was probably
-     still inside, so in-use flashed by and the countdown started early. Monday: `CAT_DETECTED`
-     (raw `ROBOT_CAT_DETECT`) for 9 min 13 s, straight into the clean cycle, so the in-use
-     timer counted to nine minutes after he had left. The pet-weight update about a minute in
-     may be the better "he has left" signal.
-   - **The countdown ends early.** The clean cycle started about 9.3 minutes after detection
-     both times, against a wait setting of 8 minutes, so "DUE" showed for 81 s on Sunday.
-     `clean_cycle_wait_time_minutes` reads 8, which is not a documented value; the studio's
-     Manual mode rejects it.
-   - **Cleaning is shorter than the estimate:** 2 min 3 s and 2 min 10 s against
-     `clean_cycle_estimate_s = 150`, so the progress never fills. Raw `robotCycleStatus` shows
-     real phases (`CYCLE_DUMP`, `CYCLE_DFI`, `CYCLE_LEVEL`, `CYCLE_HOME`) that could replace the
-     estimate.
-   - Raw `catDetect` never left `CAT_DETECT_CLEAR`. `last_seen` is stuck at 2026-11-13, so the
-     offline screen's "seen" age would be wrong.
-6. Kyle: leave the PETLIBRO spike running until the Granary has run low and been refilled at
+1. Kyle: watch Arthur's next visits on the clock. In use should last until he leaves, then a
+   countdown from about 8:00 that reaches zero as the clean cycle starts, then about two
+   minutes of cleaning. Say what looks wrong; `logs/spike-*.jsonl` has the robot's side of
+   each visit and the studio's Replay shows what the clock should have drawn.
+2. Kyle: react to the screens, now on real LEDs: which jokes land, which art does not read,
+   colours and dim shades. Any one screen: `scripts/push_test.py` (stop the feeder first).
+3. With Claude, when they happen or can be staged: the cases the feeder has never met. The
+   stale border (stop the feeder for two minutes), a clock reboot (do Time and Status stay
+   out of the rotation?), an interruption, drawer full, the robot offline. The remaining
+   guesses about the clock are at the end of `docs/reference/awtrix-ng.md`.
+4. When the Pi arrives: deploy the feeder there (Later, first item) and stop the Mac's copy.
+   Give the clock a fixed address in the router first; the feeder is started with its
+   address and the router can change it.
+5. Kyle: leave the PETLIBRO spike running until the Granary has run low and been refilled at
    least once. That is the one thing it has not seen: what `surplusGrain` and
    `warehouseSurplusGrain` read when food is low, and how soon. Then read the log back into
    `docs/reference/petlibro.md`.
-7. Kyle: buy a fountain, a plug-in model, PLWF105 or PLWF106 (see the research note), and
+6. Kyle: buy a fountain, a plug-in model, PLWF105 or PLWF106 (see the research note), and
    share it to the same second account. The running spike picks it up within the hour.
 
 ## Later
-- Pi 5 deployment: Raspberry Pi OS Lite (64-bit), systemd unit, reconnect with backoff, log
-  rotation. The memory check (pylitterbot pulls in boto3/botocore) only matters if it is the
+- Pi 5 deployment: Raspberry Pi OS Lite (64-bit), a systemd unit for `python -m arthur.feeder`
+  (the feeder already reconnects with backoff and stops cleanly on SIGTERM), and retention for
+  `logs/`, which grow by a file a day and are never deleted. The memory check (pylitterbot pulls in boto3/botocore) only matters if it is the
   1 GB model.
 - Night dimming. The TC002 has no light sensor and NG has no night schedule, so the feeder has
   to set `brightness` on a timer.
@@ -136,7 +135,8 @@ _Last updated: 2026-11-17._ Current state only. History belongs in git and DECIS
   one a push to the clock.
 - **Idle laser notice** can only say "LASER": "WIPE LASER" and "LASER DIRTY" are too wide for
   the line. It does not say what to do.
-- **Cleaning:** the countdown is still an estimate (150 s against real cycles of about 125 s).
+- **Cleaning:** the countdown is an estimate (130 s; real cycles took 123 to 134 s), so it can
+  reach zero up to 7 s early or be cut off up to 4 s early.
   The 6-row digits and the pale bubbles on the blue border have only been judged on a monitor.
 - On-battery and connection-down are no longer shown anywhere (badges were removed).
 - **Drawer full:** the narrow M and W in "EMPTY NOW" and the flashing ring have only been
@@ -157,8 +157,10 @@ _Last updated: 2026-11-17._ Current state only. History belongs in git and DECIS
   modes run with time moving normally.
 
 ## Known unknowns
-- How fast Whisker pushes "cat detected". Nobody has published a measurement.
-- How long each phase really lasts, and whether the raw fields reveal cycle phases.
+- How fast Whisker pushes "cat detected" after Arthur steps in. The push trails the robot's
+  own timestamp by up to 5 s; the robot's own delay is not known.
+- What the feeder does in the cases it has never met live: a visit with no weight push, an
+  interruption, Whisker's connection dropping, a rejected login, a clock reboot (D-0018).
 - How colours and dim shades read on the TC002's LEDs. NG is installed; only idle has been looked at.
 - AWTRIX NG on the TC002: whether re-pushing an app clears the stale mark (inferred, not
   confirmed); what an empty rotation shows after a clock reboot; exactly which pixels the three

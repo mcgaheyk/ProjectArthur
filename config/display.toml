@@ -76,8 +76,8 @@ cat_left_fallback_s = 120
 # A detection counts as a visit (moves the last-visit time) once a weight arrives or it has
 # lasted this long. Real visits ran 9 min or more; blips and manual cleans 2-14 s.
 visit_min_s = 30
-# How often the feeder will poll Whisker (unused until the feeder exists). Whisker's API is
-# unofficial: no faster than every few minutes.
+# How often the feeder polls Whisker beside the live connection; never under 120 s whatever
+# is set here. Whisker's API is unofficial: no faster than every few minutes.
 poll_s = 300
 in_use_joke_s = 6             # in use: seconds of the joke page (poop emoji, joke, IN USE)
 in_use_cat_s = 4              # in use: seconds of the cat page (Arthur, timer, drawer bar)
