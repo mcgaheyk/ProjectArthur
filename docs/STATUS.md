@@ -1,10 +1,12 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-16._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-17._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
-- **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). Neither
-  is set up: the clock still runs Ulanzi's own firmware and nothing is deployed to the Pi.
+- **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
+  clock runs AWTRIX NG 1.2.3 since 2026-11-17** and is on the home Wi-Fi as `awtrixng-77a767`
+  (192.168.86.41 that day; the address can change). Its built-in Time and Status apps are out
+  of the rotation. The Pi has not arrived; nothing is deployed to it.
 - **One size.** Everything is 52x16. The 32x8 layouts and the second fake clock were removed
   (D-0010); commit 91e4960 is the last one that has them.
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
@@ -33,7 +35,12 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
     been seen on LEDs.**
   - Transport: `arthur/transports/awtrix_ng.py`. Before pushing, it turns off the TC002's
     double-size drawing (`enlargeApps`); without that the clock shows a quarter of the frame.
-    Only ever run against the fake clock.
+    Run against the real clock on 2026-11-17: idle animated for ten minutes and the clock's
+    screen read-back matched the frames sent, pixel for pixel. Kyle said idle looks good on
+    the LEDs. No other screen has been seen on hardware.
+  - Push test: `scripts/push_test.py --clock http://HOST [NAME] [--seconds N] [--readback]`
+    (logic in `arthur/pushtest.py`) shows any screen on a real clock. A test tool, not the
+    feeder: nothing pushes to the clock unless it is running.
   - Simulator: `arthur/sim/`. One fake TC002 that starts with `enlargeApps` on, as a real
     clock does, and a studio page (live clock, all-states grid, scenario playback,
     kill-the-feeder switch) with live reload of screens and config. Its **Robot log** source
@@ -62,10 +69,10 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
 2. Kyle: react to the redesigned screens in the studio's All states view: which jokes land,
    which art does not read, which variants to keep. Regenerate a one-page overview any time
    with `uv run python -m arthur.render.preview --sheet DIR`.
-3. Kyle, with Claude: install AWTRIX NG 1.2.3 on the TC002 with the desktop USB installer. The
-   steps and the way back to Ulanzi's firmware are in `docs/reference/awtrix-ng.md`; installing
-   wipes the Ulanzi app's Wi-Fi and login. Then push a frame to it and compare its screen
-   read-back with the simulator's. The guesses to check are listed at the end of that file.
+3. Kyle, with Claude: look at the other screens on the real clock with `scripts/push_test.py`
+   (drawer full, in use, cleaning, interrupted, no data) and check the remaining guesses at
+   the end of `docs/reference/awtrix-ng.md`: the stale mark, re-pushing clearing it, the
+   indicator pixels, and whether Time and Status stay out of the rotation after a reboot.
 4. Build the feeder service: `arthur/sources/whisker.py` and the run loop with heartbeat. With
    the hardware here it is the main missing piece. Just cleaned now lasts 5 s (D-0015), so the
    feeder must date a status change from when it saw it.
@@ -152,7 +159,7 @@ _Last updated: 2026-11-16._ Current state only. History belongs in git and DECIS
 ## Known unknowns
 - How fast Whisker pushes "cat detected". Nobody has published a measurement.
 - How long each phase really lasts, and whether the raw fields reveal cycle phases.
-- How colours and dim shades read on the TC002's LEDs. Checkable once NG is installed.
+- How colours and dim shades read on the TC002's LEDs. NG is installed; only idle has been looked at.
 - AWTRIX NG on the TC002: whether re-pushing an app clears the stale mark (inferred, not
   confirmed); what an empty rotation shows after a clock reboot; exactly which pixels the three
   indicators use; whether the built-in apps stay out of the rotation after a reboot (open
