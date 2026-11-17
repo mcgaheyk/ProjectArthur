@@ -23,6 +23,7 @@ def test_repo_config_loads_with_documented_defaults():
     assert (t.clean_cycle_estimate_s, t.no_data_after_s) == (130, 600)
     assert (t.cat_left_fallback_s, t.visit_min_s, t.poll_s) == (120, 30, 300)
     assert cfg.thresholds.drawer_warn_pct == 80
+    assert cfg.thresholds.litter_empty_pct == 60
     for role in REQUIRED_ROLES:
         assert len(cfg.rgb(role)) == 3
     assert cfg.rgb("stale") == (0x6E, 0x07, 0x00)

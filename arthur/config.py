@@ -111,6 +111,7 @@ class Palette:
 @dataclass(frozen=True)
 class Thresholds:
     drawer_warn_pct: float = 80
+    litter_empty_pct: float = 60
 
 
 @dataclass(frozen=True)

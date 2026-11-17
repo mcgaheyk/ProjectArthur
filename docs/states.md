@@ -77,6 +77,7 @@ the live screens (D-0011).
 | Level | Rule |
 |---|---|
 | Litter | Follows the robot's own word, `litter_level_state`, which is what the phone app shows. `OPTIMAL` green; `REFILL` and `OVERFILL` yellow; `LOW` and `EMPTY` red; no word, sand. |
+| Litter bar length | Scaled to the usable range: full at 100 %, down to a 2-pixel stub at `litter_empty_pct` (60) and below, so it always shows a little. The robot's percentage is litter depth and it calls 72 % `LOW`; on a plain 0–100 scale a low reading looked mostly full. The 60 is a guess: no `EMPTY` reading has been seen. |
 | Drawer | Orange below `drawer_warn_pct`; red from there, and on `drawer_full`. The robot reports only a percentage and a full flag, so "nearly full" is our own threshold. |
 
 ## Conditions with no screen of their own

@@ -1,4 +1,5 @@
 import base64
+import dataclasses
 import itertools
 import struct
 import zlib
@@ -621,3 +622,45 @@ def test_drawer_full_captions_fit_their_line():
         assert font.width(c) <= 34, c
     assert small_font().width("EMPTY NOW") > 34  # why the condensed M and W are needed
     assert font.width("EMPTY NOW") == 34
+
+
+# --- the litter bar: scaled to the usable range, never fewer than two pixels ---------------
+
+def _litter_lit(pct: float, word: str = "LOW") -> int:
+    """Lit pixels in the idle litter bar's first row for a litter percentage."""
+    from arthur.render.screens import IDLE_X, LEVEL_BAR_W, litter_role
+
+    cfg = default_config()
+    fx = FIXTURES["ready"]
+    snap = dataclasses.replace(fx.snapshot, litter_level=pct, litter_level_state=word)
+    state = to_display_state(snap, fx.health, fx.now, cfg)
+    frame = render(state, fx.now, cfg)
+    rgb = cfg.rgb(litter_role(state))
+    ints = frame.to_ints()
+    want = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
+    x0 = IDLE_X + 7
+    rows = [sum(1 for x in range(x0, x0 + LEVEL_BAR_W) if ints[y * frame.width + x] == want)
+            for y in range(frame.height)]
+    return max(rows)
+
+
+def test_litter_bar_shrinks_as_litter_drops():
+    lit = [_litter_lit(p) for p in (100, 90, 82, 76, 72, 70, 64)]
+    assert lit == sorted(lit, reverse=True) and len(set(lit)) == len(lit)
+
+
+def test_litter_bar_is_full_at_100_and_a_two_pixel_stub_when_empty():
+    from arthur.render.screens import LEVEL_BAR_W
+
+    assert _litter_lit(100, "OPTIMAL") == LEVEL_BAR_W
+    cfg = default_config()
+    for pct in (cfg.thresholds.litter_empty_pct, 40, 0):
+        assert _litter_lit(pct, "EMPTY") == 2
+
+
+def test_low_litter_looks_low():
+    """The robot said LOW at 72 %: that must read as well under half a bar."""
+    from arthur.render.screens import LEVEL_BAR_W
+
+    assert _litter_lit(72) < LEVEL_BAR_W / 2
+

@@ -61,6 +61,10 @@ caution   = "U"
 
 [thresholds]
 drawer_warn_pct = 80  # the drawer bar turns from orange to red from here
+# The litter bar is full at 100 % and down to its 2-pixel stub at this percentage. The robot's
+# own scale does not read as empty where it matters: it said OPTIMAL down to 76 % and LOW at
+# 72 %. 60 is a guess at "basically empty"; no EMPTY reading has been seen yet.
+litter_empty_pct = 60
 
 [timings]
 heartbeat_s = 30              # feeder re-pushes at least this often

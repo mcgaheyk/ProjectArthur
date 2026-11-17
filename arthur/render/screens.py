@@ -163,8 +163,15 @@ def drawer_frac(state: DisplayState) -> float:
     return max(0.0, min(1.0, (state.drawer_pct or 0) / 100))
 
 
-def litter_frac(state: DisplayState) -> float:
-    return max(0.0, min(1.0, (state.litter_pct or 0) / 100))
+def litter_frac(state: DisplayState, cfg: Config) -> float:
+    """How full the litter bar is: 1 at 100 %, 0 at ``litter_empty_pct`` and below. The robot
+    calls 72 % LOW, so on a plain 0-100 scale a low reading still looked mostly full."""
+    empty = min(float(cfg.thresholds.litter_empty_pct), 99.0)
+    return max(0.0, min(1.0, ((state.litter_pct or 0) - empty) / (100 - empty)))
+
+
+#: The litter bar never goes below this many pixels, so there is always a little on the row.
+LITTER_MIN_PX = 2
 
 
 def drawer_role(state: DisplayState, cfg: Config) -> str:
@@ -191,13 +198,16 @@ def litter_role(state: DisplayState) -> str:
     return LITTER_ROLES.get((state.litter_state or "").upper(), "sand")
 
 
-def gauge(f: Frame, x: int, y: int, w: int, h: int, frac: float, role: str, cfg: Config) -> None:
-    """A horizontal bar: ``frac`` of it lit in ``role`` over a dim track."""
+def gauge(f: Frame, x: int, y: int, w: int, h: int, frac: float, role: str, cfg: Config,
+          min_px: int = 0) -> None:
+    """A horizontal bar: ``frac`` of it lit in ``role`` over a dim track, never fewer than
+    ``min_px`` lit."""
     frac = max(0.0, min(1.0, frac))
     f.rect(x, y, w, h, cfg.rgb("dim"))
     lit = round(frac * w)
     if frac > 0 and lit == 0:
         lit = 1
+    lit = max(lit, min(min_px, w))
     f.rect(x, y, lit, h, cfg.rgb(role))
 
 
@@ -897,7 +907,8 @@ def _levels_52(
     draw_art(f, BIN_MARK, x, y_bin, cfg)
     gauge(f, x + 7, y_bin, LEVEL_BAR_W, 3, drawer_frac(state), drawer_role(state, cfg), cfg)
     draw_art(f, LITTER_MARK, x, y_lit, cfg)
-    gauge(f, x + 7, y_lit, LEVEL_BAR_W, 3, litter_frac(state), litter_role(state), cfg)
+    gauge(f, x + 7, y_lit, LEVEL_BAR_W, 3, litter_frac(state, cfg), litter_role(state), cfg,
+          min_px=LITTER_MIN_PX)
 
 
 #: Idle Arthur's content: bars and bottom line shifted right into the freed columns, so his
