@@ -12,7 +12,7 @@ _Last updated: 2026-11-17, evening._ Current state only. History belongs in git 
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
 - **The clock is live.** The feeder (`python -m arthur.feeder`) has been **running on Kyle's
-  Mac since 18:12 on 2026-11-17**, detached under `caffeinate`, against the real robot and
+  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar), detached under `caffeinate`, against the real robot and
   the real clock (D-0018). It logged in, read the robot and showed idle; the clock's screen
   read-back matched our render of the robot's state on all 832 pixels. **No real visit has
   been watched on the clock yet.** It stops on a Mac restart and the clock shows the stale
@@ -145,6 +145,8 @@ _Last updated: 2026-11-17, evening._ Current state only. History belongs in git 
   right, one wink), deliberately out of step with the ring; Kyle did not want an opening
   mouth or anything in sync with the flashing. The glances move one pixel and may not show
   from across the room.
+- **The litter bar reaches its 2-pixel stub at 60 %**, a guess at "basically empty": the
+  robot said LOW at 72 % and no EMPTY reading has been seen. `litter_empty_pct` in the config.
 - **The drawer bar turns red at 80 %**, which is a guess. The robot's percentage is rough and
   some owners report it jumping from about 70 % to full.
 - Idle shows the last-visit time but not visits today.
