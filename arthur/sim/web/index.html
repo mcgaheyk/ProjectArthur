@@ -95,6 +95,22 @@
           </div>
         </div>
 
+        <div class="card" id="card-show">
+          <h2>Idle show</h2>
+          <label class="switch"><input type="checkbox" id="idle-show"> <span>Idle show</span></label>
+          <p class="muted small" id="idle-show-note"></p>
+          <h3 class="sub">Sample weather</h3>
+          <label class="check-field"><input type="checkbox" id="wx-reading"> A reading (off: the page shows the date alone)</label>
+          <div class="grid2" id="wx-fields">
+            <label class="field">Condition <select id="wx-code"></select></label>
+            <label class="field">Sky
+              <select id="wx-day"><option value="1">Day</option><option value="0">Night</option></select>
+            </label>
+            <label class="field">Temperature (°F) <input type="number" id="wx-temp" step="1"></label>
+          </div>
+          <p class="muted small">Not in fixture mode: a fixture plays with its own weather.</p>
+        </div>
+
         <div class="card" id="card-feeder">
           <h2>Feeder</h2>
           <label class="switch"><input type="checkbox" id="feeder-alive"> <span>Feeder alive</span></label>

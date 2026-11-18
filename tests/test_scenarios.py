@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -79,6 +80,40 @@ def test_visit_timings_are_real_shaped(name):
     snap, health, now = sc.at(labels["waiting"] - 1)
     s = to_display_state(snap, health, now, CFG)
     assert (s.kind, s.since) == ("in_use", sc.start + timedelta(seconds=labels["in_use"]))
+
+
+SHOW_CFG = replace(CFG, idle=replace(CFG.idle, page_pct=30, scene_pct=20))
+
+
+def test_idle_hour_starts_rounds_on_the_home_page_in_daytime():
+    sc = SCENARIOS["idle_hour"]
+    assert sc.duration_s == 3600 and sc.start.minute == sc.start.second == 0
+    assert 7 <= CFG.local(sc.start).hour < 21  # not in quiet hours for the whole hour
+    cues = {}
+    for t in range(360):
+        snap, health, now = sc.at(t)
+        s = to_display_state(snap, health, now, SHOW_CFG)
+        assert s.kind == "ready"
+        if s.cue is not None:
+            cues.setdefault((s.cue.kind, s.cue.at), t)
+    starts = sorted((t, kind) for (kind, _), t in cues.items())
+    assert starts == [(45, "page"), (144, "scene"), (225, "page"), (324, "scene")]
+    # The repository's config plays no show.
+    snap, health, now = sc.at(150)
+    assert to_display_state(snap, health, now, CFG).cue is None
+
+
+def test_a_visit_cuts_into_a_scene_at_once():
+    sc = SCENARIOS["visit_mid_scene"]
+    in_at = next(s.at_s for s in sc.steps if s.label == "in_use")
+    snap, health, now = sc.at(in_at - 0.125)
+    s = to_display_state(snap, health, now, SHOW_CFG)
+    assert s.kind == "ready" and s.cue.kind == "scene"
+    assert 0 < (now - s.cue.at).total_seconds() < s.cue.length_s - 5
+    snap, health, now = sc.at(in_at)
+    s = to_display_state(snap, health, now, SHOW_CFG)
+    assert s.kind == "in_use" and s.cue is None
+    assert kinds_over_time("visit_mid_scene", step_s=1) == ["ready", "in_use", "waiting"]
 
 
 def test_every_scenario_renders_each_second():

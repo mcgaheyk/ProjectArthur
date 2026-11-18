@@ -208,12 +208,15 @@ async def test_gallery_tiles_play_their_loop(client):
     (in_use,) = rows["in_use"]["tiles"]["52x16"]
     assert len(set(in_use["seq"])) > 2
 
-    # Frame k of every tile is the fixture rendered k seconds after its own time.
+    # Frame k of every tile is the fixture played k steps of 1/fps (one second, unless the
+    # fixture has its own fps) from its start.
     for row in rows.values():
         for t in row["tiles"]["52x16"]:
+            fps = t["fps"]
+            assert fps == pipe.fixture_fps(row["fixture"])
             for k, f in enumerate(tile_frames(t)):
-                assert f == pipe.fixture_frame(row["fixture"], (52, 16), t["variant"], k), (
-                    row["fixture"], t["variant"], k)
+                assert f == pipe.fixture_frame(row["fixture"], (52, 16), t["variant"],
+                                               k / fps), (row["fixture"], t["variant"], k)
 
 
 async def test_gallery_stale_border_on_every_frame(client):

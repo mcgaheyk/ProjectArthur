@@ -28,12 +28,14 @@ ROOT = Path(arthur.__file__).resolve().parent
 
 #: Seconds of a fixture the studio plays on a loop: the gallery tiles render this many
 #: one-second frames after the fixture's own time, and "fixture" mode on the live clock feeds
-#: the fixture's time plus (seconds since it was selected, modulo this).
+#: the fixture's time plus (seconds since it was selected, modulo this). A fixture with its
+#: own ``fps`` (the idle show's) plays at that rate over its own ``loop_s`` instead.
 LOOP_S = 30
 
-#: Watched source modules, imported in this order. ``arthur.schedule`` has no slot on
-#: :class:`Pipeline`; it is reloaded so that the fresh ``arthur.mapping`` imports the fresh one.
+#: Watched source modules, imported in this order. ``arthur.timebase`` and ``arthur.schedule``
+#: are reloaded so that the fresh mapping and renderer import the fresh ones.
 MODULES = (
+    "arthur.timebase",
     "arthur.model",
     "arthur.schedule",
     "arthur.mapping",
@@ -42,7 +44,7 @@ MODULES = (
 )
 
 #: Package attributes that point at reloadable modules (``arthur.<name>``).
-_PACKAGE_ATTRS = ("model", "schedule", "mapping", "fixtures", "render")
+_PACKAGE_ATTRS = ("timebase", "model", "schedule", "mapping", "fixtures", "render")
 
 
 def _is_reloadable(name: str) -> bool:
@@ -56,6 +58,7 @@ def watched_files(config_path: Path) -> list[Path]:
         ROOT / "mapping.py",
         ROOT / "model.py",
         ROOT / "schedule.py",
+        ROOT / "timebase.py",
         ROOT / "fixtures.py",
     ]
     render_dir = ROOT / "render"
@@ -90,14 +93,21 @@ class Pipeline:
     fixtures: ModuleType
     render_mod: ModuleType
     version: int = 1
+    #: ``arthur.schedule`` and ``arthur.timebase`` of the same import, for the studio's
+    #: account of where the idle show is.
+    schedule: ModuleType | None = None
+    timebase: ModuleType | None = None
 
     # --- the pipeline ---------------------------------------------------------------
 
-    def state(self, snapshot: Any, health: Any, now: Any) -> Any:
-        return self.mapping.to_display_state(snapshot, health, now, self.cfg)
+    def state(self, snapshot: Any, health: Any, now: Any, *, cfg: Config | None = None,
+              weather: Any = None) -> Any:
+        return self.mapping.to_display_state(snapshot, health, now, cfg or self.cfg,
+                                             weather=weather)
 
-    def render(self, state: Any, now: Any, size: tuple[int, int], variant: str | None) -> Any:
-        return self.render_mod.render(state, now, self.cfg, size, variant)
+    def render(self, state: Any, now: Any, size: tuple[int, int], variant: str | None,
+               cfg: Config | None = None) -> Any:
+        return self.render_mod.render(state, now, cfg or self.cfg, size, variant)
 
     def overlay_stale(self, frame: Any) -> Any:
         return self.render_mod.overlay_stale(frame, self.cfg.rgb("stale"))
@@ -117,31 +127,56 @@ class Pipeline:
             return wanted  # type: ignore[return-value]
         return names[0] if names else "default"
 
+    def fixture(self, name: str) -> Any:
+        return self.fixtures.FIXTURES[name]
+
+    def fixture_state(self, name: str) -> Any:
+        """The fixture mapped once, at its own time, with its weather and pinned cue
+        (``Fixture.display_state``). Players hold it while the clock runs: a fixture shows
+        one state, so a short-lived one (just cleaned) keeps its tile."""
+        return self.fixture(name).display_state(self.cfg)
+
+    def fixture_fps(self, name: str) -> int:
+        """Frames a second the fixture plays at: its own ``fps``, else one."""
+        return int(self.fixture(name).fps or 1)
+
+    def fixture_loop_s(self, name: str) -> float:
+        """Seconds in one loop of the fixture: its own ``loop_s`` when it has an ``fps``,
+        else :data:`LOOP_S`."""
+        fx = self.fixture(name)
+        return float(fx.loop_s) if (fx.fps and fx.loop_s) else float(LOOP_S)
+
     def fixture_frame(
         self, name: str, size: tuple[int, int], variant: str | None, offset_s: float = 0
     ) -> Any:
-        from datetime import timedelta
-
-        fx = self.fixtures.FIXTURES[name]
-        now = fx.now + timedelta(seconds=offset_s)
-        # The state is mapped once, at the fixture's own time, and held while the clock runs:
-        # a fixture shows one state, so a short-lived one (just cleaned) keeps its tile.
-        st = self.state(fx.snapshot, fx.health, fx.now)
-        return self.render(st, now, size, variant)
+        """The fixture ``offset_s`` seconds into playing it (``Fixture.time_at``)."""
+        fx = self.fixture(name)
+        return self.render(self.fixture_state(name), fx.time_at(offset_s), size, variant)
 
     def fixture_loop(
         self, name: str, size: tuple[int, int], variant: str | None, stale: bool = False
     ) -> list[Any]:
-        """The fixture's frames at 0, 1, ... ``LOOP_S - 1`` seconds, cut to its loop.
+        """The fixture's frames over one loop, one every ``1 / fixture_fps`` seconds.
 
+        An ordinary fixture: its frames at 0, 1, ... ``LOOP_S - 1`` seconds, cut to its loop.
         The result is the shortest prefix that the window repeats, so a still screen is one
         frame and a 2 s loop two. A period is only trusted when the window shows it at least
         twice (at most ``LOOP_S // 2``); anything else is the whole window, which wraps.
+
+        A fixture with its own ``fps`` (the idle show's): every frame of its loop, uncut (a
+        36 s scene at 8 a second is 288 frames); the slot is the loop.
+
         ``stale`` puts the stale border on every frame.
         """
-        frames = [self.fixture_frame(name, size, variant, k) for k in range(LOOP_S)]
+        fx = self.fixture(name)
+        st = self.fixture_state(name)
+        fps = self.fixture_fps(name)
+        n = round(self.fixture_loop_s(name) * fps)
+        frames = [self.render(st, fx.time_at(k / fps), size, variant) for k in range(n)]
         if stale:
             frames = [self.overlay_stale(f) for f in frames]
+        if fx.fps:
+            return frames
         keys = [f.to_rgb888() for f in frames]
         for period in range(1, LOOP_S // 2 + 1):
             if all(keys[i] == keys[i - period] for i in range(period, LOOP_S)):
@@ -151,11 +186,16 @@ class Pipeline:
     def validate(self) -> None:
         """Render every fixture in every variant; raise on the first failure."""
         for name, fx in self.fixtures.FIXTURES.items():
+            # A fixture with its own loop is also drawn halfway through it (a scene's body).
+            times = [fx.time_at(0)]
+            if fx.fps and fx.loop_s:
+                times.append(fx.time_at(fx.loop_s / 2))
             for size in self.sizes():
-                st = self.state(fx.snapshot, fx.health, fx.now)
+                st = self.fixture_state(name)
                 for v in self.variants(st.kind, size) or [None]:
                     try:
-                        self.render(st, fx.now, size, v)
+                        for t in times:
+                            self.render(st, t, size, v)
                     except Exception as exc:
                         raise RuntimeError(
                             f"rendering fixture {name!r} at {size_key(size)} variant {v!r} "
@@ -172,7 +212,8 @@ class Pipeline:
             size_key(s): {k: self.variants(k, s) for k in kinds} for s in self.sizes()
         }
         fixtures = [
-            {"name": f.name, "kind": f.kind, "description": f.description}
+            {"name": f.name, "kind": f.kind, "description": f.description,
+             "fps": self.fixture_fps(f.name), "loop_s": self.fixture_loop_s(f.name)}
             for f in self.fixtures.FIXTURES.values()
         ]
         scenarios = [
@@ -219,6 +260,8 @@ def load_pipeline(config_path: Path | None = None, version: int = 1) -> Pipeline
         fixtures=importlib.import_module("arthur.fixtures"),
         render_mod=importlib.import_module("arthur.render"),
         version=version,
+        schedule=importlib.import_module("arthur.schedule"),
+        timebase=importlib.import_module("arthur.timebase"),
     )
     p.validate()
     return p
@@ -244,6 +287,8 @@ def fresh_pipeline(config_path: Path | None, version: int) -> Pipeline:
             fixtures=mods["arthur.fixtures"],
             render_mod=mods["arthur.render"],
             version=version,
+            schedule=mods["arthur.schedule"],
+            timebase=mods["arthur.timebase"],
         )
         p.validate()
         return p

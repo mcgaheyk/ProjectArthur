@@ -6,7 +6,9 @@ It runs the real pipeline end to end. The source is one of:
   clock (``start + t``) with play/pause, seek and speed;
 - ``fixture``: one named fixture, played on a loop: the time is the fixture's ``now`` plus
   the whole seconds since it was selected, modulo :data:`~arthur.sim.pipeline.LOOP_S`, so
-  blinks, glances and timers play as in the gallery. Selecting a fixture restarts its loop;
+  blinks, glances and timers play as in the gallery. A fixture with its own ``fps`` (the idle
+  show's) steps at that rate over its own ``loop_s`` (``Fixture.time_at``). Selecting a
+  fixture restarts its loop. A fixture plays with its own weather and cue;
 - ``manual``: a snapshot built from hand-set fields at the real current time;
 - ``log``: the spike's logs of the real robot (:mod:`arthur.sources.logfile`), either
   *followed* live at the real current time, or one recorded visit *replayed* on its own
@@ -17,6 +19,13 @@ It renders a 52x16 frame and pushes it over HTTP through the real
 heartbeat is due, with ``lifetimeMs`` = ttl. Switched "dead", it stops pushing, so the clock's
 own stale mark appears once the lifetime runs out. The fake clock's lifetime runs on real time.
 
+In every mode but ``fixture``, mapping gets a sample :class:`~arthur.model.Weather` set in the
+studio (condition, day or night, temperature, or no reading at all), dated ten minutes before
+the source's time so it is always fresh. The **idle show** switch (off by default) maps and
+renders with the intended shares (:data:`SHOW_SHARES`) in memory instead of the config's, so
+scenario, manual and log modes play the real rotation; ``config/display.toml`` is never
+written.
+
 Variants, push bookkeeping and frames are keyed by the size string ("52x16"), which has one
 entry; the control API takes variants as ``{"52x16": {kind: variant}}``.
 """
@@ -25,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import math
 import time
 from collections import deque
 from collections.abc import Callable
@@ -45,6 +55,7 @@ from arthur.sources.logfile import (
     is_fresh,
     replay_view,
 )
+from arthur.timebase import until_next_tick
 from arthur.transports.awtrix_ng import AwtrixNgTransport
 from arthur.transports.base import TransportError
 
@@ -87,6 +98,31 @@ WAIT_MINUTES_RANGE = (1, 60)
 _VISIT_STATUSES = frozenset({"CAT_DETECTED", "CAT_SENSOR_TIMING"})
 _FAULT_CODES = {"PINCH_DETECT": "PD", "OVER_TORQUE_FAULT": "OTF", "CAT_SENSOR_FAULT": "CSF",
                 "UNKNOWN": "UNK"}
+
+#: The idle show's intended shares of a round (D-0019), which the studio's switch applies in
+#: memory while the repository config keeps them at 0.
+SHOW_SHARES: dict[str, float] = {"page_pct": 30, "scene_pct": 20}
+#: The sample weather's conditions: WMO weather codes, as Open-Meteo reports them.
+WEATHER_CODES: tuple[tuple[int, str], ...] = (
+    (0, "clear"),
+    (2, "partly cloudy"),
+    (3, "overcast"),
+    (45, "fog"),
+    (63, "rain"),
+    (73, "snow"),
+    (95, "thunder"),
+)
+#: The sample weather's temperature range, Fahrenheit.
+WEATHER_TEMP_RANGE = (-40, 120)
+#: How old the sample reading is at the source's time: well inside ``max_age_s``.
+WEATHER_AGE_S = 600.0
+#: The sample weather when the fixtures carry none; else ``fixtures.SAMPLE_WEATHER`` wins.
+WEATHER_DEFAULTS: dict[str, Any] = {"reading": True, "code": 3, "is_day": True, "temp_f": 41.0}
+WEATHER_KEYS = tuple(WEATHER_DEFAULTS)
+#: The day's high and low are the temperature plus and minus this (the sample's 47 and 35
+#: around 41).
+WEATHER_SPREAD_F = 6.0
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 class ControlError(ValueError):
@@ -131,6 +167,11 @@ class StudioFeeder:
         self._pos = 0.0
         self._anchor = time_fn()
         self._fixture_t0 = time_fn()
+        self._fixture_phase = 0.0  # seconds from selection to the feeder's next beat
+
+        self.idle_show = False
+        self.weather: dict[str, Any] = _sample_weather(p.fixtures)
+        self.last_state: Any = None  # the DisplayState of the last compute()
 
         self.manual: dict[str, Any] = dict(MANUAL_DEFAULTS)
         now = wall_fn()
@@ -191,9 +232,35 @@ class StudioFeeder:
                 self._pos = dur
         return max(0.0, pos)
 
-    def fixture_position(self) -> int:
-        """Whole seconds into the fixture's loop (0 .. LOOP_S - 1)."""
-        return int(max(0.0, self.time_fn() - self._fixture_t0)) % LOOP_S
+    def _fixture_obj(self) -> Any:
+        fxs = self.pipe.current.fixtures.FIXTURES
+        if self.fixture not in fxs:
+            self.fixture = next(iter(fxs))
+        return fxs[self.fixture]
+
+    def fixture_position(self) -> float:
+        """Seconds into the fixture's loop.
+
+        An ordinary fixture: whole seconds, 0 .. LOOP_S - 1. A fixture with its own ``fps``:
+        whole frames of ``1 / fps`` over its own loop. Frame ``k`` starts half a frame before
+        the feeder's ``k``-th beat after the selection, so a tick on the beat (give or take a
+        few milliseconds) gets each frame exactly once.
+        """
+        p = self.pipe.current
+        name = self._fixture_obj().name
+        elapsed = max(0.0, self.time_fn() - self._fixture_t0)
+        fps = p.fixture_fps(name)
+        if fps == 1 and not p.fixture(name).fps:
+            return int(elapsed) % LOOP_S
+        n = max(1, round(p.fixture_loop_s(name) * fps))
+        k = max(0, math.floor((elapsed - self._fixture_phase) * fps + 0.5))
+        return (k % n) / fps
+
+    def _select_fixture(self) -> None:
+        """Start the fixture's loop over, lined up with the feeder's beat."""
+        self._fixture_t0 = self.time_fn()
+        fps = self.pipe.current.fixture_fps(self._fixture_obj().name)
+        self._fixture_phase = until_next_tick(self.wall_fn(), fps)
 
     def _freeze(self) -> None:
         self._pos = self.position()
@@ -207,7 +274,7 @@ class StudioFeeder:
             raise ControlError("control body must be a JSON object")
         p = self.pipe.current
         known = {"mode", "fixture", "scenario", "speed", "position", "playing", "manual",
-                 "variants", "feeder_alive", "fast_expiry", "log"}
+                 "variants", "feeder_alive", "fast_expiry", "log", "idle_show", "weather"}
         unknown = set(ctl) - known
         if unknown:
             raise ControlError(f"unknown control field(s): {', '.join(sorted(unknown))}")
@@ -223,23 +290,29 @@ class StudioFeeder:
             isinstance(ctl["position"], (int, float)) and not isinstance(ctl["position"], bool)
         ):
             raise ControlError("position must be a number of seconds")
-        for k in ("playing", "feeder_alive", "fast_expiry"):
+        for k in ("playing", "feeder_alive", "fast_expiry", "idle_show"):
             if k in ctl and not isinstance(ctl[k], bool):
                 raise ControlError(f"{k} must be true or false")
         manual = self._check_manual(ctl.get("manual"))
         variants = self._check_variants(ctl.get("variants"))
         log_ctl = self._check_log(ctl.get("log"))
+        weather = _check_weather(ctl.get("weather"))
 
         # Apply.
+        if "fixture" in ctl:
+            self.fixture = ctl["fixture"]
         if "mode" in ctl and ctl["mode"] != self.mode:
             self.mode = ctl["mode"]
-            self._fixture_t0 = self.time_fn()
+            self._select_fixture()
         if "scenario" in ctl and ctl["scenario"] != self.scenario:
             self.scenario = ctl["scenario"]
             self._pos, self._anchor = 0.0, self.time_fn()
         if "fixture" in ctl:
-            self.fixture = ctl["fixture"]
-            self._fixture_t0 = self.time_fn()
+            self._select_fixture()
+        if "idle_show" in ctl:
+            self.idle_show = ctl["idle_show"]
+        if weather:
+            self.weather.update(weather)
         if "speed" in ctl:
             self._freeze()
             self.speed = ctl["speed"]
@@ -515,7 +588,6 @@ class StudioFeeder:
 
     def source(self) -> tuple[Any, Any, datetime, str]:
         """``(snapshot, health, now, label)`` for the current mode."""
-        p = self.pipe.current
         if self.mode == "scenario":
             sc = self._scenario_obj()
             t = self.position()
@@ -524,13 +596,61 @@ class StudioFeeder:
         if self.mode == "log":
             return self._log_source()
         if self.mode == "fixture":
-            fxs = p.fixtures.FIXTURES
-            if self.fixture not in fxs:
-                self.fixture = next(iter(fxs))
-            fx = fxs[self.fixture]
-            return (fx.snapshot, fx.health,
-                    fx.now + timedelta(seconds=self.fixture_position()), fx.name)
+            fx = self._fixture_obj()
+            return fx.snapshot, fx.health, fx.time_at(self.fixture_position()), fx.name
         return (*self._manual_source(), "manual")
+
+    def show_cfg(self) -> Any:
+        """The config to map and render with: the config file's, or with the switch on, the
+        same with the idle show's intended shares (in memory only)."""
+        cfg = self.pipe.current.cfg
+        if not self.idle_show:
+            return cfg
+        return dataclasses.replace(cfg, idle=dataclasses.replace(cfg.idle, **SHOW_SHARES))
+
+    def sample_weather(self, now: datetime) -> Any:
+        """The studio's sample reading, fetched :data:`WEATHER_AGE_S` before ``now``; None for
+        "no reading"."""
+        w = self.weather
+        if not w["reading"]:
+            return None
+        t = float(w["temp_f"])
+        return self.pipe.current.model.Weather(
+            temp_f=t, code=int(w["code"]), is_day=bool(w["is_day"]),
+            high_f=t + WEATHER_SPREAD_F, low_f=t - WEATHER_SPREAD_F,
+            fetched_at=now - timedelta(seconds=WEATHER_AGE_S))
+
+    def show_part(self, state: Any, now: datetime, cfg: Any) -> dict[str, Any] | None:
+        """Where idle's show is at ``now``: ``home``, ``page`` or ``scene``, with the page or
+        scene's name, the part of its slot (``glance``, ``open``, ``body`` ...) and the
+        seconds left in it. On home, the seconds to the next page or scene slot of the round
+        (which may not play: too soon after idle began, or a scene at night). None when the
+        state is not ready."""
+        if state.kind != "ready":
+            return None
+        p = self.pipe.current
+        cue = getattr(state, "cue", None)
+        if cue is None:
+            out: dict[str, Any] = {"part": "home", "name": None, "phase": None, "left_s": None}
+            if p.schedule is None:
+                return out
+            r, slots = p.schedule.slots(cfg)
+            if r <= 0 or not slots:
+                return out
+            pos = (now - _EPOCH).total_seconds() % r
+            starts = sorted(start for _, start, _ in slots)
+            nxt = next((s for s in starts if s > pos), starts[0] + r)
+            out.update(left_s=nxt - pos, next=next(k for k, s, _ in slots if s == nxt % r))
+            return out
+        show = p.render_mod.idle_show
+        if cue.kind == "scene":
+            name = show.scene_name(cue)
+        else:
+            name = cue.name or show.DEFAULT_PAGE
+        k = p.timebase.frames_since(cue.at, now) if p.timebase else 0
+        left = (cue.at - now).total_seconds() + float(cue.length_s)
+        return {"part": cue.kind, "name": name, "phase": show.part_of(cue, k),
+                "left_s": max(0.0, left)}
 
     def _manual_source(self) -> tuple[Any, Any, datetime]:
         p = self.pipe.current
@@ -572,20 +692,32 @@ class StudioFeeder:
         """Map and render the current source."""
         p = self.pipe.current
         snap, health, now, label = self.source()
-        # A fixture is one state: map it at the fixture's own time and let only the render
-        # clock run, as the gallery does, so a short-lived state does not turn into the next.
-        fx = p.fixtures.FIXTURES.get(self.fixture) if self.mode == "fixture" else None
-        state = p.state(snap, health, fx.now if fx is not None else now)
+        if self.mode == "fixture":
+            # A fixture is one state: mapped at its own time with its own weather and cue,
+            # and only the render clock runs, as in the gallery, so a short-lived state does
+            # not turn into the next.
+            cfg = p.cfg
+            state = p.fixture_state(self.fixture)
+        else:
+            cfg = self.show_cfg()
+            state = p.state(snap, health, now, cfg=cfg, weather=self.sample_weather(now))
+        self.last_state = state
         frames = {}
         for size in p.sizes():
             sk = size_key(size)
             variant = p.resolve_variant(state.kind, size, self.variants.get(sk, {}).get(state.kind))
-            frames[sk] = {"frame": p.render(state, now, size, variant), "variant": variant}
+            frames[sk] = {"frame": p.render(state, now, size, variant, cfg), "variant": variant}
+        try:
+            show = self.show_part(state, now, cfg)
+        except Exception as exc:  # noqa: BLE001 - an account of the show never stops a frame
+            show = {"part": "?", "name": None, "phase": None, "left_s": None,
+                    "error": f"{exc.__class__.__name__}: {exc}"}
         return {
             "kind": state.kind,
             "detail": state.detail,
             "sim_time": now.isoformat(),
             "label": label,
+            "show": show,
             "frames": frames,
         }
 
@@ -670,11 +802,18 @@ class StudioFeeder:
             }
         showing = {k: v for k, v in self.showing.items() if k != "frames"}
         showing["variants"] = {sk: f["variant"] for sk, f in self.showing.get("frames", {}).items()}
+        p = self.pipe.current
+        idle = p.cfg.idle
         return {
             "mode": self.mode,
             "fixture": self.fixture,
             "fixture_position": self.fixture_position(),
-            "loop_s": LOOP_S,
+            "loop_s": p.fixture_loop_s(self._fixture_obj().name),
+            "fixture_fps": p.fixture_fps(self._fixture_obj().name),
+            "idle_show": self.idle_show,
+            "idle_show_shares": dict(SHOW_SHARES),
+            "config_shares": {"page_pct": idle.page_pct, "scene_pct": idle.scene_pct},
+            "weather": dict(self.weather),
             "scenario": self.scenario,
             "playing": self.playing,
             "speed": self.speed,
@@ -693,6 +832,42 @@ class StudioFeeder:
             "errors": list(self.errors)[-10:],
             "log": self._log_block(),
         }
+
+
+def _sample_weather(fixtures: Any) -> dict[str, Any]:
+    """The weather control's starting values: the show fixtures' sample reading if the
+    fixtures module has one, else :data:`WEATHER_DEFAULTS`."""
+    out = dict(WEATHER_DEFAULTS)
+    w = getattr(fixtures, "SAMPLE_WEATHER", None)
+    if w is not None:
+        out.update(code=int(w.code), is_day=bool(w.is_day), temp_f=float(w.temp_f))
+    return out
+
+
+def _check_weather(w: Any) -> dict[str, Any]:
+    if w is None:
+        return {}
+    if not isinstance(w, dict):
+        raise ControlError("weather must be an object")
+    unknown = set(w) - set(WEATHER_KEYS)
+    if unknown:
+        raise ControlError(f"unknown weather field(s): {', '.join(sorted(unknown))}")
+    out: dict[str, Any] = {}
+    for k, v in w.items():
+        if k == "code":
+            codes = tuple(c for c, _ in WEATHER_CODES)
+            if isinstance(v, bool) or v not in codes:
+                raise ControlError(f"weather code must be one of {codes}")
+            v = int(v)
+        elif k == "temp_f":
+            lo, hi = WEATHER_TEMP_RANGE
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
+                raise ControlError(f"weather temp_f must be a number from {lo} to {hi}")
+            v = float(v)
+        elif not isinstance(v, bool):
+            raise ControlError(f"weather {k} must be true or false")
+        out[k] = v
+    return out
 
 
 def _rebuild(obj: Any, cls: Any) -> Any:

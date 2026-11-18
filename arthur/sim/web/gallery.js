@@ -17,7 +17,9 @@ function el(tag, attrs = {}, ...children) {
 }
 
 // A tile's frames arrive once each as base64 RGB888 ("frames"), with "seq" naming the frame
-// to show at each second of its loop. Returns one array of 0xRRGGBB ints per second.
+// to show at each step of its loop; a step is 1/fps seconds ("fps" on the tile, 1 for most,
+// 8 for the idle show's). Returns one array of 0xRRGGBB ints per step; steps that repeat a
+// frame share the same array.
 function decodeLoop(t) {
   const distinct = (t.frames || []).map((b64) => {
     const bin = atob(b64);
@@ -31,8 +33,9 @@ function decodeLoop(t) {
 }
 
 export function initGallery({ control, toast }) {
-  let tiles = []; // { matrix, frames, fixture, size, variant, kind, node }
-  let second = 0; // seconds since the gallery was drawn; every tile shows frame second % length
+  let tiles = []; // { matrix, frames, fps, shown, fixture, size, variant, kind, node }
+  // When the gallery was drawn; a tile shows step floor(elapsed * fps) % length.
+  let started = performance.now();
   let loadedKey = null;
   let loading = false;
   let selected = null; // { fixture, size, variant }
@@ -64,7 +67,7 @@ export function initGallery({ control, toast }) {
     const host = $("gallery");
     host.textContent = "";
     tiles = [];
-    second = 0;
+    started = performance.now();
     const pitch = pitchFor();
     for (const row of data.rows || []) {
       const r = el("div", { class: "grow" },
@@ -94,11 +97,13 @@ export function initGallery({ control, toast }) {
           // is the real screen, and the alternatives can look like it for seconds at a time.
           const several = ((row.tiles && row.tiles[size]) || []).length > 1;
           const role = !several ? "" : t.default ? " · on the clock" : " · alternative";
+          const fps = t.fps || 1;
+          const animates = frames.length > 1 && (t.frames || []).length > 1;
           const cap = el("figcaption", {}, el("em", { text: t.variant }), role,
-            frames.length > 1 ? " · animates" : "");
+            animates ? (fps > 1 ? ` · ${fps} fps, ${Math.round(frames.length / fps)} s` : " · animates") : "");
           if (several && t.default) fig.classList.add("on-clock");
           fig.append(cap);
-          const info = { matrix, frames, fixture: row.fixture, size, variant: t.variant, kind: row.kind, node: fig };
+          const info = { matrix, frames, fps, shown: frames[0], fixture: row.fixture, size, variant: t.variant, kind: row.kind, node: fig };
           const send = () => pick(info);
           fig.addEventListener("click", send);
           fig.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); send(); } });
@@ -128,10 +133,16 @@ export function initGallery({ control, toast }) {
     }
   }
 
+  // Every tile on one clock; a tile is redrawn only when its frame changes.
   function step() {
-    second += 1;
+    const elapsed = (performance.now() - started) / 1000;
     for (const t of tiles) {
-      if (t.matrix && t.frames.length > 1) t.matrix.setPixels(t.frames[second % t.frames.length]);
+      if (!t.matrix || t.frames.length < 2) continue;
+      const f = t.frames[Math.floor(elapsed * t.fps) % t.frames.length];
+      if (f !== t.shown) {
+        t.shown = f;
+        t.matrix.setPixels(f);
+      }
     }
   }
 
@@ -140,9 +151,11 @@ export function initGallery({ control, toast }) {
   }
 
   $("gallery-stale").addEventListener("change", () => load(true));
-  setInterval(() => {
+  function frame() {
     if (!$("tab-gallery").hidden) step();
-  }, 1000);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
 
   return {
     load,

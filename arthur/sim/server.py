@@ -21,7 +21,8 @@ Studio
   GET  /static/{path}         page scripts and styles
   GET  /studio/meta           kinds, sizes, variants, fixtures, scenarios, palette, timings
   GET  /studio/gallery        every fixture x variant, each a loop of up to LOOP_S one-second
-                              frames (?stale=1 overlays the border on every frame)
+                              frames, or for a show fixture its whole slot at its own fps
+                              (?stale=1 overlays the border on every frame)
   GET  /studio/state          what is showing, feeder pushes and errors, the clock's lifetime
   POST /studio/control        change the source, playback, variants, feeder switches, and the
                               robot log ({"mode": "log", "log": {"sub_mode": "follow"|"replay",
@@ -60,8 +61,11 @@ from arthur.sim.feeder import (
     MANUAL_DEFAULTS,
     MODES,
     POWER_TYPES,
+    SHOW_SHARES,
     SPEEDS,
     WAIT_MINUTES_RANGE,
+    WEATHER_CODES,
+    WEATHER_TEMP_RANGE,
     ControlError,
     StudioFeeder,
 )
@@ -144,6 +148,13 @@ async def h_pushed(request: web.Request) -> web.Response:
         clock.push(name, raw, ctype)
     except ClockError as err:
         return _clock_error(err)
+    # Straight to the page, so a feeder outside the studio pushing 8 frames a second shows
+    # evenly instead of on the 0.25 s poll. Only changed pixels go; the studio's own feeder
+    # broadcasts again after its tick and finds nothing new. Never fails the push.
+    try:
+        await broadcast(request.app)
+    except Exception:
+        log.exception("broadcast after a push failed")
     return _json({"ok": True}, headers=CORS)
 
 
@@ -293,6 +304,9 @@ def _meta(app: web.Application) -> dict[str, Any]:
         power_types=list(POWER_TYPES),
         wait_minutes_range=list(WAIT_MINUTES_RANGE),
         log_sub_modes=list(LOG_SUB_MODES),
+        idle_show_shares=dict(SHOW_SHARES),
+        weather_codes=[[c, label] for c, label in WEATHER_CODES],
+        weather_temp_range=list(WEATHER_TEMP_RANGE),
         reload_error=pipe.error,
     )
     return meta
@@ -304,7 +318,10 @@ async def h_meta(request: web.Request) -> web.Response:
 
 def _encode_loop(frames: list[Any]) -> dict[str, Any]:
     """A tile's loop, compactly: each distinct frame once as base64 RGB888 (as the transport
-    sends it), and ``seq``, the index of the frame to show at each second of the loop."""
+    sends it), and ``seq``, the index of the frame to show at each step of the loop (a step
+    is ``1 / fps`` seconds, ``fps`` on the tile). A 36 s scene at 8 a second is 288 steps
+    over about 90 distinct frames: about 290 kB of JSON, under 3 kB gzipped, since
+    neighbouring frames differ in a few pixels."""
     distinct: dict[bytes, int] = {}
     seq = [distinct.setdefault(f.to_rgb888(), len(distinct)) for f in frames]
     return {"frames": [base64.b64encode(b).decode("ascii") for b in distinct], "seq": seq}
@@ -320,7 +337,8 @@ def build_gallery(app: web.Application, stale: bool) -> dict[str, Any]:
     for fx in pipe.fixtures.FIXTURES.values():
         tiles: dict[str, list[dict[str, Any]]] = {}
         try:
-            kind = pipe.state(fx.snapshot, fx.health, fx.now).kind
+            kind = pipe.fixture_state(fx.name).kind
+            fps = pipe.fixture_fps(fx.name)
         except Exception as exc:  # noqa: BLE001 - show the error in the page
             rows.append({"fixture": fx.name, "kind": fx.kind, "description": fx.description,
                          "error": f"{exc.__class__.__name__}: {exc}", "tiles": {}})
@@ -330,7 +348,7 @@ def build_gallery(app: web.Application, stale: bool) -> dict[str, Any]:
             out = []
             names = pipe.variants(kind, size)
             for i, v in enumerate(names):
-                tile: dict[str, Any] = {"variant": v, "default": i == 0}
+                tile: dict[str, Any] = {"variant": v, "default": i == 0, "fps": fps}
                 try:
                     tile.update(_encode_loop(pipe.fixture_loop(fx.name, size, v, stale)))
                 except Exception as exc:  # noqa: BLE001 - show the error on the tile

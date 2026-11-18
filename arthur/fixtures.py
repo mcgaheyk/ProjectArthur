@@ -400,6 +400,59 @@ def _no_weight() -> Scenario:
     )
 
 
+#: Where the idle-show scenarios start: 10:00 in Boston (EST), a whole hour, so a round of the
+#: show begins on the home page (rounds are anchored to the Unix epoch, arthur/schedule.py),
+#: and well outside quiet hours, so scenes play.
+SHOW_START = datetime(2026, 11, 15, 15, 0, 0, tzinfo=UTC)
+#: With the intended shares (180 s rounds, page 30 %, scene 20 %), each round's page slot
+#: begins this many seconds in, and its scene slot this many.
+SHOW_PAGE_AT_S = 45
+SHOW_SCENE_AT_S = 144
+
+
+def _show_base() -> RobotSnapshot:
+    """Idle since three hours before :data:`SHOW_START`, long past the show's settle time."""
+    return replace(BASE, status_since=SHOW_START - timedelta(hours=3),
+                   last_visit_at=SHOW_START - timedelta(hours=3, minutes=10),
+                   last_seen=SHOW_START)
+
+
+def _idle_hour() -> Scenario:
+    return Scenario(
+        "idle_hour",
+        "Idle for an hour from 10:00 Boston time. With the studio's Idle show switch on: "
+        "each 3-minute round is home, the weather page at 0:45, home, a scene at 2:24",
+        SHOW_START,
+        (Step(0, "ready", _show_base()),),
+        3600,
+    )
+
+
+def _visit_mid_scene() -> Scenario:
+    base = _show_base()
+    in_at = SHOW_SCENE_AT_S + 16  # 16 s into the first round's scene
+    in_use = replace(base, status="CAT_DETECTED", status_code="CD",
+                     status_since=SHOW_START + timedelta(seconds=in_at),
+                     previous_status="READY",
+                     visit_started_at=SHOW_START + timedelta(seconds=in_at),
+                     last_seen=SHOW_START + timedelta(seconds=in_at))
+    left = replace(in_use, cat_left_at=SHOW_START + timedelta(seconds=in_at + 60),
+                   pet_weight_lbs=10.6, last_visit_at=SHOW_START + timedelta(seconds=in_at),
+                   visits_today=4)
+    return Scenario(
+        "visit_mid_scene",
+        "Idle from 10:00 Boston time; with the Idle show switch on, a scene starts at 2:24 "
+        "and Arthur steps in 16 s into it: in use replaces the scene at once",
+        SHOW_START,
+        (
+            Step(0, "ready", base),
+            Step(in_at, "in_use", in_use),
+            Step(in_at + 60, "waiting", left),
+        ),
+        in_at + 120,
+    )
+
+
 SCENARIOS: dict[str, Scenario] = {
     s.name: s
     for s in (
@@ -415,5 +468,7 @@ SCENARIOS: dict[str, Scenario] = {
         _outage(),
         _sleep_wait(),
         _no_weight(),
+        _idle_hour(),
+        _visit_mid_scene(),
     )
 }

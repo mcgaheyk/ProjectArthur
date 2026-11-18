@@ -187,6 +187,7 @@ export function initLive({ control, getMeta }) {
 
     buildManual(meta);
     buildLog(meta);
+    buildShow(meta);
     $("feeder-alive").onchange = (e) => control({ feeder_alive: e.target.checked });
     $("fast-expiry").onchange = (e) => control({ fast_expiry: e.target.checked });
     buildVariants(meta);
@@ -354,6 +355,61 @@ export function initLive({ control, getMeta }) {
       : "";
   }
 
+  // --- idle show and sample weather -------------------------------------------------
+  function buildShow(meta) {
+    const sh = meta.idle_show_shares || {};
+    $("idle-show").onchange = (e) => control({ idle_show: e.target.checked });
+    $("idle-show").parentElement.querySelector("span").textContent =
+      `Idle show (page ${sh.page_pct ?? "?"} %, scene ${sh.scene_pct ?? "?"} %)`;
+    const code = $("wx-code");
+    code.textContent = "";
+    for (const [c, label] of meta.weather_codes || []) code.append(el("option", { value: c, text: `${label} (${c})` }));
+    code.onchange = () => control({ weather: { code: Number(code.value) } });
+    $("wx-day").onchange = (e) => control({ weather: { is_day: e.target.value === "1" } });
+    const temp = $("wx-temp");
+    const [lo, hi] = meta.weather_temp_range || [-40, 120];
+    temp.min = lo;
+    temp.max = hi;
+    temp.onchange = () => {
+      const v = Number(temp.value);
+      if (temp.value !== "" && isFinite(v) && v >= lo && v <= hi) control({ weather: { temp_f: v } });
+    };
+    $("wx-reading").onchange = (e) => control({ weather: { reading: e.target.checked } });
+  }
+
+  function showPartText(show, kind) {
+    if (!show) return kind ? `Not idle (${kind}): no show` : "";
+    if (show.error) return `Show: ${show.error}`;
+    const left = show.left_s == null ? "" : ` · ${Math.ceil(show.left_s)} s left`;
+    if (show.part === "home") {
+      return show.next
+        ? `Home page · next slot (${show.next}) in ${Math.ceil(show.left_s)} s`
+        : "Home page · no show slots";
+    }
+    return `${show.part[0].toUpperCase()}${show.part.slice(1)} "${show.name ?? "?"}"` +
+      (show.phase ? ` (${show.phase})` : "") + left;
+  }
+
+  function renderShow(st) {
+    const on = !!st.idle_show;
+    const box = $("idle-show");
+    if (idle(box)) box.checked = on;
+    const cs = st.config_shares || {};
+    $("idle-show-note").textContent = on
+      ? "Studio only: the shares apply in memory; config/display.toml is not written."
+      : `Off: the config's shares (page ${cs.page_pct} %, scene ${cs.scene_pct} %).`;
+    const w = st.weather || {};
+    const rd = $("wx-reading");
+    if (idle(rd)) rd.checked = !!w.reading;
+    $("wx-fields").setAttribute("aria-disabled", w.reading ? "false" : "true");
+    const code = $("wx-code");
+    if (idle(code) && w.code != null) code.value = String(w.code);
+    const day = $("wx-day");
+    if (idle(day)) day.value = w.is_day ? "1" : "0";
+    const temp = $("wx-temp");
+    if (idle(temp) && w.temp_f != null) temp.value = String(Math.round(w.temp_f));
+  }
+
   function buildVariants(meta) {
     const host = $("variant-pickers");
     host.textContent = "";
@@ -407,8 +463,13 @@ export function initLive({ control, getMeta }) {
     if (sh.kind) {
       showing.append("Mapped state ", el("b", { text: sh.kind }));
       if (sh.detail) showing.append(" ", el("span", { class: "chip", text: sh.detail }));
+      if (sh.kind === "ready" && sh.show) {
+        showing.append(el("div", { class: "small" }, el("b", { text: "Idle show " }),
+          showPartText(sh.show, sh.kind)));
+      }
       if (sh.sim_time) showing.append(el("div", { class: "muted small", text: `source time ${sh.sim_time.replace("T", " ").replace("+00:00", "Z")}` }));
     }
+    renderShow(st);
     if (st.mode === "log") {
       const raw = (st.log && st.log.raw) || null;
       const line = el("div", { class: "raw small" }, "Robot said ");
