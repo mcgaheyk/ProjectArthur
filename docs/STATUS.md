@@ -19,7 +19,7 @@ _Last updated: 2026-11-18, late morning._ Current state only. History belongs in
   border while the Mac sleeps. Its messages go to `logs/feeder-console.log`. Stop it with
   `pkill -f arthur.feeder`; start it with the command in CLAUDE.md. Never run a second copy,
   or `scripts/spike_log.py`, on the same account.
-- **Built and tested (2,374 tests):**
+- **Built and tested (2,388 tests):**
   - Feeder: `arthur/feeder.py` (the loop), `arthur/pusher.py` (when to push),
     `arthur/sources/whisker.py` (the one Whisker connection). On a login or API failure it
     shows NO DATA and retries; it reloads `config/display.toml` when the file changes; it
@@ -102,8 +102,10 @@ _Last updated: 2026-11-18, late morning._ Current state only. History belongs in
     curled up, breathing every 12 s with Zs, 10 screen changes a minute instead of 27.
   - The studio plays all of it: an Idle show switch, sample weather, and the `idle_hour` and
     `visit_mid_scene` scenarios, and `night_falls` and `morning` for the sleep transitions.
-    Fixtures `idle_page`, `idle_page_big`, `idle_rat`, `idle_rat_turned`, `idle_bird` and
-    `ready_asleep` pin one screen each (round 2 of the bird scene is its perched ending).
+    Fixtures `idle_page`, `idle_page_big`, `idle_rat`, `idle_rat_turned`, `idle_bird`,
+    `idle_bird_perched` and `ready_asleep` pin one screen each. In `idle_hour` the first
+    bird scene is at 2:24, the first rat at 5:24, the perched ending at 8:24 and the
+    tables-turned ending at 11:24.
   **Kyle has seen stills of the art and the weather page, not the studio, and nothing on
   LEDs. Every screen here is a first cut for him to react to.**
 - **The running feeder is older than this code.** It was started at 09:10 on 2026-11-18,

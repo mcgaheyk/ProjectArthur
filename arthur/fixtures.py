@@ -243,6 +243,9 @@ _LIST += [
           Cue(kind="scene", at=NOW, length_s=SCENE_SLOT_S, n=2, name="rat")),
     _show("idle_bird", "Idle show: the bird scene from the start of its 36 s slot",
           Cue(kind="scene", at=NOW, length_s=SCENE_SLOT_S, n=0, name="bird")),
+    # Round 2 is also the first round whose seeded pick gives the bird scene's other ending.
+    _show("idle_bird_perched", "Idle show: the bird scene where it perches on his head (round 2)",
+          Cue(kind="scene", at=NOW, length_s=SCENE_SLOT_S, n=2, name="bird")),
 ]
 
 FIXTURES: dict[str, Fixture] = {f.name: f for f in _LIST}
