@@ -7,6 +7,7 @@ import itertools
 import logging
 import os
 import shutil
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -14,9 +15,10 @@ import pytest
 from arthur import feeder as fd
 from arthur.config import DEFAULT_PATH, default_config
 from arthur.mapping import to_display_state
-from arthur.model import FeederHealth, RobotSnapshot
+from arthur.model import Cue, FeederHealth, RobotSnapshot, Weather
 from arthur.render import Frame, overlay_stale, render
 from arthur.sim.server import CLOCKS, create_app
+from arthur.sources.weather import WeatherSource
 from arthur.transports import AwtrixNgTransport, TransportError
 
 CFG = default_config()
@@ -364,3 +366,262 @@ async def test_run_stops_cleanly(client, clock, tmp_path):
                       stop=clock.stop, time_fn=clock, wall_fn=clock.wall, sleep=clock.sleep,
                       install_signals=False)
     assert rc == 0 and source.stopped and "litter" in the_clock(client).apps
+
+
+# ---- the weather and the idle show's isolation (D-0019) ----------------------------------
+
+
+WEATHER = Weather(temp_f=52.5, code=0, is_day=True, high_f=61.9, low_f=38.9,
+                  fetched_at=START - timedelta(minutes=5))
+
+
+class FakeWeather:
+    def __init__(self, reading: Weather | None = WEATHER) -> None:
+        self.reading = reading
+        self.raise_in_view = False
+        self.configs = []
+        self.runs = 0
+        self.stopped = False
+
+    def view(self, now):
+        if self.raise_in_view:
+            raise RuntimeError("a bug in the weather")
+        return self.reading
+
+    async def run(self, stop):
+        self.runs += 1
+        await stop.wait()
+        self.stopped = True
+
+    def update_config(self, cfg):
+        self.configs.append(cfg)
+
+
+def record_states(monkeypatch, *, cue: Cue | None = None) -> list:
+    """Record every mapped state; with ``cue``, pin it on ready states."""
+    states = []
+
+    def mapping(*a, **kw):
+        if cue is not None:
+            kw["cue"] = cue
+        state = to_display_state(*a, **kw)
+        states.append(state)
+        return state
+
+    monkeypatch.setattr(fd, "to_display_state", mapping)
+    return states
+
+
+def weather_feeder(client, clock, source, weather):
+    transport = AwtrixNgTransport(base(client), session=client.session, time_fn=clock)
+    return fd.Feeder(source, transport, CFG, clock_label=base(client), time_fn=clock,
+                     wall_fn=clock.wall, sleep=clock.sleep, weather=weather)
+
+
+async def test_weather_reaches_ready_and_only_ready(client, clock, monkeypatch):
+    states = record_states(monkeypatch)
+    source = FakeSource(clock, READY)
+    weather = FakeWeather()
+    clock.on_tick = lambda c: setattr(source, "snapshot", ROBOT_OFF) if c.t >= 1002 else None
+    await run_for(weather_feeder(client, clock, source, weather), clock, 4)
+    ready = [s for s in states if s.kind == "ready"]
+    off = [s for s in states if s.kind == "robot_off"]
+    assert ready and off
+    assert all(s.weather == WEATHER for s in ready)
+    assert all(s.weather is None for s in off)
+    assert weather.runs == 1 and weather.stopped  # run beside the loop, stopped with it
+
+
+async def test_no_weather_source_maps_none(client, clock, monkeypatch):
+    states = record_states(monkeypatch)
+    feeder = make_feeder(client, clock, FakeSource(clock, READY))
+    assert feeder.weather is None
+    await run_for(feeder, clock, 2)
+    assert states and all(s.kind == "ready" and s.weather is None for s in states)
+    assert [svc.name for svc in feeder._services()] == ["Whisker source"]
+
+
+async def test_weather_view_failing_carries_on_without_weather(client, clock, monkeypatch,
+                                                                 caplog):
+    caplog.set_level(logging.INFO)
+    states = record_states(monkeypatch)
+    weather = FakeWeather()
+    weather.raise_in_view = True
+    clock.on_tick = lambda c: setattr(weather, "raise_in_view", c.t < 1003)
+    feeder = weather_feeder(client, clock, FakeSource(clock, READY), weather)
+    await run_for(feeder, clock, 5)
+    assert feeder.pusher.pushes >= 1 and "litter" in the_clock(client).apps
+    early = states[:8]
+    assert early and all(s.kind == "ready" and s.weather is None for s in early)
+    assert states[-1].weather == WEATHER  # back once it reads again
+    assert caplog.text.count("could not read the weather") == 1
+    assert caplog.text.count("weather readable again") == 1
+    assert "could not map or draw" not in caplog.text
+
+
+def failing_cue_render(monkeypatch) -> list:
+    """render raises whenever a cue is set; returns the states it was asked to draw."""
+    asked = []
+
+    def broken(state, now, cfg, **kw):
+        asked.append(state)
+        if state.cue is not None:
+            raise ValueError("a bug in the scene")
+        return render(state, now, cfg, **kw)
+
+    monkeypatch.setattr(fd, "render", broken)
+    return asked
+
+
+async def test_failing_cue_falls_back_to_the_home_page(client, clock, monkeypatch, caplog):
+    caplog.set_level(logging.DEBUG, logger="arthur")
+    cue = Cue(kind="scene", at=START, length_s=36.0, name="rat")
+    record_states(monkeypatch, cue=cue)
+    asked = failing_cue_render(monkeypatch)
+    feeder = make_feeder(client, clock, FakeSource(clock, READY))
+    await run_for(feeder, clock, 3)
+    c = the_clock(client)
+    now = START + timedelta(seconds=c.last_push_at - 1000.0)  # when the shown frame was drawn
+    pinned = to_display_state(READY, FeederHealth(last_contact_at=now), now, CFG, cue=cue)
+    assert the_clock(client).screen() == render(replace(pinned, cue=None), now, CFG)
+    assert any(s.cue is None for s in asked)
+    errors = [r for r in caplog.records if "could not draw the idle show" in r.getMessage()]
+    assert len(errors) == 1 and errors[0].levelno == logging.ERROR  # once for the cue
+    assert "scene rat" in errors[0].getMessage()
+    assert "could not map or draw" not in caplog.text
+
+
+async def test_each_failing_cue_logs_once_and_repeats_at_debug(client, clock, monkeypatch,
+                                                               caplog):
+    caplog.set_level(logging.DEBUG, logger="arthur")
+    cues = [Cue(kind="scene", at=START, length_s=36.0, n=k) for k in range(3)]
+    current = [cues[0]]
+
+    def mapping(*a, **kw):
+        kw["cue"] = current[0]
+        return to_display_state(*a, **kw)
+
+    monkeypatch.setattr(fd, "to_display_state", mapping)
+    failing_cue_render(monkeypatch)
+    clock.on_tick = lambda c: current.__setitem__(0, cues[min(int(c.t - 1000), 2)])
+    await run_for(make_feeder(client, clock, FakeSource(clock, READY)), clock, 4)
+    msgs = [r for r in caplog.records if "could not draw the idle show" in r.getMessage()]
+    assert [r.levelno for r in msgs] == [logging.ERROR, logging.DEBUG, logging.DEBUG]
+
+
+async def test_render_failure_without_a_cue_pushes_nothing(client, clock, monkeypatch, caplog):
+    def broken(state, now, cfg, **kw):
+        raise ValueError("a bug in the home page")
+
+    monkeypatch.setattr(fd, "render", broken)
+    feeder = make_feeder(client, clock, FakeSource(clock, ROBOT_OFF))
+    await run_for(feeder, clock, 3)
+    assert feeder.pusher.pushes == 0 and the_clock(client).apps == {}
+    assert caplog.text.count("could not map or draw") == 1
+
+
+class DyingSource(FakeSource):
+    """Its first run dies of a bug; later runs behave."""
+
+    runs = 0
+
+    async def run(self, stop):
+        self.runs += 1
+        if self.runs == 1:
+            raise RuntimeError("source bug")
+        await super().run(stop)
+
+
+class DyingWeather(FakeWeather):
+    async def run(self, stop):
+        self.runs += 1
+        if self.runs == 1:
+            raise RuntimeError("weather bug")
+        await stop.wait()
+        self.stopped = True
+
+
+async def test_a_dead_whisker_task_is_restarted(client, clock, caplog):
+    caplog.set_level(logging.INFO)
+    source = DyingSource(clock, READY)
+    weather = FakeWeather()
+    feeder = weather_feeder(client, clock, source, weather)
+    runs_at = {}
+    clock.on_tick = lambda c: runs_at.setdefault(int(c.t - 1000), source.runs)
+    await run_for(feeder, clock, fd.SOURCE_RESTART_S + 3)
+    assert runs_at[int(fd.SOURCE_RESTART_S) - 1] == 1  # not restarted before the delay
+    assert source.runs == 2 and source.stopped
+    assert weather.runs == 1  # the other service was left alone
+    assert "the Whisker source stopped unexpectedly (RuntimeError: source bug)" in caplog.text
+    assert caplog.text.count("stopped unexpectedly") == 1
+    assert caplog.text.count("restarting the Whisker source") == 1
+
+
+async def test_a_dead_weather_task_is_restarted(client, clock, caplog):
+    caplog.set_level(logging.INFO)
+    source = FakeSource(clock, READY)
+    weather = DyingWeather()
+    feeder = weather_feeder(client, clock, source, weather)
+    seen = {}
+
+    def note(c):
+        seen.setdefault(int(c.t - 1000), (weather.runs, feeder.pusher.pushes))
+
+    clock.on_tick = note
+    await run_for(feeder, clock, fd.SOURCE_RESTART_S + 3)
+    runs, pushes = seen[int(fd.SOURCE_RESTART_S) - 1]
+    assert runs == 1 and pushes >= 1  # the display went on meanwhile
+    assert "the weather source stopped unexpectedly (RuntimeError: weather bug)" in caplog.text
+    assert weather.runs == 2 and weather.stopped and source.stopped
+    assert caplog.text.count("restarting the weather source") == 1
+
+
+async def test_config_reload_reaches_the_weather(client, clock, tmp_path):
+    path = tmp_path / "display.toml"
+    shutil.copy(DEFAULT_PATH, path)
+    weather = FakeWeather()
+    transport = AwtrixNgTransport(base(client), session=client.session, time_fn=clock)
+    feeder = fd.Feeder(FakeSource(clock, READY), transport, CFG, config_path=path,
+                       time_fn=clock, wall_fn=clock.wall, sleep=clock.sleep, weather=weather)
+    stamp = path.stat().st_mtime_ns
+
+    def edit(c):
+        if c.t == 1002:
+            path.write_text(path.read_text().replace("refresh_s = 900", "refresh_s = 600"))
+            os.utime(path, ns=(stamp + 10**9, stamp + 10**9))
+
+    clock.on_tick = edit
+    await run_for(feeder, clock, 4)
+    assert weather.configs and weather.configs[-1].weather.refresh_s == 600
+
+
+def test_cli_builds_a_weather_source_from_the_config(monkeypatch):
+    seen = {}
+
+    async def fake_run(opts, cfg, base_url, credentials, **kw):
+        seen.update(kw)
+        return 0
+
+    monkeypatch.setattr(fd, "run", fake_run)
+    monkeypatch.setattr(fd, "setup_logging", lambda *a: None)
+    assert fd.main(["--clock", "h"], environ={}) == 0
+    assert isinstance(seen["weather"], WeatherSource)
+    assert seen["weather"].cfg.weather == CFG.weather
+
+
+def test_cli_without_a_weather_table_has_no_weather(monkeypatch, tmp_path):
+    path = tmp_path / "display.toml"
+    text = DEFAULT_PATH.read_text()
+    start = text.index("[weather]")
+    end = text.index("\n[", start + 1)
+    path.write_text(text[:start] + text[end + 1:])
+    seen = {}
+
+    async def fake_run(opts, cfg, base_url, credentials, **kw):
+        seen.update(kw)
+        return 0
+
+    monkeypatch.setattr(fd, "run", fake_run)
+    monkeypatch.setattr(fd, "setup_logging", lambda *a: None)
+    assert fd.main(["--clock", "h", "--config", str(path)], environ={}) == 0
+    assert "weather" not in seen

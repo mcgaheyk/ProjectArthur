@@ -18,6 +18,13 @@ stops (D-0004).
   broken edit is logged and the last good config kept.
 - A mapping or render error is logged and nothing is pushed for that tick: the clock then
   marks the frame stale, which is the designed failure. No fallback frame is drawn.
+- A decoration never stops the display (D-0019). The weather
+  (:class:`~arthur.sources.weather.WeatherSource`, built when the config has ``[weather]``)
+  runs as a second service; if asking it fails the tick goes on without weather. If drawing
+  the idle show's cue (a page or scene) fails, the same state is drawn without the cue, which
+  is the plain home page. Each is logged once, not every tick.
+- Each service (the Whisker source, the weather) runs in a task of its own; if one dies of a
+  bug it is logged and started again after :data:`SOURCE_RESTART_S`.
 - SIGINT/SIGTERM stop it: the Whisker account is disconnected, the transport closed and the
   log's exit line written. The clock is not cleared; the last frame goes stale by itself.
 - Times passed to mapping and render are aware UTC, as the studio's feeder passes them.
@@ -28,6 +35,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import dataclasses
 import logging
 import os
 import signal
@@ -40,10 +48,10 @@ from typing import Any, Protocol, TextIO
 
 from arthur.config import DEFAULT_PATH, Config, ConfigError, load_config
 from arthur.mapping import to_display_state
-from arthur.model import FeederHealth, RobotSnapshot
+from arthur.model import Cue, DisplayState, FeederHealth, RobotSnapshot, Weather
 from arthur.pusher import Pusher
 from arthur.pushtest import clock_url
-from arthur.render import render
+from arthur.render import Frame, render
 from arthur.spikelog import ScrubFilter, read_credentials, scrub
 from arthur.timebase import until_next_tick
 from arthur.transports import AwtrixNgTransport
@@ -56,7 +64,7 @@ EXIT_USAGE = 2
 DEFAULT_APP = "litter"
 #: How often the config file's modification time is checked.
 CONFIG_CHECK_S = 1.0
-#: After the source task dies of a bug, start it again after this long.
+#: After a service's task dies of a bug, start it again after this long.
 SOURCE_RESTART_S = 30.0
 
 
@@ -66,6 +74,24 @@ class Source(Protocol):
     async def run(self, stop: asyncio.Event) -> None: ...
 
     def update_config(self, cfg: Config) -> None: ...
+
+
+class WeatherFeed(Protocol):
+    def view(self, now: datetime) -> Weather | None: ...
+
+    async def run(self, stop: asyncio.Event) -> None: ...
+
+    def update_config(self, cfg: Config) -> None: ...
+
+
+@dataclasses.dataclass
+class _Service:
+    """A long-running task beside the loop, restarted if it dies."""
+
+    name: str
+    start: Callable[[asyncio.Event], Awaitable[None]]
+    task: asyncio.Task[None] | None = None
+    restart_at: float | None = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -141,7 +167,8 @@ class ConfigWatcher:
 
 
 class Feeder:
-    """The loop. ``source.run`` is started beside it as a task."""
+    """The loop. ``source.run`` (and ``weather.run``, if any) are started beside it as
+    tasks."""
 
     def __init__(
         self,
@@ -154,8 +181,10 @@ class Feeder:
         time_fn: Callable[[], float] = time.monotonic,
         wall_fn: Callable[[], datetime] = lambda: datetime.now(UTC),
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        weather: WeatherFeed | None = None,
     ) -> None:
         self.source = source
+        self.weather = weather
         self.transport = transport
         self.cfg = cfg
         self.watcher = ConfigWatcher(config_path, cfg) if config_path is not None else None
@@ -170,6 +199,9 @@ class Feeder:
         self._draw_error: str | None = None
         self._next_config_check = time_fn()
         self._failed_pushes = 0
+        self._weather_error: str | None = None
+        self._cue_failed: Cue | None = None  # the last cue whose drawing failed
+        self._cue_error: str | None = None  # the last cue error logged at ERROR
 
     # -- one tick ---------------------------------------------------------------------------
 
@@ -182,6 +214,9 @@ class Feeder:
             self.cfg = cfg
             with contextlib.suppress(Exception):
                 self.source.update_config(cfg)
+            if self.weather is not None:
+                with contextlib.suppress(Exception):
+                    self.weather.update_config(cfg)
 
     def _note_state(self, kind: str, detail: str | None) -> None:
         shown = (kind, detail if kind == "no_data" else None)
@@ -206,14 +241,55 @@ class Feeder:
             self._whisker_reported = True
             self._whisker_problem = problem
 
+    def _weather_view(self, now: datetime) -> Weather | None:
+        """The weather source's reading; None (and one log line) if asking it fails."""
+        if self.weather is None:
+            return None
+        try:
+            reading = self.weather.view(now)
+        except Exception as exc:  # a decoration must not stop the display
+            msg = f"{type(exc).__name__}: {exc}"
+            if msg != self._weather_error:
+                log.exception("could not read the weather; showing none until it can")
+                self._weather_error = msg
+            return None
+        if self._weather_error is not None:
+            log.info("weather readable again")
+            self._weather_error = None
+        return reading
+
+    def _draw(self, state: DisplayState, now: datetime, cfg: Config) -> Frame:
+        """Render ``state``. If that fails while a cue is set, render it without the cue (the
+        plain home page). Logged once per cue: at ERROR, with the traceback, the first time an
+        error is seen, at DEBUG for later cues failing the same way."""
+        try:
+            return render(state, now, cfg)
+        except Exception as exc:
+            cue = state.cue
+            if cue is None:
+                raise
+            if cue != self._cue_failed:
+                self._cue_failed = cue
+                msg = f"{type(exc).__name__}: {exc}"
+                what = f"{cue.kind} {cue.name or ''}".strip()
+                if msg != self._cue_error:
+                    self._cue_error = msg
+                    log.exception("could not draw the idle show's %s; showing the home page "
+                                  "instead", what)
+                else:
+                    log.debug("could not draw the idle show's %s (%s); home page instead",
+                              what, msg)
+            return render(dataclasses.replace(state, cue=None), now, cfg)
+
     async def tick(self) -> None:
         self._reload()
         cfg = self.cfg
         now = self.wall_fn()
+        weather = self._weather_view(now)
         try:
             snapshot, health = self.source.view(now)
-            state = to_display_state(snapshot, health, now, cfg)
-            frame = render(state, now, cfg)
+            state = to_display_state(snapshot, health, now, cfg, weather=weather)
+            frame = self._draw(state, now, cfg)
         except Exception as exc:  # nothing is pushed; the clock goes stale
             msg = f"{type(exc).__name__}: {exc}"
             if msg != self._draw_error:
@@ -243,21 +319,36 @@ class Feeder:
 
     # -- the service ------------------------------------------------------------------------
 
+    def _services(self) -> list[_Service]:
+        services = [_Service("Whisker source", self.source.run)]
+        if self.weather is not None:
+            services.append(_Service("weather source", self.weather.run))
+        return services
+
+    def _supervise(self, services: list[_Service], stop: asyncio.Event) -> None:
+        """Start any service not yet started; if one's task died, log it and start it again
+        after :data:`SOURCE_RESTART_S`."""
+        for svc in services:
+            if stop.is_set():
+                return
+            if svc.task is None:
+                svc.task = asyncio.create_task(svc.start(stop))
+            elif svc.task.done():
+                if svc.restart_at is None:
+                    exc = None if svc.task.cancelled() else svc.task.exception()
+                    log.error("the %s stopped unexpectedly (%s); restarting in %g s", svc.name,
+                              exc and f"{type(exc).__name__}: {exc}", SOURCE_RESTART_S)
+                    svc.restart_at = self.time_fn() + SOURCE_RESTART_S
+                elif self.time_fn() >= svc.restart_at:
+                    log.info("restarting the %s", svc.name)
+                    svc.task = asyncio.create_task(svc.start(stop))
+                    svc.restart_at = None
+
     async def run(self, stop: asyncio.Event) -> None:
-        source_task = asyncio.create_task(self.source.run(stop))
-        restart_at: float | None = None
+        services = self._services()
         try:
             while not stop.is_set():
-                if source_task.done() and not stop.is_set():
-                    if restart_at is None:
-                        exc = None if source_task.cancelled() else source_task.exception()
-                        log.error("the Whisker source stopped unexpectedly (%s); restarting "
-                                  "in %g s", exc and f"{type(exc).__name__}: {exc}",
-                                  SOURCE_RESTART_S)
-                        restart_at = self.time_fn() + SOURCE_RESTART_S
-                    elif self.time_fn() >= restart_at:
-                        source_task = asyncio.create_task(self.source.run(stop))
-                        restart_at = None
+                self._supervise(services, stop)
                 await self.tick()
                 if stop.is_set():
                     break
@@ -266,11 +357,14 @@ class Feeder:
                 await self.sleep(until_next_tick(self.wall_fn()))
         finally:
             stop.set()
-            try:
-                await asyncio.wait_for(source_task, timeout=10)
-            except Exception as exc:  # noqa: BLE001
-                log.error("Whisker source did not stop cleanly: %s: %s", type(exc).__name__,
-                          exc)
+            for svc in services:
+                if svc.task is None:
+                    continue
+                try:
+                    await asyncio.wait_for(svc.task, timeout=10)
+                except Exception as exc:  # noqa: BLE001
+                    log.error("the %s did not stop cleanly: %s: %s", svc.name,
+                              type(exc).__name__, exc)
             with contextlib.suppress(Exception):
                 await self.transport.close()
 
@@ -288,8 +382,10 @@ async def run(
     wall_fn: Callable[[], datetime] = lambda: datetime.now(UTC),
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     install_signals: bool = True,
+    weather: WeatherFeed | None = None,
 ) -> int:
-    """Run the feeder until SIGINT/SIGTERM (or ``stop``)."""
+    """Run the feeder until SIGINT/SIGTERM (or ``stop``). ``weather`` is optional; the
+    command line builds one from ``[weather]`` (:func:`main`)."""
     stop = stop or asyncio.Event()
     if install_signals:
         loop = asyncio.get_running_loop()
@@ -304,10 +400,10 @@ async def run(
     if transport is None:
         transport = AwtrixNgTransport(base_url, app_name=opts.app, time_fn=time_fn)
     config_path = Path(opts.config) if opts.config else DEFAULT_PATH
-    log.info("feeder started: clock %s, app %s, config %s, logs %s", base_url, opts.app,
-             config_path, opts.log_dir)
+    log.info("feeder started: clock %s, app %s, config %s, logs %s, weather %s", base_url,
+             opts.app, config_path, opts.log_dir, "on" if weather is not None else "off")
     feeder = Feeder(source, transport, cfg, config_path=config_path, clock_label=base_url,
-                    time_fn=time_fn, wall_fn=wall_fn, sleep=sleep)
+                    time_fn=time_fn, wall_fn=wall_fn, sleep=sleep, weather=weather)
     try:
         await feeder.run(stop)
     finally:
@@ -331,6 +427,10 @@ def main(argv: list[str] | None = None, environ: Mapping[str, str] | None = None
     setup_logging()
     creds = read_credentials(env)
     credentials = creds if isinstance(creds, tuple) else None
+    if "weather" not in run_kw and cfg.weather is not None:
+        from arthur.sources.weather import WeatherSource
+
+        run_kw["weather"] = WeatherSource(cfg)
     try:
         return asyncio.run(run(opts, cfg, clock_url(raw), credentials, **run_kw))
     except KeyboardInterrupt:
