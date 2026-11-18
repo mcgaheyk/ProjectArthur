@@ -7,6 +7,8 @@
     uv run python -m arthur.render.preview in_use --sheet /tmp/s --frames 8 --step 1
     uv run python -m arthur.render.preview idle_rat --at 20                # 20 s into it
     uv run python -m arthur.render.preview idle_bird --sheet /tmp/s --frames 16 --step 0.125
+    uv run python -m arthur.render.preview idle_page --weather 61,day,41,47,35
+    uv run python -m arthur.render.preview idle_page --weather glyphs --sheet /tmp/s --frames 4
 
 ``--sheet DIR`` writes a contact sheet instead of text: one PNG with every fixture x variant
 (or just the named one), each tile labelled in the project's own font. With
@@ -14,6 +16,12 @@
 animation can be read side by side. ``--at SECONDS`` shows (or starts the strip at) that many
 seconds after the fixture's own time; fractions work, so the idle show's fixtures
 (``idle_page``, ``idle_rat``, ``idle_bird``) can be stepped at their 8 frames a second.
+
+``--weather SPEC`` replaces the fixture's weather reading (repeat it to show several; each is
+read as if fetched at the fixture's own time). SPEC is ``none`` (no fresh reading),
+``glyphs`` (one reading per weather glyph, day and night), or
+``CODE[,day|night[,TEMP[,HIGH,LOW]]]``: a WMO code, then day (default) or night, the
+temperature (default 54) and today's high and low (default 61 and 48; ``-`` for missing).
 
 A positional name may be a display kind (uses the fixture of the same name) or any fixture name
 from ``arthur.fixtures`` (e.g. ``ready_laser_dirty``). One character per pixel; ``.`` is off; the
@@ -24,10 +32,12 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from arthur.config import Config, format_size, load_config
 from arthur.fixtures import FIXTURES, Fixture
+from arthur.model import Weather
 from arthur.render.font import small_font
 from arthur.render.frame import RGB, Frame, overlay_stale
 from arthur.render.screens import list_kinds, list_variants, render
@@ -54,6 +64,52 @@ def names_text(cfg: Config) -> str:
     """What ``--list`` prints: each display kind with its variants, then every fixture name."""
     lines = [f"{kind:15} {', '.join(list_variants(kind, cfg.size))}" for kind in list_kinds()]
     return "\n".join([*lines, "", "fixtures: " + ", ".join(FIXTURES)])
+
+
+WEATHER_DEFAULTS = (54.0, 61.0, 48.0)
+
+
+def parse_weather(spec: str, fx: Fixture) -> list[tuple[str, Weather | None]]:
+    """``--weather SPEC`` as labelled readings fetched at the fixture's time (see the module
+    docstring). Raises ValueError on a bad SPEC."""
+    from arthur.render.pages import GLYPH_CODES
+
+    spec = spec.strip().lower()
+    if spec == "none":
+        return [("no weather", None)]
+    if spec == "glyphs":
+        out: list[tuple[str, Weather | None]] = []
+        for is_day in (True, False):
+            for codes in GLYPH_CODES.values():
+                out += parse_weather(f"{codes[0]},{'day' if is_day else 'night'}", fx)
+        return out
+    parts = [p.strip() for p in spec.split(",")]
+    if len(parts) not in (1, 2, 3, 5):
+        raise ValueError(f"--weather {spec!r}: expected CODE[,day|night[,TEMP[,HIGH,LOW]]]")
+    code = int(parts[0])
+    if len(parts) > 1 and parts[1] not in ("day", "night"):
+        raise ValueError(f"--weather {spec!r}: the second part is day or night")
+    is_day = len(parts) < 2 or parts[1] == "day"
+    temp, high, low = WEATHER_DEFAULTS
+    if len(parts) > 2:
+        temp = float(parts[2])
+    if len(parts) > 3:
+        high = None if parts[3] == "-" else float(parts[3])
+        low = None if parts[4] == "-" else float(parts[4])
+    label = f"{code} {'day' if is_day else 'night'} {temp:g}"
+    if high is not None and low is not None:
+        label += f" {high:g} {low:g}"
+    return [(label, Weather(temp_f=temp, code=code, is_day=is_day, high_f=high, low_f=low,
+                            fetched_at=fx.now))]
+
+
+def with_weather(fx: Fixture, specs: list[str] | None) -> list[tuple[str, Fixture]]:
+    """The fixture once per ``--weather`` reading (or once, unchanged, without any), with a
+    label suffix saying which reading it carries."""
+    if not specs:
+        return [("", fx)]
+    return [(f" [{label}]", replace(fx, weather=w))
+            for spec in specs for label, w in parse_weather(spec, fx)]
 
 
 def render_fixture(
@@ -119,7 +175,7 @@ def contact_sheet(
 def write_sheet(
     names: list[str], cfg: Config, out: Path, *,
     variant: str | None, frames: int, step: float, stale: bool, led: int | None,
-    at: float = 0.0,
+    at: float = 0.0, weather: list[str] | None = None,
 ) -> Path:
     """Write one contact sheet; returns its path."""
     from datetime import timedelta
@@ -127,20 +183,20 @@ def write_sheet(
     out.mkdir(parents=True, exist_ok=True)
     tiles: list[tuple[str, list[tuple[str, Frame]]]] = []
     for name in names:
-        fx = FIXTURES[name]
-        available = list_variants(fx.kind, cfg.size)
-        vs = available if variant in (None, "all") else [variant if variant in available
-                                                        else available[0]]
-        state = fx.display_state(cfg)
-        for v in vs:
-            strip = []
-            for k in range(frames):
-                t = at + k * step
-                fr = render(state, fx.now + timedelta(seconds=t), cfg, variant=v)
-                if stale:
-                    fr = overlay_stale(fr, cfg.rgb("stale"))
-                strip.append((f"+{t:g}s" if frames > 1 else "", fr))
-            tiles.append((f"{name} / {v}", strip))
+        for suffix_w, fx in with_weather(FIXTURES[name], weather):
+            available = list_variants(fx.kind, cfg.size)
+            vs = available if variant in (None, "all") else [variant if variant in available
+                                                            else available[0]]
+            state = fx.display_state(cfg)
+            for v in vs:
+                strip = []
+                for k in range(frames):
+                    t = at + k * step
+                    fr = render(state, fx.now + timedelta(seconds=t), cfg, variant=v)
+                    if stale:
+                        fr = overlay_stale(fr, cfg.rgb("stale"))
+                    strip.append((f"+{t:g}s" if frames > 1 else "", fr))
+                tiles.append((f"{name} / {v}{suffix_w}", strip))
     cols = 1 if frames > 1 else 3
     sheet = contact_sheet(tiles, led or 6, cols)
     tag = names[0] if len(names) == 1 else "all"
@@ -165,6 +221,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--at", type=float, default=0.0, metavar="SECONDS",
                    help="show the fixture this many seconds after its own time (fractions "
                    "allowed); a sheet's strip starts there")
+    p.add_argument("--weather", action="append", metavar="SPEC",
+                   help="replace the fixture's weather: none, glyphs, or "
+                   "CODE[,day|night[,TEMP[,HIGH,LOW]]] (repeatable)")
     p.add_argument("--led", type=int, help="pixels per LED in a sheet (default 6)")
     p.add_argument("--config", help="path to display.toml")
     p.add_argument("--list", action="store_true", help="list kinds, variants and fixtures")
@@ -191,10 +250,18 @@ def main(argv: list[str] | None = None) -> int:
         p.print_help()
         return 2
 
+    if args.weather:
+        try:
+            for spec in args.weather:
+                parse_weather(spec, FIXTURES[names[0]])
+        except ValueError as e:
+            print(e, file=sys.stderr)
+            return 2
+
     if args.sheet:
         print(write_sheet(names, cfg, Path(args.sheet), variant=args.variant,
                           frames=max(1, args.frames), step=args.step, stale=args.stale,
-                          led=args.led, at=args.at))
+                          led=args.led, at=args.at, weather=args.weather))
         return 0
     png_dir = Path(args.png) if args.png else None
     if png_dir:
@@ -202,8 +269,9 @@ def main(argv: list[str] | None = None) -> int:
 
     print(legend_text(cfg))
     size = format_size(cfg.size)
-    for name in names:
-        fx = FIXTURES[name]
+    for name, suffix_w, fx in (
+        (n, sw, f) for n in names for sw, f in with_weather(FIXTURES[n], args.weather)
+    ):
         kind = fx.kind
         available = list_variants(kind, cfg.size)
         if args.variant == "all":
@@ -214,7 +282,7 @@ def main(argv: list[str] | None = None) -> int:
             variants = [available[0]]
         for v in variants:
             frame = render_fixture(fx, cfg, None, v, args.stale, at=args.at)
-            tag = f"{name} [{kind}] {size} variant={v}"
+            tag = f"{name}{suffix_w} [{kind}] {size} variant={v}"
             if args.at:
                 tag += f" at +{args.at:g}s"
             if len(available) > 1:
@@ -224,7 +292,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\n{tag}")
             print(frame_text(frame, cfg))
             if png_dir:
-                fn = f"{name}__{size}__{v}{'__stale' if args.stale else ''}.png"
+                wtag = "__" + "_".join(suffix_w.strip(" []").split()) if suffix_w else ""
+                fn = f"{name}{wtag}__{size}__{v}{'__stale' if args.stale else ''}.png"
                 (png_dir / fn).write_bytes(frame.to_png(12, gap=2))
     return 0
 

@@ -200,6 +200,11 @@ _LIST: list[Fixture] = [
 #: A sample weather reading for the show fixtures: 41 F and overcast, fetched 10 minutes ago.
 SAMPLE_WEATHER = Weather(temp_f=41.0, code=3, is_day=True, high_f=47.0, low_f=35.0,
                          fetched_at=ago(600))
+#: Rain (WMO 61) at 41 F, and a clear night at 28 F, for the weather page's fixtures.
+RAIN_WEATHER = Weather(temp_f=41.0, code=61, is_day=True, high_f=47.0, low_f=35.0,
+                       fetched_at=ago(600))
+NIGHT_WEATHER = Weather(temp_f=28.0, code=0, is_day=False, high_f=39.0, low_f=24.0,
+                        fetched_at=ago(600))
 #: Slot lengths of the default round (180 s, 30 % page, 20 % scene).
 PAGE_SLOT_S = 54.0
 SCENE_SLOT_S = 36.0
@@ -213,6 +218,14 @@ def _show(name: str, description: str, cue: Cue) -> Fixture:
 _LIST += [
     _show("idle_page", "Idle show: the weather page, 2 s into its 54 s slot (the page itself)",
           Cue(kind="page", at=ago(2), length_s=PAGE_SLOT_S, n=0, name="weather")),
+    replace(_show("idle_page_rain", "Idle show: the weather page, rain at 41 F",
+                  Cue(kind="page", at=ago(2), length_s=PAGE_SLOT_S, n=0, name="weather")),
+            weather=RAIN_WEATHER),
+    replace(_show("idle_page_night", "Idle show: the weather page, a clear night at 28 F",
+                  Cue(kind="page", at=ago(2), length_s=PAGE_SLOT_S, n=0, name="weather")),
+            weather=NIGHT_WEATHER),
+    _show("idle_page_big", "Idle show: the big-temperature weather page (weather_big)",
+          Cue(kind="page", at=ago(2), length_s=PAGE_SLOT_S, n=0, name="weather_big")),
     _show("idle_rat", "Idle show: the rat scene from the start of its 36 s slot",
           Cue(kind="scene", at=NOW, length_s=SCENE_SLOT_S, n=0, name="rat")),
     _show("idle_bird", "Idle show: the bird scene from the start of its 36 s slot",

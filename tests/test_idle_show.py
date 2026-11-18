@@ -16,7 +16,7 @@ from arthur.model import Cue
 from arthur.pushbench import TRANSITIONS
 from arthur.render import Frame, render
 from arthur.render import idle_show as show
-from arthur.render.pages import MONTHS, WEEKDAYS, date_frame, date_text, weather_page
+from arthur.render.pages import MONTHS, date_frame, date_text, weather_page
 from arthur.render.preview import frame_text, legend_text
 from arthur.render.preview import main as preview_main
 from arthur.render.screens import IDLE_POSES, home_page
@@ -399,21 +399,22 @@ def test_unknown_page_shows_home():
 
 
 def test_date_page_says_the_local_date():
+    # READY carries no weather, so the page is the date alone: month and day, no weekday.
     def label(now):
         with strict_text() as records:
             f = weather_page(READY, now, CFG)
             check_text(f, records)
         return [r.text for r in records]
 
-    assert label(NOW) == ["SUN NOV 15"]  # 13:00 in Boston
-    # 03:00 UTC on Thursday is still Wednesday evening in Boston.
-    assert label(datetime(2026, 11, 19, 3, 0, tzinfo=UTC)) == ["WED NOV 18"]
-    assert date_text(datetime(2026, 11, 18).date()) == "WED NOV 18"
+    assert label(NOW) == ["NOV 15"]  # 13:00 in Boston
+    # 03:00 UTC on the 19th is still the evening of the 18th in Boston.
+    assert label(datetime(2026, 11, 19, 3, 0, tzinfo=UTC)) == ["NOV 18"]
+    assert date_text(datetime(2026, 11, 18).date()) == "NOV 18"
 
 
 def test_every_date_fits_centred_and_strict():
-    for w, m, d in itertools.product(WEEKDAYS, MONTHS, range(1, 32)):
-        text = f"{w} {m} {d}"
+    for m, d in itertools.product(MONTHS, range(1, 32)):
+        text = f"{m} {d}"
         with strict_text() as records:
             f = date_frame(CFG, text)
             check_text(f, records)

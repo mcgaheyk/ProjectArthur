@@ -111,7 +111,7 @@ def test_stale_overlay():
 
 
 def test_fonts_have_needed_glyphs():
-    needed = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ %:.-/!~"
+    needed = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ %:.-/!~\N{DEGREE SIGN}"
     for font in (small_font(), large_font()):
         for ch in needed:
             assert ord(ch) in font.glyphs, (font.name, ch)
