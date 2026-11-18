@@ -131,9 +131,9 @@ _Last updated: 2026-11-18, early afternoon._ Current state only. History belongs
   in All states. React to the new side-on leap and the stretch scene, the rat scene, the
   second endings, the sleeping cat, the dissolve and the wipe, the rat's grey and the
   bird's blue, and whether the bird's wings (beating four times a second for about 20 s)
-  are too busy. Known weak spots in the new work: the bird hovers at the far right edge
-  before the leap and is half off the screen as it hops away; his run before the crouch is
-  only four frames; the second hind-leg stretch and the kneading are subtle.
+  are too busy. Known weak spots in the new work: his run before the crouch is only four
+  frames; the second hind-leg stretch and the kneading are subtle. (The bird hovers at
+  the far right edge before the leap; Kyle chose to leave that as it is.)
 - **Kyle, at the clock, about 15 minutes with the feeder stopped:** the bench's ten-minute run
   at 8 a second and its test patterns (`scripts/push_bench.py`: `sustained`, `walk`,
   `dissolve`, `wipe`, `slide`, `counter`), then any one cutaway with
