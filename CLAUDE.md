@@ -60,7 +60,9 @@ simulates the clock so screens can be designed without the hardware on the desk.
 - `uv run python -m arthur.render.preview --all` prints every screen as text
 - `uv run --env-file .env python -m arthur.feeder --clock http://ADDRESS` runs the feeder
   against the real robot and clock (needs Kyle's `.env`). It writes the same log the spike did.
-  Check for a running one first: `pgrep -fl arthur.feeder`
+  Check for a running one first: `pgrep -fl arthur.feeder`. To leave it running on the Mac,
+  start it with `open -a Terminal scripts/start_feeder.command`, never detached from a
+  session's shell: macOS cuts it off the clock when that session closes (D-0024)
 - `uv run python scripts/push_test.py --clock http://ADDRESS NAME` shows one screen on a real
   clock; stop the feeder first or the two fight over the screen
 - `uv run python scripts/push_bench.py --clock http://ADDRESS MODE` times frame pushes to a real

@@ -473,3 +473,30 @@ moments: every part showed when the schedule said it should, and the feeder logg
 
 **Not known.** How the clock holds up over days at about 4,500 pushes an hour, and how any
 of the show looks on the LEDs to Kyle.
+
+## D-0024 — Start the Mac's feeder from Terminal, not from a Claude session
+
+**2026-11-18.** The clock showed the stale border from 17:22 to 18:04. The feeder kept running
+and kept reading the robot (it logged a whole visit from 17:26 to 17:37), but every push to the
+clock failed with "No route to host" and it logged no recovery. At the same time a new process
+on the same Mac reached the clock at once, from the same address.
+
+**Cause, very likely.** macOS's Local Network privacy, which allows or refuses each connection
+to the home network by the program responsible for the process making it. The feeder had been
+started at 13:47 from a Claude Code session's shell, which made that session responsible for
+it. The session closed at 17:22 (the shutdown lines at the end of its transcript are from that
+minute); twenty seconds later the feeder lost the clock while keeping the internet. Earlier
+feeders never outlived the session that started them. Not proven: the Mac's system log could
+not be read from the session.
+
+**Decided.** On the Mac the long-running feeder is started with
+`open -a Terminal scripts/start_feeder.command`. Terminal launches it, so it no longer depends
+on any session. The 18:04 start was made that way; the clock's read-back then showed no stale
+border and a changing picture.
+
+**Rejected.** Restarting it from the session again: it would fail the same way when that
+session closed. A launchd agent: it would also survive a Mac restart, but it is the Pi's job
+and its own Local Network permission would need checking first.
+
+**Not known.** Whether it holds when Terminal quits (closing the window is fine; the feeder is
+detached). On the Pi none of this applies: Linux has no such check.

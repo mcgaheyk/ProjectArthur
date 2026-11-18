@@ -1,6 +1,6 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-18, early afternoon._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-18, evening._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
 - **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
@@ -12,13 +12,15 @@ _Last updated: 2026-11-18, early afternoon._ Current state only. History belongs
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
 - **The clock is live.** The feeder (`python -m arthur.feeder`) has been **running on Kyle's
-  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, at 09:10 on 2026-11-18 after the push bench, and at 13:47 that day after Kyle watched in use on the clock), detached under `caffeinate`, against the real robot and
+  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, at 09:10 on 2026-11-18 after the push bench, at 13:47 that day after Kyle watched in use on the clock, and at 18:04 from Terminal after a 42-minute outage, D-0024), detached under `caffeinate`, against the real robot and
   the real clock (D-0018). It logged in, read the robot and showed idle; the clock's screen
   read-back matched our render of the robot's state on all 832 pixels. **No real visit has
   been watched on the clock yet.** It stops on a Mac restart and the clock shows the stale
   border while the Mac sleeps. Its messages go to `logs/feeder-console.log`. Stop it with
-  `pkill -f arthur.feeder`; start it with the command in CLAUDE.md. Never run a second copy,
-  or `scripts/spike_log.py`, on the same account.
+  `pkill -f arthur.feeder`; start it with `open -a Terminal scripts/start_feeder.command`,
+  **never from a Claude session's shell**: the 13:47 copy lost the clock (not the robot) at
+  17:22, when the session that started it closed, and the clock showed the stale border until
+  18:04 (D-0024). Never run a second copy, or `scripts/spike_log.py`, on the same account.
 - **Built and tested (3,034 tests):**
   - Feeder: `arthur/feeder.py` (the loop), `arthur/pusher.py` (when to push),
     `arthur/sources/whisker.py` (the one Whisker connection). On a login or API failure it
@@ -128,7 +130,9 @@ _Last updated: 2026-11-18, early afternoon._ Current state only. History belongs
   animations. He has not yet reacted to the rat scene, the sleeping cat or the
   transitions, and has seen nothing on LEDs. Every screen here is a first cut.**
 - **The running feeder has this code.** It was restarted at 13:47 on 2026-11-18, the first
-  run of the 8-a-second loop and the weather source against the real robot and clock. It
+  run of the 8-a-second loop and the weather source against the real robot and clock, and
+  again at 18:04 from Terminal with the same code (D-0024); the clock's read-back then showed
+  no stale border and a changing picture. It
   logged in, showed the home page (the clock's read-back showed Arthur, the bars and the
   last-visit line) and logged no error in its first minute. It has played the idle show
   since 13:53. It has not been watched through a real visit, so a visit cutting into a
