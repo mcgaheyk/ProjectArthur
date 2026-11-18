@@ -182,7 +182,7 @@ def body_frames(cue: Cue) -> int:
 
 
 def test_both_placeholders_are_registered():
-    assert {"rat", "bird"} <= set(show.SCENES)
+    assert {"rat", "bird", "stretch"} <= set(show.SCENES)
 
 
 @pytest.mark.parametrize("length", SLOT_LENGTHS)
