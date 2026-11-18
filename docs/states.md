@@ -78,7 +78,7 @@ with the wall clock (three minutes by default):
 |---|---|---|
 | Home page | the rest (50 %) | The screen described above. It opens every round and comes back between the other two. |
 | Page | `page_pct` (30 %) | Boston's weather, the temperature and the date. The date is the month and day only (`NOV 18`); Kyle does not want the day of the week. With no fresh weather reading it shows the date alone, never an old temperature. |
-| Scene | `scene_pct` (20 %) | A short story with Arthur: a rat chase, or a leap at a bird. It carries no information. |
+| Scene | `scene_pct` (20 %) | A short story with Arthur: a rat chase, a leap at a bird, or a stretch. It carries no information. |
 
 - **The round is decided in mapping** (`arthur/schedule.py`) and carried on the display state
   as a cue: which part, when its slot began and how long it is. The renderer plays the cue.

@@ -1,6 +1,6 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-18, midday._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-18, early afternoon._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
 - **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
@@ -19,7 +19,7 @@ _Last updated: 2026-11-18, midday._ Current state only. History belongs in git a
   border while the Mac sleeps. Its messages go to `logs/feeder-console.log`. Stop it with
   `pkill -f arthur.feeder`; start it with the command in CLAUDE.md. Never run a second copy,
   or `scripts/spike_log.py`, on the same account.
-- **Built and tested (2,388 tests):**
+- **Built and tested (2,989 tests):**
   - Feeder: `arthur/feeder.py` (the loop), `arthur/pusher.py` (when to push),
     `arthur/sources/whisker.py` (the one Whisker connection). On a login or API failure it
     shows NO DATA and retries; it reloads `config/display.toml` when the file changes; it
@@ -98,19 +98,27 @@ _Last updated: 2026-11-18, midday._ Current state only. History belongs in git a
     seated Arthur, bolts, and scurries back across the empty stage with him galloping after
     it; one round in four the tables are turned.
   - The bird scene with both endings (`arthur/render/scenes/bird.py`): he watches it, chases
-    it, crouches, and hangs at the top of his leap spread-eagled; a feather lands on his
+    it, crouches well short of it, and leaps across at it seen from the side (D-0022): his
+    forelegs fly open, clap shut on nothing, and he hangs there; a feather lands on his
     head; one round in four the bird comes back and perches there.
+  - The stretch scene (`arthur/render/scenes/stretch.py`, D-0022): he yawns, strolls to the
+    middle, goes down into the cat stretch (rump up, forelegs flat out in front) and holds
+    it about 3 s with his eyes shut, then stretches each hind leg out behind and strolls
+    home. One round in four he kneads the floor; on some rounds he sits in the middle
+    first. With three scenes each plays about six or seven times an hour.
   - Night sleep: in the quiet hours (22:00 to 07:00 Boston time) the home page shows him
     curled up, breathing every 12 s with Zs, 10 screen changes a minute instead of 27.
   - The studio plays all of it: an Idle show switch, sample weather, and the `idle_hour` and
     `visit_mid_scene` scenarios, and `night_falls` and `morning` for the sleep transitions.
     Fixtures `idle_page`, `idle_page_detail`, `idle_rat`, `idle_rat_turned`, `idle_bird`,
-    `idle_bird_perched` and `ready_asleep` pin one screen each. In `idle_hour` the first
-    bird scene is at 2:24, the first rat at 5:24, the perched ending at 8:24 and the
-    tables-turned ending at 11:24.
-  **Kyle opened the studio on 2026-11-18 and chose the weather layout. He has not yet
-  reacted to the scenes, the sleeping cat or the transitions, and has seen nothing on LEDs.
-  Every screen here is a first cut for him to react to.**
+    `idle_bird_perched`, `idle_stretch`, `idle_stretch_knead` and `ready_asleep` pin one
+    screen each. In `idle_hour` the first bird scene is at 2:24, the first stretch at 5:24
+    and the first rat at 8:24; the knead ending is at 29:24 and the tables-turned ending at
+    47:24. The perched ending does not come up in that hour; use its tile.
+  **Kyle opened the studio on 2026-11-18, chose the weather layout, and asked for the
+  side-on leap and the stretch scene (D-0022). He has seen stills of both, not the built
+  animations. He has not yet reacted to the rat scene, the sleeping cat or the
+  transitions, and has seen nothing on LEDs. Every screen here is a first cut.**
 - **The running feeder is older than this code.** It was started at 09:10 on 2026-11-18,
   before the 8-a-second loop and the weather source existed. The next restart brings both in:
   the loop changes and the feeder starts fetching the weather, though with the shares at 0
@@ -120,9 +128,12 @@ _Last updated: 2026-11-18, midday._ Current state only. History belongs in git a
 ## Next
 **In hand, with Claude: the idle show (D-0019).** Left to do:
 - **Kyle, in the studio:** tick the Idle show switch and play `idle_hour`; look at the tiles
-  in All states. React to the rat and bird scenes and their second endings, the sleeping
-  cat, the dissolve and the wipe, the rat's grey and the bird's blue, and whether the
-  bird's wings (beating four times a second for about 20 s) are too busy.
+  in All states. React to the new side-on leap and the stretch scene, the rat scene, the
+  second endings, the sleeping cat, the dissolve and the wipe, the rat's grey and the
+  bird's blue, and whether the bird's wings (beating four times a second for about 20 s)
+  are too busy. Known weak spots in the new work: the bird hovers at the far right edge
+  before the leap and is half off the screen as it hops away; his run before the crouch is
+  only four frames; the second hind-leg stretch and the kneading are subtle.
 - **Kyle, at the clock, about 15 minutes with the feeder stopped:** the bench's ten-minute run
   at 8 a second and its test patterns (`scripts/push_bench.py`: `sustained`, `walk`,
   `dissolve`, `wipe`, `slide`, `counter`), then any one cutaway with

@@ -425,3 +425,30 @@ weather source still fetches them.
 (`idle_page_detail`), until Kyle has seen the page on the LEDs. Remove it then.
 
 **Not known.** How the double-size digits look on real LEDs.
+
+## D-0022 — The bird leap is seen from the side, and a third scene: the stretch
+
+**2026-11-18.** Two directions from Kyle after seeing the first cut of the scenes (D-0019).
+
+- **The leap at the bird is side-on.** His words: "arthur jumping left or right at the bird,
+  not jumping at the camera". Arthur now crouches well short of the bird and leaps across the
+  stage at it. At the top his forelegs fly open in front of it, clap shut on nothing as it
+  hops away, and he hangs there for a moment before he drops. The feather and the perched
+  ending are unchanged.
+- **A third scene, the stretch.** His words: he "walks into the center of the screen and then
+  does the classic cat stretching pose". It is drawn from his side-view photo: forelegs flat
+  out in front, chest down, the back sloping up to the rump, tail hooked over. A real stretch
+  comes in two halves, so his does: the bow, held about 3 s with his eyes shut after a yawn,
+  then each hind leg stretched out behind. One round in four he kneads the floor.
+- **Where the stretch goes.** It is one more scene in the same slot, in the shuffled bag with
+  the rat and the bird, no scene twice in a row. The 50 / 30 / 20 split (D-0019) is
+  unchanged; each scene now plays about six or seven times an hour, not ten.
+
+**Why.** His direction. The stretch is also the calm scene the set lacked: nothing in it
+travels fast, which the research behind D-0019 rates the least distracting kind of motion.
+
+**Rejected.** The leap with his belly to us and arms spread (`REACH`, `SPREAD`), removed. A
+slot or share of its own for the stretch: one bag keeps the cadence Kyle set.
+
+**Not known.** Whether the open-then-clap reads at 8 frames a second on the LEDs, and whether
+the second hind-leg stretch and the kneading show from across the room.

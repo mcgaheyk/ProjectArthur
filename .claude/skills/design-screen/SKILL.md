@@ -28,7 +28,7 @@ and still readable in one glance from across a room. Clear first, funny second.
 - **Idle is a show** (D-0019, Kyle's split: 50 % home page, 30 % weather page, 20 % scenes).
   A **page** is information (the weather, the temperature and the date as `NOV 18`; Kyle does
   not want the weekday). A **scene** is a 36-second story with Arthur: he stays seated and
-  watches for most of it, then a short burst (a chase, a leap), then he settles back in his
+  watches for most of it, then a short burst (a chase, a leap, a stretch), then he settles back in his
   spot. At night he sleeps and there are no scenes. A real robot event replaces any of it at
   once.
 - **Level bars carry meaning by colour** (D-0011). Litter follows the robot's own state word:
@@ -79,7 +79,7 @@ and still readable in one glance from across a room. Clear first, funny second.
 1. Edit the layout, icon (text-art under `arthur/render/icons/`) or config.
 2. Print it: `uv run python -m arthur.render.preview --all` (or name one state). For a page
    or scene, name its fixture (`idle_page`, `idle_page_detail`, `idle_rat`, `idle_rat_turned`,
-   `idle_bird`, `idle_bird_perched`): `--at SECONDS` picks a moment, `--sheet DIR --frames N --step 0.125` writes a
+   `idle_bird`, `idle_bird_perched`, `idle_stretch`, `idle_stretch_knead`): `--at SECONDS` picks a moment, `--sheet DIR --frames N --step 0.125` writes a
    strip of consecutive frames as a PNG to open and look at, and `--weather` sets the reading.
 3. Look at it in the studio: start the "studio" server and open the All states view in the
    browser pane, then play a visit in the Scenario view to see transitions. To see the idle
