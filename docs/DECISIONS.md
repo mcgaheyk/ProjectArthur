@@ -42,6 +42,8 @@ buzzer and buttons). Custom firmware (days of work for little gain).
 
 ## D-0003 — The feeder draws every pixel; the clock only shows a bitmap
 
+_→ See D-0019 for the frame rate._
+
 **2026-11-15.** Supersedes the handoff's use of AWTRIX text, icon and progress keys. The
 transport pushes one app whose payload is a full-frame bitmap in `draw`.
 
@@ -201,7 +203,7 @@ already caused. The laser notice only has room for the word "LASER".
 
 ## D-0013 — Idle Arthur is alive: a one-minute script of gestures
 
-_→ See D-0014 for the tail._
+_→ See D-0014 for the tail, and D-0019 for the stillness limit._
 
 **2026-11-16.** Changes D-0009's "idle stays nearly still". Kyle asked for the idle cat to have
 life: blinks, looks, tail wags, the tail passing through the text.
@@ -328,3 +330,53 @@ real clock. Two things it does differently from the spike it grew out of:
 dropping and pylitterbot reconnecting, a poll that hangs, a visit with no weight push, an
 interruption, and a clock reboot under a running feeder.
 
+## D-0019 — Idle is a show: half home, the rest weather and scenes
+
+**2026-11-18.** Kyle's direction: the clock sits on idle most of the day, so idle should rotate
+through more than one screen. This changes D-0013's stillness limit and D-0003's frame rate.
+
+- **The split is his: 50 % home, 30 % weather and date, 20 % scenes.** One three-minute round,
+  lined up with the wall clock: home 45 s, weather 54 s, home 45 s, a scene 36 s. The shares
+  and the round length are in `[idle]` in the config.
+- **Scenes are long and mostly quiet.** He chose 36-second scenes about every three minutes
+  over 10-second chases every minute. In each, Arthur stays seated and watches a rat or a bird
+  for about 22 s, then about 8 s of chase or leap, then he settles back in his spot. The first
+  scenes: a rat scurrying across the empty screen with Arthur after it; the same with the
+  tables turned, one time in four; Arthur leaping at a bird with his arms spread.
+- **At night Arthur sleeps.** From 22:00 to 07:00 Boston time the home page shows him curled
+  up and there are no scenes; their time goes to the home page. The weather page carries on.
+- **Every change inside idle has a transition, and none is a brightness fade.** Home and
+  weather swap by a dissolve in place. A scene opens with the bars and text wiping away beside
+  seated Arthur and closes with them wiping back in.
+- **A real robot event cuts in at once**, mid-scene if need be, with no transition. Nothing in
+  the show may delay a visit, a fault or drawer-full.
+- **The schedule is decided in mapping** (`arthur/schedule.py`, a pure function) and carried
+  on `DisplayState` as a cue; the renderer only plays it. `just_cleaned` is the precedent.
+- **Scenes and transitions run at 8 frames a second**; the home and weather pages stay at one.
+  The feeder's loop moves from a fixed sleep to a steady 1/8 s beat.
+- **A decoration must never stop the display.** If the weather source or a scene fails, the
+  feeder shows the home page and logs it.
+
+**Why.** He wants the screen to be fun and useful while nothing is happening. D-0013 kept idle
+"still for at least half of every minute" because it is in the corner of the eye all day; he
+has now chosen a livelier display, and that rule holds only for the home page itself. The
+research (`docs/research/2026-11-18-led-animation-and-idle-cadence.md`) says motion that
+travels across the screen is the most distracting kind and small movement in one place the
+least, which is why a scene is mostly watching: fast cross-screen motion comes to about 4 % of
+idle time. The same research rules out fades, because a dimmed orange turns red on these LEDs.
+Eight frames a second is the measured comfortable rate: the slowest push took 64 ms of a
+125 ms budget (`docs/reference/awtrix-ng.md`). Deciding the schedule in mapping keeps the home
+page's tests and snapshots true whatever the shares are set to.
+
+**Cost.** Pushes to the clock roughly triple, from about 1,600 an hour to about 4,500. With
+two characters, each plays about ten times an hour; varied middles and endings carry that at
+first, and more scenes are the lasting cure.
+
+**Rejected.** A first plan with the weather for 12 s every five minutes and a 10-second scene
+about every 20 minutes: Kyle wanted far more of both. Quick chases every 50 seconds. Deciding
+the schedule in the renderer, which would have tied the idle tests to the cadence values. A
+laser dot, a mug pushed off a desk and a page of visits and weight were offered and not chosen.
+
+**Not known.** How 8 pushes a second look on the LEDs, whether the dissolve reads as glitter
+or as a glitch, the rat's and bird's colours, and how the split feels over a working day. When
+this was written only the bench (`scripts/push_bench.py`) was built.

@@ -1,6 +1,6 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-17, evening._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-18, morning._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
 - **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
@@ -12,14 +12,14 @@ _Last updated: 2026-11-17, evening._ Current state only. History belongs in git 
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
 - **The clock is live.** The feeder (`python -m arthur.feeder`) has been **running on Kyle's
-  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar), detached under `caffeinate`, against the real robot and
+  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, and at 09:10 on 2026-11-18 after the push bench), detached under `caffeinate`, against the real robot and
   the real clock (D-0018). It logged in, read the robot and showed idle; the clock's screen
   read-back matched our render of the robot's state on all 832 pixels. **No real visit has
   been watched on the clock yet.** It stops on a Mac restart and the clock shows the stale
   border while the Mac sleeps. Its messages go to `logs/feeder-console.log`. Stop it with
   `pkill -f arthur.feeder`; start it with the command in CLAUDE.md. Never run a second copy,
   or `scripts/spike_log.py`, on the same account.
-- **Built and tested (686 tests):**
+- **Built and tested (737 tests):**
   - Feeder: `arthur/feeder.py` (the loop), `arthur/pusher.py` (when to push),
     `arthur/sources/whisker.py` (the one Whisker connection). On a login or API failure it
     shows NO DATA and retries; it reloads `config/display.toml` when the file changes; it
@@ -77,9 +77,26 @@ _Last updated: 2026-11-17, evening._ Current state only. History belongs in git 
     `logs/petlibro-*.jsonl` and `logs/petlibro-console.log`. It stops on a Mac restart and
     pauses during sleep; stop it with `pkill -f spike_petlibro`. Never start a second copy on
     the same account.
+- **In progress: the idle show (D-0019).** Idle will rotate in a three-minute round: home
+  45 s, a weather and date page 54 s, home 45 s, a 36-second scene (a rat chase or Arthur
+  leaping at a bird), with Arthur asleep at night. Kyle approved the plan on 2026-11-18.
+  **Built so far: only the bench**, `scripts/push_bench.py`, which times frame pushes to the
+  real clock and shows motion test patterns. Measured that morning: 8 frames a second is
+  comfortable (slowest push 64 ms of a 125 ms budget); figures in
+  `docs/reference/awtrix-ng.md`. The research behind the design is
+  `docs/research/2026-11-18-led-animation-and-idle-cadence.md`. **Nothing on the clock has
+  changed yet.**
 - **Not built:** the Pi deployment (systemd unit, log retention), night dimming, food and
   water. See Later.
 ## Next
+**In hand, with Claude: the idle show (D-0019).** Steps left, one commit each: the steady
+1/8 s loop; config (timezone, `[idle]`, `[weather]`, colours); the cue, schedule and mapping;
+the scene engine with transitions; studio support, the weather page and the Open-Meteo poller;
+go live with the weather page; the rat scenes, the bird scene and night sleep; go live with
+scenes. Still owed from the bench, with Kyle watching the LEDs: the ten-minute run at 8 a
+second and the test patterns (`walk`, `dissolve`, `wipe`, `slide`, `counter`). Stop the feeder
+for those and restart it after.
+
 1. Kyle: watch Arthur's next visits on the clock. In use should last until he leaves, then a
    countdown from about 8:00 that reaches zero as the clean cycle starts, then about two
    minutes of cleaning. Say what looks wrong; `logs/spike-*.jsonl` has the robot's side of

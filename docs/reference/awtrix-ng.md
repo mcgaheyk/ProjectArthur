@@ -157,6 +157,33 @@ Row-major order and "before brightness/gamma" are **not stated** in the spec.
   schedule** (requested in issue #98 and declined; the maintainer points to scripts). Night
   dimming is therefore ours to do: the feeder sets `brightness` on a timer.
 
+## How fast it takes frames (measured)
+**Measured 2026-11-18** on Kyle's TC002 (NG 1.2.3, home Wi-Fi) from his Mac with
+`scripts/push_bench.py`, through `AwtrixNgTransport` (one `PUT` of the whole 52x16 bitmap per
+frame). The official docs say nothing on any of this. Raw figures:
+`logs/pushbench-2026-11-18.jsonl`. Times are milliseconds for one awaited push.
+
+| Run | Pushes | Dropped ticks | min | p50 | p95 | max |
+|---|---|---|---|---|---|---|
+| 4 a second, 10 s | 40 | 0 | 22 | 37 | 82 | 108 |
+| 8 a second, 10 s | 80 | 0 | 19 | 37 | 56 | 64 |
+| 12 a second, 10 s | 118 | 2 | 16 | 33 | 58 | 118 |
+| Back to back, 10 s | 340 (34 a second) | none | 15 | 26 | 49 | 93 |
+
+- **8 frames a second is comfortable** (a 125 ms budget against a 64 ms worst case). At 12 the
+  83 ms budget was missed twice in 120.
+- **The clock keeps the connection open while pushes keep coming**, but answers
+  `Connection: close` about once in a hundred requests (5 times in 540), which costs one
+  reconnect.
+- **It drops an idle connection within 5 seconds.** A push after 5, 20 or 60 s of silence
+  always opened a new connection, also with the client's own keep-alive raised to 120 s. That
+  cold push took 39 to 141 ms. So the first frame after a quiet spell can be late by a tick;
+  the ones after it are not.
+- The first push of a run, which also does the transport's settings and rotation checks (two
+  `GET`s), took 88 to 120 ms. The transport repeats those every 300 s.
+- **Not measured yet:** ten minutes at 8 a second (heat, drift), how sub-second pushes look on
+  the LEDs, and all of it from the Pi instead of the Mac.
+
 ## For later features
 - **Notifications:** `POST /api/v1/notifications` (`hold`, `stack`, `wakeup`, `sound`, `name`);
   `DELETE /api/v1/notifications/active` dismisses the one showing.
