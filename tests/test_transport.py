@@ -5,7 +5,6 @@ from aiohttp import web
 
 from arthur.config import default_config
 from arthur.fixtures import FIXTURES
-from arthur.mapping import to_display_state
 from arthur.render import Frame, render
 from arthur.sim.server import CLOCKS, create_app
 from arthur.transports import AwtrixNgTransport, DisplayTransport, TransportError
@@ -64,7 +63,7 @@ def the_clock(client):
 
 async def test_pushed_frame_equals_screen(client):
     fx = FIXTURES["ready_laser_dirty"]
-    frame = render(to_display_state(fx.snapshot, fx.health, fx.now, CFG), fx.now, CFG)
+    frame = render(fx.display_state(CFG), fx.now, CFG)
     assert frame.size == (52, 16)
     t = AwtrixNgTransport(base(client))
     assert isinstance(t, DisplayTransport)

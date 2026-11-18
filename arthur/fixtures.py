@@ -3,7 +3,9 @@
 Used by the tests, the preview CLI and the simulator. Pure data: no I/O, no pylitterbot.
 
 - :data:`FIXTURES`: name → :class:`Fixture` ``(snapshot, health, now, kind)``. There is at
-  least one per display kind (the fixture named after the kind), plus extras.
+  least one per display kind (the fixture named after the kind), plus extras. Map one with
+  :meth:`Fixture.display_state` (it carries the fixture's weather and pinned idle-show cue)
+  and play it with :meth:`Fixture.time_at`.
 - :data:`SCENARIOS`: name → :class:`Scenario`, a list of timed :class:`Step` s. A player
   advances a clock ``t`` (seconds from the start) and calls ``scenario.at(t)`` to get the
   ``(snapshot, health, now)`` to map and render.
@@ -14,7 +16,10 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
-from arthur.model import FeederHealth, RobotSnapshot
+from arthur.config import Config
+from arthur.mapping import to_display_state
+from arthur.model import Cue, DisplayState, FeederHealth, RobotSnapshot, Weather
+from arthur.timebase import SHOW_FPS
 
 #: The fixed "now" every fixture uses (an even second, so 2-frame blinks are in their "on"
 #: phase).
@@ -58,6 +63,34 @@ class Fixture:
     now: datetime
     kind: str  # the display kind the mapping should produce
     description: str = ""
+    #: A weather reading handed to the mapping, as the feeder's weather source would.
+    weather: Weather | None = None
+    #: An idle-show cue pinned for the mapping, instead of asking the schedule.
+    cue: Cue | None = None
+    #: Seconds after which a player starts the fixture over; None plays on from ``now``.
+    loop_s: float | None = None
+    #: Frames a second to play it at; None for the screens' own one-a-second rhythm.
+    fps: int | None = None
+
+    def display_state(self, cfg: Config) -> DisplayState:
+        """The fixture mapped at its own time, with its weather and cue. Players map a
+        fixture once and render it as time moves on (see :meth:`time_at`)."""
+        return to_display_state(self.snapshot, self.health, self.now, cfg,
+                                weather=self.weather, cue=self.cue)
+
+    def time_at(self, t: float) -> datetime:
+        """The moment to render ``t`` seconds into playing the fixture.
+
+        Without ``loop_s``, ``now + t``. With it, time runs over one loop of ``loop_s``
+        seconds that begins at the cue's start (``now`` if there is no cue) and contains
+        ``now``, starting from ``now``: a page cue that began before ``now`` plays on to the
+        end of its slot and then from the slot's start.
+        """
+        if not self.loop_s:
+            return self.now + timedelta(seconds=t)
+        anchor = self.cue.at if self.cue is not None else self.now
+        lead = (self.now - anchor).total_seconds()
+        return anchor + timedelta(seconds=(lead + t) % self.loop_s)
 
 
 def _fx(
@@ -160,6 +193,30 @@ _LIST: list[Fixture] = [
         waste_drawer_level=85.0, litter_level_state="OPTIMAL"),
     _fx("ready_laser_dirty", "ready", "Idle, the robot says the laser is dirty",
         is_laser_dirty=True),
+]
+
+# --- layer 4: idle, the idle show (D-0019). Pinned cues; the repository config schedules none.
+
+#: A sample weather reading for the show fixtures: 41 F and overcast, fetched 10 minutes ago.
+SAMPLE_WEATHER = Weather(temp_f=41.0, code=3, is_day=True, high_f=47.0, low_f=35.0,
+                         fetched_at=ago(600))
+#: Slot lengths of the default round (180 s, 30 % page, 20 % scene).
+PAGE_SLOT_S = 54.0
+SCENE_SLOT_S = 36.0
+
+
+def _show(name: str, description: str, cue: Cue) -> Fixture:
+    return Fixture(name, BASE, HEALTHY, NOW, "ready", description, weather=SAMPLE_WEATHER,
+                   cue=cue, loop_s=cue.length_s, fps=SHOW_FPS)
+
+
+_LIST += [
+    _show("idle_page", "Idle show: the weather page, 2 s into its 54 s slot (the page itself)",
+          Cue(kind="page", at=ago(2), length_s=PAGE_SLOT_S, n=0, name="weather")),
+    _show("idle_rat", "Idle show: the rat scene from the start of its 36 s slot",
+          Cue(kind="scene", at=NOW, length_s=SCENE_SLOT_S, n=0, name="rat")),
+    _show("idle_bird", "Idle show: the bird scene from the start of its 36 s slot",
+          Cue(kind="scene", at=NOW, length_s=SCENE_SLOT_S, n=0, name="bird")),
 ]
 
 FIXTURES: dict[str, Fixture] = {f.name: f for f in _LIST}

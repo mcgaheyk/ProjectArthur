@@ -6,7 +6,6 @@ from datetime import timedelta
 
 from arthur.config import default_config
 from arthur.fixtures import FIXTURES
-from arthur.mapping import to_display_state
 from arthur.render import list_variants, render
 from arthur.render.screens import EDGE_RING, interrupted_beat, interrupted_episode
 
@@ -21,7 +20,7 @@ EP = 21
 
 def _state(name="interrupted"):
     fx = FIXTURES[name]
-    return to_display_state(fx.snapshot, fx.health, fx.now, CFG), fx.now
+    return fx.display_state(CFG), fx.now
 
 
 def _story(t, shift=0, cfg=CFG):

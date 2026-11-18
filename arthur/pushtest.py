@@ -6,7 +6,9 @@
 NAME is a display kind or fixture name, as for ``python -m arthur.render.preview NAME``
 (default ``ready``). The fixture is mapped once, at its own time, and rendered at 52x16 as
 time moves on from there, the way the studio plays a fixture, on the feeder's beat
-(:data:`arthur.timebase.SHOW_FPS` a second). A frame is pushed when it
+(:data:`arthur.timebase.SHOW_FPS` a second). The idle show's fixtures (``idle_page``,
+``idle_rat``, ``idle_bird``) play their slot over and over at that rate
+(:meth:`arthur.fixtures.Fixture.time_at`). A frame is pushed when it
 changes, and at least every ``heartbeat_s`` of config/display.toml, for ``--seconds``
 (default 60; 0 pushes one frame and exits).
 
@@ -34,7 +36,6 @@ from typing import TextIO
 
 from arthur.config import Config, load_config
 from arthur.fixtures import FIXTURES
-from arthur.mapping import to_display_state
 from arthur.pusher import Pusher
 from arthur.render import Frame, list_variants, render
 from arthur.render.preview import names_text
@@ -111,7 +112,7 @@ async def run(
 ) -> int:
     """Push ``opts.name`` to ``opts.clock``. Raises TransportError on any clock failure."""
     fx = FIXTURES[opts.name]
-    state = to_display_state(fx.snapshot, fx.health, fx.now, cfg)
+    state = fx.display_state(cfg)
     variants = list_variants(state.kind, cfg.size)
     variant = opts.variant if opts.variant in variants else variants[0]
     ttl_s = opts.ttl if opts.ttl is not None else cfg.timings.ttl_s
@@ -122,14 +123,15 @@ async def run(
         print(msg, file=out or sys.stdout, flush=True)
 
     say(f"push_test: {opts.name} [{state.kind}] variant={variant} -> {base_url} "
-        f"app={opts.app} ttl={ttl_s:g}s for {opts.seconds:g}s")
+        f"app={opts.app} ttl={ttl_s:g}s for {opts.seconds:g}s"
+        + (f", looping every {fx.loop_s:g}s" if fx.loop_s else ""))
     transport = AwtrixNgTransport(base_url, app_name=opts.app)
     pusher = Pusher(transport, time_fn=time_fn)
     t0 = time_fn()
     try:
         while True:
             elapsed = time_fn() - t0
-            frame = render(state, fx.now + timedelta(seconds=elapsed), cfg, variant=variant)
+            frame = render(state, fx.time_at(elapsed), cfg, variant=variant)
             result = await pusher.offer(frame, ttl_s, heartbeat_s)
             if result is not None:
                 if result.error is not None:

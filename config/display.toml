@@ -33,6 +33,9 @@ ghost     = "#686868"  # grey ghost Arthur: we do not know what he is doing
 stale     = "#6E0700"  # the clock's own out-of-date border (AWTRIX NG lifetimeExpiry "mark")
 drawer    = "#FF9800"  # the waste-drawer bar while it has room (red from drawer_warn_pct)
 caution   = "#FFE020"  # yellow: litter needs topping up (REFILL), or is overfilled (OVERFILL)
+rat       = "#A8A8B0"  # the idle show's rat: a cool grey
+bird      = "#40B0FF"  # the idle show's bird: a bright blue
+cloud     = "#C8D0E0"  # the weather page's clouds: a pale grey-blue
 
 # One character per role. Icon text-art files and the text preview use these.
 # "." is also "transparent" in icons; "*" in an icon means "the accent role the screen picks";
@@ -60,6 +63,9 @@ ghost     = "g"
 stale     = "x"
 drawer    = "D"
 caution   = "U"
+rat       = "r"
+bird      = "v"
+cloud     = "c"
 
 [thresholds]
 drawer_warn_pct = 80  # the drawer bar turns from orange to red from here

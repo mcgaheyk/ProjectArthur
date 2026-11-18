@@ -1030,12 +1030,36 @@ def idle_tail(pose: str) -> tuple[str, ...]:
 LASER_WORDS = ("WIPE LASER", "LASER DIRTY", "LASER")
 
 
+def draw_idle_arthur(f: Frame, cfg: Config, pose: str, x: int = 0, y: int = 0) -> None:
+    """Idle Arthur in ``pose`` (a key of :data:`IDLE_POSES`), icon and long tail, with the
+    icon's top-left at (x, y). The home page draws him at (0, 0); the idle show's stage, which
+    sits at (1, 1) on the frame, draws him at (-1, -1) so he lands on the same pixels."""
+    icon, tail = IDLE_POSES[pose]
+    draw_icon(f, icon, x, y, cfg, size=PIC)
+    draw_art(f, tail, x + TAIL_X, y + TAIL_Y, cfg)
+
+
+#: Plays ``state.cue`` on the home page (``(state, now, cfg) -> Frame``). Installed by
+#: :mod:`arthur.render.idle_show` when it is imported (``arthur.render`` does that), so this
+#: module needs no import of it and a live reload swaps both as one unit.
+CUE_PLAYER: Layout | None = None
+
+
 @layout(S52, "ready", "arthur")
 def _ready_arthur_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
+    """The home page, or the idle show's page or scene when mapping set a cue (D-0019)."""
+    if state.cue is not None and CUE_PLAYER is not None:
+        return CUE_PLAYER(state, now, cfg)
+    return home_page(state, now, cfg)
+
+
+def home_page(
+    state: DisplayState, now: datetime, cfg: Config, pose: str | None = None
+) -> Frame:
+    """Idle's home page: Arthur, the two level bars and the bottom line. ``pose`` forces
+    Arthur's pose (a key of :data:`IDLE_POSES`) instead of the minute's script."""
     f = _f52()
-    icon, tail = IDLE_POSES[idle_pose(now)]
-    icon52(f, cfg, icon)
-    draw_art(f, tail, TAIL_X, TAIL_Y, cfg)
+    draw_idle_arthur(f, cfg, pose if pose is not None else idle_pose(now))
     _levels_52(f, state, cfg, 1, 5, x=IDLE_X)
     if state.laser_dirty:
         line = first_fitting(LASER_WORDS, IDLE_R - IDLE_X + 1, small_font())

@@ -50,7 +50,6 @@ import asyncio
 import json
 import math
 import os
-import random
 import subprocess
 import sys
 import time
@@ -64,10 +63,10 @@ import aiohttp
 
 from arthur.config import Config, load_config
 from arthur.fixtures import FIXTURES
-from arthur.mapping import to_display_state
 from arthur.render import Frame, render
 from arthur.render.font import large_font
 from arthur.render.icons import draw_art
+from arthur.render.idle_show import dissolve, wipe
 from arthur.render.screens import WALK_A, WALK_B, WALK_Y
 from arthur.transports import AwtrixNgTransport, TransportError
 
@@ -81,8 +80,6 @@ DEFAULT_RATES = (4.0, 8.0, 12.0)
 DEFAULT_GAPS = (5.0, 20.0, 60.0)
 LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
 PUSH_METHOD = "PUT"
-#: Fixed seed for the dissolve order, so every run switches pixels in the same order.
-DISSOLVE_SEED = 52_16
 
 EXIT_OK, EXIT_CLOCK, EXIT_USAGE, EXIT_FEEDER, EXIT_INTERRUPTED = 0, 1, 2, 3, 130
 
@@ -303,7 +300,7 @@ async def run_grid(
 def fixture_frame(name: str, cfg: Config) -> Frame:
     """Fixture ``name`` mapped and rendered at its own time, as the preview does."""
     fx = FIXTURES[name]
-    return render(to_display_state(fx.snapshot, fx.health, fx.now, cfg), fx.now, cfg)
+    return render(fx.display_state(cfg), fx.now, cfg)
 
 
 def counter_frame(k: int, cfg: Config) -> Frame:
@@ -323,25 +320,8 @@ def walk_frame(k: int, cfg: Config, px: int) -> Frame:
     return f
 
 
-# The three transitions below are stand-ins for the bench only; the real transition code comes
-# in a later step and replaces them. Each gives ``a`` at i = 0 and ``b`` at i = n.
-
-
-def _dissolve(a: Frame, b: Frame, i: int, n: int) -> Frame:
-    order = list(range(W * H))
-    random.Random(DISSOLVE_SEED).shuffle(order)
-    out = a.copy()
-    for p in order[: round(len(order) * i / n)]:
-        out.pixels[p] = b.pixels[p]
-    return out
-
-
-def _wipe(a: Frame, b: Frame, i: int, n: int) -> Frame:
-    edge = round(W * i / n)
-    out = a.copy()
-    for y in range(H):
-        out.pixels[y * W: y * W + edge] = b.pixels[y * W: y * W + edge]
-    return out
+# Dissolve and wipe are the idle show's own (arthur/render/idle_show.py); the slide is the
+# bench's only (the show does not use one). Each gives ``a`` at i = 0 and ``b`` at i = n.
 
 
 def _slide(a: Frame, b: Frame, i: int, n: int) -> Frame:
@@ -353,7 +333,7 @@ def _slide(a: Frame, b: Frame, i: int, n: int) -> Frame:
     return out
 
 
-TRANSITIONS = {"dissolve": _dissolve, "wipe": _wipe, "slide": _slide}
+TRANSITIONS = {"dissolve": dissolve, "wipe": wipe, "slide": _slide}
 
 
 def transition_steps(n: int, hold: int) -> list[int]:

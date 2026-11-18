@@ -10,7 +10,6 @@ from aiohttp import web
 
 from arthur.config import default_config
 from arthur.fixtures import FIXTURES
-from arthur.mapping import to_display_state
 from arthur.pushtest import READBACK_SETTLE_S, build_parser, clock_url, compare, guarded, main
 from arthur.render import Frame, render
 from arthur.sim.server import CLOCKS, create_app
@@ -62,7 +61,7 @@ async def push(client_or_url, *argv: str, fake: FakeTime | None = None):
 
 def fixture_frame(name: str) -> Frame:
     fx = FIXTURES[name]
-    return render(to_display_state(fx.snapshot, fx.health, fx.now, CFG), fx.now, CFG)
+    return render(fx.display_state(CFG), fx.now, CFG)
 
 
 async def test_one_frame_lands_on_the_clock(client):
@@ -91,7 +90,7 @@ async def test_animates_and_pushes_only_on_change(client):
     rc, out, _ = await push(client, "ready", "--seconds", "20", fake=fake)
     assert rc == 0
     fx = FIXTURES["ready"]
-    state = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
+    state = fx.display_state(CFG)
     # Count distinct consecutive frames over the same 20 s, at the script's beat (fx.now is
     # on a whole second, so the beats are every 1/SHOW_FPS s from the start).
     frames, t = [], 0.0
@@ -102,6 +101,22 @@ async def test_animates_and_pushes_only_on_change(client):
     assert 1 < changes < len(frames)
     assert out.count("(new frame)") == changes
     assert "(heartbeat)" not in out  # 20 s is shorter than the 30 s heartbeat
+
+
+async def test_plays_a_show_fixture_at_eight_frames_a_second_and_loops(client):
+    fx = FIXTURES["idle_rat"]
+    seconds = fx.loop_s + 4  # past the end of the slot, into the second time round
+    rc, out, _ = await push(client, "idle_rat", "--seconds", f"{seconds:g}", fake=FakeTime())
+    assert rc == 0
+    assert f"looping every {fx.loop_s:g}s" in out
+    state = fx.display_state(CFG)
+    frames = [render(state, fx.time_at(k / SHOW_FPS), CFG).to_rgb888()
+              for k in range(int(seconds * SHOW_FPS) + 1)]
+    changes = 1 + sum(a != b for a, b in itertools.pairwise(frames))
+    assert changes > 2 * seconds  # the walks and wipes change every eighth of a second
+    assert out.count("(new frame)") == changes
+    # The second time round starts with the scene's first frame again.
+    assert frames[int(fx.loop_s * SHOW_FPS)] == frames[0]
 
 
 class RecordingTime(FakeTime):

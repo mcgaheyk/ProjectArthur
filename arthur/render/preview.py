@@ -5,11 +5,15 @@
     uv run python -m arthur.render.preview --all --png /tmp/screens
     uv run python -m arthur.render.preview --sheet /tmp/sheets             # every fixture
     uv run python -m arthur.render.preview in_use --sheet /tmp/s --frames 8 --step 1
+    uv run python -m arthur.render.preview idle_rat --at 20                # 20 s into it
+    uv run python -m arthur.render.preview idle_bird --sheet /tmp/s --frames 16 --step 0.125
 
 ``--sheet DIR`` writes a contact sheet instead of text: one PNG with every fixture x variant
 (or just the named one), each tile labelled in the project's own font. With
 ``--frames N`` each tile becomes a strip of N frames ``--step`` seconds apart, so an
-animation can be read side by side.
+animation can be read side by side. ``--at SECONDS`` shows (or starts the strip at) that many
+seconds after the fixture's own time; fractions work, so the idle show's fixtures
+(``idle_page``, ``idle_rat``, ``idle_bird``) can be stepped at their 8 frames a second.
 
 A positional name may be a display kind (uses the fixture of the same name) or any fixture name
 from ``arthur.fixtures`` (e.g. ``ready_laser_dirty``). One character per pixel; ``.`` is off; the
@@ -24,7 +28,6 @@ from pathlib import Path
 
 from arthur.config import Config, format_size, load_config
 from arthur.fixtures import FIXTURES, Fixture
-from arthur.mapping import to_display_state
 from arthur.render.font import small_font
 from arthur.render.frame import RGB, Frame, overlay_stale
 from arthur.render.screens import list_kinds, list_variants, render
@@ -54,10 +57,14 @@ def names_text(cfg: Config) -> str:
 
 
 def render_fixture(
-    fx: Fixture, cfg: Config, size: tuple[int, int] | None, variant: str | None, stale: bool
+    fx: Fixture, cfg: Config, size: tuple[int, int] | None, variant: str | None, stale: bool,
+    at: float = 0.0,
 ) -> Frame:
-    state = to_display_state(fx.snapshot, fx.health, fx.now, cfg)
-    frame = render(state, fx.now, cfg, size=size, variant=variant)
+    """The fixture mapped at its own time and drawn ``at`` seconds later."""
+    from datetime import timedelta
+
+    state = fx.display_state(cfg)
+    frame = render(state, fx.now + timedelta(seconds=at), cfg, size=size, variant=variant)
     return overlay_stale(frame, cfg.rgb("stale")) if stale else frame
 
 
@@ -112,6 +119,7 @@ def contact_sheet(
 def write_sheet(
     names: list[str], cfg: Config, out: Path, *,
     variant: str | None, frames: int, step: float, stale: bool, led: int | None,
+    at: float = 0.0,
 ) -> Path:
     """Write one contact sheet; returns its path."""
     from datetime import timedelta
@@ -123,11 +131,11 @@ def write_sheet(
         available = list_variants(fx.kind, cfg.size)
         vs = available if variant in (None, "all") else [variant if variant in available
                                                         else available[0]]
-        state = to_display_state(fx.snapshot, fx.health, fx.now, cfg)
+        state = fx.display_state(cfg)
         for v in vs:
             strip = []
             for k in range(frames):
-                t = k * step
+                t = at + k * step
                 fr = render(state, fx.now + timedelta(seconds=t), cfg, variant=v)
                 if stale:
                     fr = overlay_stale(fr, cfg.rgb("stale"))
@@ -154,6 +162,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--sheet", metavar="DIR", help="write contact-sheet PNGs into DIR")
     p.add_argument("--frames", type=int, default=1, help="frames per tile in a sheet")
     p.add_argument("--step", type=float, default=1.0, help="seconds between sheet frames")
+    p.add_argument("--at", type=float, default=0.0, metavar="SECONDS",
+                   help="show the fixture this many seconds after its own time (fractions "
+                   "allowed); a sheet's strip starts there")
     p.add_argument("--led", type=int, help="pixels per LED in a sheet (default 6)")
     p.add_argument("--config", help="path to display.toml")
     p.add_argument("--list", action="store_true", help="list kinds, variants and fixtures")
@@ -183,7 +194,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.sheet:
         print(write_sheet(names, cfg, Path(args.sheet), variant=args.variant,
                           frames=max(1, args.frames), step=args.step, stale=args.stale,
-                          led=args.led))
+                          led=args.led, at=args.at))
         return 0
     png_dir = Path(args.png) if args.png else None
     if png_dir:
@@ -202,8 +213,10 @@ def main(argv: list[str] | None = None) -> int:
         else:
             variants = [available[0]]
         for v in variants:
-            frame = render_fixture(fx, cfg, None, v, args.stale)
+            frame = render_fixture(fx, cfg, None, v, args.stale, at=args.at)
             tag = f"{name} [{kind}] {size} variant={v}"
+            if args.at:
+                tag += f" at +{args.at:g}s"
             if len(available) > 1:
                 tag += f" (of {', '.join(available)})"
             if args.stale:

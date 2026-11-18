@@ -21,7 +21,7 @@ PLAY_S = 24
 
 def _render_everything():
     for fx in FIXTURES.values():
-        state = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
+        state = fx.display_state(CFG)
         for size in list_sizes():
             for v in list_variants(fx.kind, size):
                 for dt in range(PLAY_S):
@@ -68,7 +68,7 @@ def test_idle_changes_rarely(size, last_visit_s):
 @pytest.mark.parametrize("name", ["in_use", "waiting", "cleaning", "interrupted"])
 def test_live_states_animate(name):
     fx = FIXTURES[name]
-    state = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
+    state = fx.display_state(CFG)
     for size in list_sizes():
         frames = {render(state, fx.now + timedelta(seconds=t), CFG, size=size).to_rgb888()
                   for t in range(6)}

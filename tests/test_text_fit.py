@@ -11,7 +11,6 @@ import pytest
 
 from arthur.config import default_config
 from arthur.fixtures import FIXTURES
-from arthur.mapping import to_display_state
 from arthur.render import Frame, list_sizes, list_variants, render
 from arthur.render.font import small_font
 from arthur.render.text import TextFitError, check_text, put_text, strict_text
@@ -32,7 +31,7 @@ def cases():
 @pytest.mark.parametrize(("name", "size", "variant"), list(cases()))
 def test_every_label_fits_and_stands_clear(name, size, variant):
     fx = FIXTURES[name]
-    state = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
+    state = fx.display_state(CFG)
     with strict_text():
         for dt in range(SPAN_S):
             render(state, fx.now + timedelta(seconds=dt), CFG, size=size, variant=variant)

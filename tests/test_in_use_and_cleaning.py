@@ -318,7 +318,7 @@ def test_no_mint_anywhere():
     assert "M" not in CFG.palette.chars.values()
     old = (0x30, 0xFF, 0xB0)
     for name, fx in FIXTURES.items():
-        state = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
+        state = fx.display_state(CFG)
         for v in list_variants(fx.kind, S):
             for dt in range(4):
                 assert old not in render(state, fx.now + timedelta(seconds=dt), CFG,

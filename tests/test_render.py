@@ -164,7 +164,7 @@ def test_only_ready_has_variants():
 
 def test_unknown_variant_falls_back_to_default():
     fx = FIXTURES["ready"]
-    s = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
+    s = fx.display_state(CFG)
     assert render(s, NOW, CFG, "52x16", "nope") == render(s, NOW, CFG, "52x16")
 
 
@@ -183,7 +183,7 @@ def test_size_defaults_to_config_and_accepts_strings():
 @pytest.mark.parametrize(("name", "size", "variant"), list(cases()))
 def test_renders_cleanly(name, size, variant):
     fx = FIXTURES[name]
-    s = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
+    s = fx.display_state(CFG)
     for dt in (0, 1):  # both phases of any blink
         f = render(s, fx.now + timedelta(seconds=dt), CFG, size=size, variant=variant)
         w, h = size
@@ -207,7 +207,7 @@ def test_renders_cleanly(name, size, variant):
 def test_interrupted_differs_from_cleaning_in_shape():
     def lit(name, size):
         fx = FIXTURES[name]
-        s = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
+        s = fx.display_state(CFG)
         f = render(s, fx.now, CFG, size=size)
         return {i for i, p in enumerate(f.pixels) if p != CFG.rgb("off")}
 
@@ -218,7 +218,7 @@ def test_interrupted_differs_from_cleaning_in_shape():
 
 def test_countdown_ticks():
     fx = FIXTURES["waiting"]
-    s = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
+    s = fx.display_state(CFG)
     frames = {render(s, fx.now + timedelta(seconds=t), CFG).to_rgb888() for t in range(3)}
     assert len(frames) == 3
 
@@ -230,7 +230,7 @@ def test_waiting_has_one_layout_that_says_clean_in():
     assert list_variants("waiting", (52, 16)) == ["default"]
     assert tuple(CFG.captions["waiting"]) == ("CLEAN IN",)
     fx = FIXTURES["waiting"]
-    s = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
+    s = fx.display_state(CFG)
     with strict_text() as records:
         f = _waiting_52(s, fx.now, CFG)
         check_text(f, records)
@@ -278,7 +278,7 @@ def test_new_roles_are_their_own_colours():
 def test_idle_fixtures_show_each_level_colour():
     def bar_roles(name):
         fx = FIXTURES[name]
-        s = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
+        s = fx.display_state(CFG)
         return drawer_role(s, CFG), litter_role(s)
 
     assert bar_roles("ready") == ("drawer", "ok")
@@ -500,7 +500,7 @@ WIDE = {("ready", "arthur"), ("drawer_full", "default"), ("interrupted", "defaul
 @pytest.mark.parametrize(("name", "size", "variant"), list(cases()))
 def test_only_wide_layouts_use_columns_48_to_50(name, size, variant):
     fx = FIXTURES[name]
-    s = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
+    s = fx.display_state(CFG)
     if (fx.kind, variant) in WIDE:
         return
     off = CFG.rgb("off")
@@ -521,7 +521,7 @@ def _edge(f):
 
 def _drawer_full_frame(dt):
     fx = FIXTURES["drawer_full"]
-    s = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
+    s = fx.display_state(CFG)
     return render(s, fx.now + timedelta(seconds=dt), CFG)
 
 
