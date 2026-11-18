@@ -363,10 +363,8 @@ export function initLive({ control, getMeta }) {
 
   // --- idle show and sample weather -------------------------------------------------
   function buildShow(meta) {
-    const sh = meta.idle_show_shares || {};
     $("idle-show").onchange = (e) => control({ idle_show: e.target.checked });
-    $("idle-show").parentElement.querySelector("span").textContent =
-      `Idle show (page ${sh.page_pct ?? "?"} %, scene ${sh.scene_pct ?? "?"} %)`;
+    showLabel(meta.idle_show_shares);
     const code = $("wx-code");
     code.textContent = "";
     for (const [c, label] of meta.weather_codes || []) code.append(el("option", { value: c, text: `${label} (${c})` }));
@@ -396,14 +394,28 @@ export function initLive({ control, getMeta }) {
       (show.phase ? ` (${show.phase})` : "") + left;
   }
 
+  function showLabel(sh) {
+    sh = sh || {};
+    $("idle-show").parentElement.querySelector("span").textContent =
+      `Idle show (page ${sh.page_pct ?? "?"} %, scene ${sh.scene_pct ?? "?"} %)`;
+  }
+
   function renderShow(st) {
     const on = !!st.idle_show;
     const box = $("idle-show");
     if (idle(box)) box.checked = on;
+    const sh = st.idle_show_shares || {};
+    showLabel(sh);
     const cs = st.config_shares || {};
+    const cfgOn = cs.page_pct > 0 || cs.scene_pct > 0;
+    const cfgText = `page ${cs.page_pct} %, scene ${cs.scene_pct} %`;
     $("idle-show-note").textContent = on
-      ? "Studio only: the shares apply in memory; config/display.toml is not written."
-      : `Off: the config's shares (page ${cs.page_pct} %, scene ${cs.scene_pct} %).`;
+      ? (cfgOn
+        ? `On: plays with the config's shares (${cfgText}).`
+        : `On here only: plays with page ${sh.page_pct} %, scene ${sh.scene_pct} % in the studio. The config says ${cfgText}.`)
+      : (cfgOn
+        ? `Off here only: idle is the home page alone in the studio. The config still says ${cfgText}.`
+        : `Off: idle is the home page alone. The config says ${cfgText}.`);
     const w = st.weather || {};
     const rd = $("wx-reading");
     if (idle(rd)) rd.checked = !!w.reading;

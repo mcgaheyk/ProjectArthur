@@ -399,9 +399,21 @@ def test_cue_kind_is_checked():
         Cue(kind="home", at=NOW, length_s=10)
 
 
+#: The repository config with the idle show switched off: both shares 0.
+OFF_CFG = replace(CFG, idle=replace(CFG.idle, page_pct=0, scene_pct=0))
+
+
 @pytest.mark.parametrize("name", list(FIXTURES))
-def test_repository_config_gives_every_fixture_no_cue(name):
+def test_show_off_gives_every_fixture_no_cue(name):
     fx = FIXTURES[name]
     for s in range(0, 600, 3):
         now = fx.now + timedelta(seconds=s)
-        assert to_display_state(fx.snapshot, fx.health, now, CFG).cue is None
+        assert to_display_state(fx.snapshot, fx.health, now, OFF_CFG).cue is None
+
+
+@pytest.mark.parametrize("name", list(FIXTURES))
+def test_repository_config_opens_every_fixture_without_a_cue(name):
+    """With the show live, every fixture still maps to no cue at its own time: the show
+    fixtures carry their own cue, and the rest open on the home page (or are not idle)."""
+    fx = FIXTURES[name]
+    assert to_display_state(fx.snapshot, fx.health, fx.now, CFG).cue is None

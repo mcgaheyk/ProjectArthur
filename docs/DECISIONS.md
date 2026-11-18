@@ -452,3 +452,24 @@ slot or share of its own for the stretch: one bag keeps the cadence Kyle set.
 
 **Not known.** Whether the open-then-clap reads at 8 frames a second on the LEDs, and whether
 the second hind-leg stretch and the kneading show from across the room.
+
+## D-0023 — The idle show went live before the long check at the clock
+
+**2026-11-18.** Kyle said to go live with all of it the same afternoon it was built: the
+weather page at 30 %, scenes at 20 % (rat, bird and stretch), and the night sleep. The shares
+were set in `config/display.toml` at 13:53 and the running feeder took them up by itself.
+
+**What was skipped.** The plan (D-0019) put two things before going live: the ten-minute run
+at 8 frames a second with the test patterns on the LEDs, and Kyle's reaction to each screen
+in the studio. He had seen stills and the studio, chosen the weather layout (D-0021) and
+redirected the leap (D-0022), and had watched in use on the clock. The long run was not done.
+
+**What stood in for it.** The morning's bench: 8 a second for ten seconds, slowest push 64 ms
+of a 125 ms budget. And the first live round, read back from the clock's own screen at twelve
+moments: every part showed when the schedule said it should, and the feeder logged no error.
+
+**Accepted.** The first hours of real use are the test. The show is one config edit from off
+(both shares to 0), with no restart.
+
+**Not known.** How the clock holds up over days at about 4,500 pushes an hour, and how any
+of the show looks on the LEDs to Kyle.

@@ -21,10 +21,12 @@ own stale mark appears once the lifetime runs out. The fake clock's lifetime run
 
 In every mode but ``fixture``, mapping gets a sample :class:`~arthur.model.Weather` set in the
 studio (condition, day or night, temperature, or no reading at all), dated ten minutes before
-the source's time so it is always fresh. The **idle show** switch (off by default) maps and
-renders with the intended shares (:data:`SHOW_SHARES`) in memory instead of the config's, so
-scenario, manual and log modes play the real rotation; ``config/display.toml`` is never
-written.
+the source's time so it is always fresh. The **idle show** switch decides, in memory only,
+whether scenario, manual and log modes play the idle show (D-0019). Ticked, they map and render
+with the config's own shares when either is above 0, otherwise with :data:`SHOW_SHARES`.
+Unticked, both shares are 0, so idle is the home page alone. Until the switch is set it follows
+the config (ticked when either of its shares is above 0); once set, the choice holds across
+config reloads. ``config/display.toml`` is never written.
 
 Variants, push bookkeeping and frames are keyed by the size string ("52x16"), which has one
 entry; the control API takes variants as ``{"52x16": {kind: variant}}``.
@@ -100,8 +102,22 @@ _FAULT_CODES = {"PINCH_DETECT": "PD", "OVER_TORQUE_FAULT": "OTF", "CAT_SENSOR_FA
                 "UNKNOWN": "UNK"}
 
 #: The idle show's intended shares of a round (D-0019), which the studio's switch applies in
-#: memory while the repository config keeps them at 0.
+#: memory when the config's shares are both 0.
 SHOW_SHARES: dict[str, float] = {"page_pct": 30, "scene_pct": 20}
+
+
+def config_plays_show(cfg: Any) -> bool:
+    """Whether the config itself plays the idle show: either of its shares above 0."""
+    return cfg.idle.page_pct > 0 or cfg.idle.scene_pct > 0
+
+
+def ticked_shares(cfg: Any) -> dict[str, float]:
+    """The shares the Idle show switch plays with when ticked: the config's own when either is
+    above 0, otherwise :data:`SHOW_SHARES`."""
+    if config_plays_show(cfg):
+        return {"page_pct": cfg.idle.page_pct, "scene_pct": cfg.idle.scene_pct}
+    return dict(SHOW_SHARES)
+
 #: The sample weather's conditions: WMO weather codes, as Open-Meteo reports them.
 WEATHER_CODES: tuple[tuple[int, str], ...] = (
     (0, "clear"),
@@ -169,7 +185,9 @@ class StudioFeeder:
         self._fixture_t0 = time_fn()
         self._fixture_phase = 0.0  # seconds from selection to the feeder's next beat
 
-        self.idle_show = False
+        #: The Idle show switch as the person set it; None until they touch it, when it follows
+        #: the config (:attr:`idle_show`).
+        self.idle_show_choice: bool | None = None
         self.weather: dict[str, Any] = _sample_weather(p.fixtures)
         self.last_state: Any = None  # the DisplayState of the last compute()
 
@@ -310,7 +328,7 @@ class StudioFeeder:
         if "fixture" in ctl:
             self._select_fixture()
         if "idle_show" in ctl:
-            self.idle_show = ctl["idle_show"]
+            self.idle_show_choice = ctl["idle_show"]
         if weather:
             self.weather.update(weather)
         if "speed" in ctl:
@@ -600,13 +618,20 @@ class StudioFeeder:
             return fx.snapshot, fx.health, fx.time_at(self.fixture_position()), fx.name
         return (*self._manual_source(), "manual")
 
+    @property
+    def idle_show(self) -> bool:
+        """The switch's position: the person's choice, or until they make one, whether the
+        config plays the show (either share above 0)."""
+        if self.idle_show_choice is not None:
+            return self.idle_show_choice
+        return config_plays_show(self.pipe.current.cfg)
+
     def show_cfg(self) -> Any:
-        """The config to map and render with: the config file's, or with the switch on, the
-        same with the idle show's intended shares (in memory only)."""
+        """The config to map and render with, its shares replaced in memory only: with the
+        switch ticked, :func:`ticked_shares`; unticked, both 0 (idle is the home page alone)."""
         cfg = self.pipe.current.cfg
-        if not self.idle_show:
-            return cfg
-        return dataclasses.replace(cfg, idle=dataclasses.replace(cfg.idle, **SHOW_SHARES))
+        shares = ticked_shares(cfg) if self.idle_show else {"page_pct": 0, "scene_pct": 0}
+        return dataclasses.replace(cfg, idle=dataclasses.replace(cfg.idle, **shares))
 
     def sample_weather(self, now: datetime) -> Any:
         """The studio's sample reading, fetched :data:`WEATHER_AGE_S` before ``now``; None for
@@ -811,7 +836,7 @@ class StudioFeeder:
             "loop_s": p.fixture_loop_s(self._fixture_obj().name),
             "fixture_fps": p.fixture_fps(self._fixture_obj().name),
             "idle_show": self.idle_show,
-            "idle_show_shares": dict(SHOW_SHARES),
+            "idle_show_shares": ticked_shares(p.cfg),
             "config_shares": {"page_pct": idle.page_pct, "scene_pct": idle.scene_pct},
             "weather": dict(self.weather),
             "scenario": self.scenario,

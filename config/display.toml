@@ -98,12 +98,12 @@ interrupted_phrase_s = 3      # interrupted: seconds of the second phrase in eac
 interrupted_rest_s = 2        # interrupted: seconds of the empty globe before he walks in again
 
 # The idle show (D-0019): idle takes turns between the home page, the weather and date page
-# and a short scene, in rounds lined up with the wall clock. The intended shares are 30 (page)
-# and 20 (scene); they stay 0 until the idle show goes live, which leaves idle on the home page.
+# and a short scene, in rounds lined up with the wall clock. Kyle's split is 30 (page) and 20
+# (scene), live since 2026-11-18; set both to 0 to leave idle on the home page alone.
 [idle]
 round_s = 180                 # length of one round, seconds
-page_pct = 0                  # share of each round for the weather and date page, 0-100 (0 = off)
-scene_pct = 0                 # share of each round for a scene, 0-100 (0 = off)
+page_pct = 30                 # share of each round for the weather and date page, 0-100 (0 = off)
+scene_pct = 20                # share of each round for a scene, 0-100 (0 = off)
 # page_pct and scene_pct together are at most 90; the home page keeps the rest.
 settle_s = 45                 # no page or scene starts until idle has lasted this long
 # Night, in the local time zone: Arthur sleeps on the home page and there are no scenes.

@@ -2,6 +2,7 @@
 the idle-show scenarios, reload of the time base and pushes from outside feeders."""
 
 import base64
+import dataclasses
 import json
 import sys
 from datetime import UTC, datetime, timedelta
@@ -149,32 +150,87 @@ async def test_fixture_mode_plays_a_scene_at_eight_frames_a_second(client, fake_
 # --- the Idle show switch -------------------------------------------------------------------
 
 
-async def test_switch_turns_the_show_on_in_memory_only(client):
+def with_shares(holder, page_pct, scene_pct):
+    """Stand in for a config reload: the same pipeline with the given shares."""
+    p = holder.current
+    cfg = dataclasses.replace(p.cfg, idle=dataclasses.replace(
+        p.cfg.idle, page_pct=page_pct, scene_pct=scene_pct))
+    holder.current = dataclasses.replace(p, cfg=cfg)
+
+
+async def test_switch_follows_the_config_and_unticks_in_memory_only(client):
     feeder = client.app[FEEDER]
     pipe = client.app[PIPE].current
     before = DEFAULT_PATH.read_bytes()
-    assert pipe.cfg.idle.page_pct == 0 and pipe.cfg.idle.scene_pct == 0  # the repo's config
+    assert (pipe.cfg.idle.page_pct, pipe.cfg.idle.scene_pct) == (30, 20)  # the repo's config
     r = await client.post("/studio/control", json={
         "mode": "scenario", "scenario": "idle_hour", "playing": False, "position": 50})
     st = await r.json()
-    assert st["idle_show"] is False
-    assert st["showing"]["kind"] == "ready" and st["showing"]["show"]["part"] == "home"
-    assert feeder.last_state.cue is None
-
-    st = await (await client.post("/studio/control", json={"idle_show": True})).json()
-    assert st["idle_show"] is True and st["idle_show_shares"] == SHOW_SHARES
+    # Untouched, the switch follows the config: ticked, with the config's shares.
+    assert st["idle_show"] is True and feeder.idle_show_choice is None
+    assert st["idle_show_shares"] == st["config_shares"] == {"page_pct": 30, "scene_pct": 20}
     show = st["showing"]["show"]
     assert (show["part"], show["name"]) == ("page", "weather_big")
     assert show["left_s"] == pytest.approx(99 - 50)
     assert feeder.last_state.cue.kind == "page"
-    # Nothing written, nothing changed in the loaded config.
-    assert DEFAULT_PATH.read_bytes() == before
-    assert pipe.cfg.idle.page_pct == 0 and client.app[PIPE].current is pipe
-    assert st["config_shares"] == {"page_pct": 0, "scene_pct": 0}
 
+    # Unticked: the home page alone, in memory only.
     st = await (await client.post("/studio/control", json={"idle_show": False})).json()
+    assert st["idle_show"] is False
     assert st["showing"]["show"]["part"] == "home" and feeder.last_state.cue is None
+    assert st["config_shares"] == {"page_pct": 30, "scene_pct": 20}
+    assert DEFAULT_PATH.read_bytes() == before
+    assert (pipe.cfg.idle.page_pct, pipe.cfg.idle.scene_pct) == (30, 20)
+    assert client.app[PIPE].current is pipe
+
+    # Ticked again: the show is back.
+    st = await (await client.post("/studio/control", json={"idle_show": True})).json()
+    assert st["idle_show"] is True and st["showing"]["show"]["part"] == "page"
+    assert feeder.last_state.cue.kind == "page"
+    assert DEFAULT_PATH.read_bytes() == before
     assert (await client.post("/studio/control", json={"idle_show": 1})).status == 400
+
+
+async def test_switch_plays_the_intended_shares_when_the_config_has_none(client):
+    feeder = client.app[FEEDER]
+    holder = client.app[PIPE]
+    with_shares(holder, 0, 0)
+    st = await (await client.post("/studio/control", json={
+        "mode": "scenario", "scenario": "idle_hour", "playing": False, "position": 50})).json()
+    assert st["idle_show"] is False and feeder.idle_show_choice is None
+    assert st["config_shares"] == {"page_pct": 0, "scene_pct": 0}
+    assert st["idle_show_shares"] == SHOW_SHARES
+    assert st["showing"]["show"]["part"] == "home" and feeder.last_state.cue is None
+    meta = await (await client.get("/studio/meta")).json()
+    assert meta["idle_show_shares"] == SHOW_SHARES
+
+    st = await (await client.post("/studio/control", json={"idle_show": True})).json()
+    assert st["idle_show"] is True and st["idle_show_shares"] == SHOW_SHARES
+    assert st["showing"]["show"]["part"] == "page" and feeder.last_state.cue.kind == "page"
+    assert holder.current.cfg.idle.page_pct == 0  # the loaded config is untouched
+
+
+async def test_a_config_reload_keeps_an_explicit_choice(client):
+    feeder = client.app[FEEDER]
+    holder = client.app[PIPE]
+    feeder.apply({"mode": "scenario", "scenario": "idle_hour", "playing": False,
+                  "position": 50})
+    # Untouched, it follows each reload.
+    with_shares(holder, 0, 0)
+    assert feeder.idle_show is False
+    with_shares(holder, 30, 20)
+    assert feeder.idle_show is True
+    # Unticked, it stays off when the config reloads with the show on.
+    feeder.apply({"idle_show": False})
+    with_shares(holder, 40, 10)
+    assert feeder.idle_show is False
+    assert feeder.compute()["show"]["part"] == "home" and feeder.last_state.cue is None
+    # Ticked, it stays on when the config reloads with the show off, with the intended shares.
+    feeder.apply({"idle_show": True})
+    with_shares(holder, 0, 0)
+    assert feeder.idle_show is True
+    assert feeder.compute()["show"]["part"] == "page" and feeder.last_state.cue.kind == "page"
+    assert feeder.state()["idle_show_shares"] == SHOW_SHARES
 
 
 async def test_idle_hour_plays_pages_and_scenes_at_their_offsets(client):
@@ -270,7 +326,7 @@ async def test_meta_lists_the_weather_conditions(client):
     meta = await (await client.get("/studio/meta")).json()
     codes = {c: label for c, label in meta["weather_codes"]}
     assert {0, 3, 45, 95} <= set(codes) and codes[0] == "clear"
-    assert meta["idle_show_shares"] == SHOW_SHARES
+    assert meta["idle_show_shares"] == {"page_pct": 30, "scene_pct": 20}  # the config's
     assert all("fps" in f and "loop_s" in f for f in meta["fixtures"])
 
 

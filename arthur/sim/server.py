@@ -61,13 +61,13 @@ from arthur.sim.feeder import (
     MANUAL_DEFAULTS,
     MODES,
     POWER_TYPES,
-    SHOW_SHARES,
     SPEEDS,
     WAIT_MINUTES_RANGE,
     WEATHER_CODES,
     WEATHER_TEMP_RANGE,
     ControlError,
     StudioFeeder,
+    ticked_shares,
 )
 from arthur.sim.pipeline import LOOP_S, ReloadingPipeline, size_key
 from arthur.timebase import until_next_tick
@@ -304,7 +304,7 @@ def _meta(app: web.Application) -> dict[str, Any]:
         power_types=list(POWER_TYPES),
         wait_minutes_range=list(WAIT_MINUTES_RANGE),
         log_sub_modes=list(LOG_SUB_MODES),
-        idle_show_shares=dict(SHOW_SHARES),
+        idle_show_shares=ticked_shares(pipe.current.cfg),
         weather_codes=[[c, label] for c, label in WEATHER_CODES],
         weather_temp_range=list(WEATHER_TEMP_RANGE),
         reload_error=pipe.error,

@@ -447,8 +447,8 @@ def _show_base() -> RobotSnapshot:
 def _idle_hour() -> Scenario:
     return Scenario(
         "idle_hour",
-        "Idle for an hour from 10:00 Boston time. With the studio's Idle show switch on: "
-        "each 3-minute round is home, the weather page at 0:45, home, a scene at 2:24",
+        "Idle for an hour from 10:00 Boston time. Unless the studio's Idle show switch is "
+        "unticked, each 3-minute round is home, the weather page at 0:45, home, a scene at 2:24",
         SHOW_START,
         (Step(0, "ready", _show_base()),),
         3600,
@@ -468,7 +468,7 @@ def _visit_mid_scene() -> Scenario:
                    visits_today=4)
     return Scenario(
         "visit_mid_scene",
-        "Idle from 10:00 Boston time; with the Idle show switch on, a scene starts at 2:24 "
+        "Idle from 10:00 Boston time; unless the Idle show switch is unticked, a scene starts at 2:24 "
         "and Arthur steps in 16 s into it: in use replaces the scene at once",
         SHOW_START,
         (

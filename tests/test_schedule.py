@@ -219,9 +219,30 @@ def test_nothing_when_both_shares_are_zero():
         assert idle_cue(LONG_AGO, ROUND + timedelta(seconds=k), cfg) is None
 
 
-def test_repository_config_never_cues():
+def test_repository_config_with_the_shares_at_zero_never_cues():
+    off = replace(BASE_CFG, idle=replace(BASE_CFG.idle, page_pct=0, scene_pct=0))
     for k in range(0, 3 * 3600, 5):
-        assert idle_cue(LONG_AGO, ROUND + timedelta(seconds=k), BASE_CFG) is None
+        assert idle_cue(LONG_AGO, ROUND + timedelta(seconds=k), off) is None
+
+
+def test_repository_config_gives_kyles_split_over_a_day():
+    """Round 180 s: page 54 s at 0:45, scene 36 s at 2:24 (D-0019, D-0020). Over a whole day
+    the page has 30 % of the time; the scene has 20 % of the daytime and none of the night."""
+    assert slots(BASE_CFG) == (180, [("page", 45, 54), ("scene", 144, 36)])
+    start = datetime(2026, 11, 18, tzinfo=NY).astimezone(UTC)
+    seconds = {"page": 0, "scene": 0, "night_scene": 0}
+    for k in range(24 * 3600):
+        now = start + timedelta(seconds=k)
+        cue = idle_cue(LONG_AGO, now, BASE_CFG)
+        if cue is not None:
+            seconds[cue.kind] += 1
+            if cue.kind == "scene" and is_quiet(now, BASE_CFG):
+                seconds["night_scene"] += 1
+    day_s = 24 * 3600
+    quiet_h = (24 - BASE_CFG.idle.quiet_from_h) + BASE_CFG.idle.quiet_until_h
+    assert seconds["page"] == day_s * 30 // 100
+    assert seconds["scene"] == (day_s - quiet_h * 3600) * 20 // 100
+    assert seconds["night_scene"] == 0
 
 
 # --- quiet hours --------------------------------------------------------------------------

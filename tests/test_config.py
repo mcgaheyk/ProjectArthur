@@ -106,7 +106,7 @@ def test_load_from_path(tmp_path):
 def test_repo_config_has_boston_idle_and_weather():
     cfg = load_config()
     assert cfg.tz.key == "America/New_York"
-    assert (cfg.idle.round_s, cfg.idle.page_pct, cfg.idle.scene_pct) == (180, 0, 0)
+    assert (cfg.idle.round_s, cfg.idle.page_pct, cfg.idle.scene_pct) == (180, 30, 20)
     assert (cfg.idle.settle_s, cfg.idle.quiet_from_h, cfg.idle.quiet_until_h) == (45, 22, 7)
     assert cfg.weather == WeatherConfig(latitude=42.36, longitude=-71.06)
     assert (cfg.weather.refresh_s, cfg.weather.max_age_s) == (900, 2700)

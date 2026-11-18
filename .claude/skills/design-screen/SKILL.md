@@ -83,8 +83,9 @@ and still readable in one glance from across a room. Clear first, funny second.
    strip of consecutive frames as a PNG to open and look at, and `--weather` sets the reading.
 3. Look at it in the studio: start the "studio" server and open the All states view in the
    browser pane, then play a visit in the Scenario view to see transitions. To see the idle
-   show in rotation, tick the studio's Idle show switch and play the `idle_hour` scenario (the
-   repository config keeps the shares at 0 until the show goes live). To see a screen
+   show in rotation, play the `idle_hour` scenario: the show is live in the config (D-0023),
+   so the studio plays it. Untick the studio's Idle show switch to keep idle on the home
+   page alone while working on something else; it never changes the config. To see a screen
    against what the robot really did, pick the Robot log source and replay a recorded visit.
 4. When offering alternatives, add them as variants so they appear side by side, and let Kyle
    choose. Remove the losers afterwards.

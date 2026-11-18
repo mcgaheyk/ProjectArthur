@@ -19,7 +19,7 @@ _Last updated: 2026-11-18, early afternoon._ Current state only. History belongs
   border while the Mac sleeps. Its messages go to `logs/feeder-console.log`. Stop it with
   `pkill -f arthur.feeder`; start it with the command in CLAUDE.md. Never run a second copy,
   or `scripts/spike_log.py`, on the same account.
-- **Built and tested (2,989 tests):**
+- **Built and tested (3,034 tests):**
   - Feeder: `arthur/feeder.py` (the loop), `arthur/pusher.py` (when to push),
     `arthur/sources/whisker.py` (the one Whisker connection). On a login or API failure it
     shows NO DATA and retries; it reloads `config/display.toml` when the file changes; it
@@ -78,11 +78,16 @@ _Last updated: 2026-11-18, early afternoon._ Current state only. History belongs
     `logs/petlibro-*.jsonl` and `logs/petlibro-console.log`. It stops on a Mac restart and
     pauses during sleep; stop it with `pkill -f spike_petlibro`. Never start a second copy on
     the same account.
-- **In progress: the idle show (D-0019, D-0020).** Idle will rotate in a three-minute round:
-  home 45 s, a weather and date page 54 s, home 45 s, a 36-second scene, with Arthur asleep at
-  night. Kyle approved the plan and set the split (50 / 30 / 20) on 2026-11-18.
-  **It is built but switched off:** `[idle] page_pct` and `scene_pct` are 0 in
-  `config/display.toml`, so the clock still shows only the home page. Built and tested:
+- **The idle show is live (D-0019 to D-0023).** Since 13:53 on 2026-11-18 idle rotates in a
+  three-minute round: home 45 s, the weather and date page 54 s, home 45 s, a 36-second
+  scene (rat, bird or stretch), with Arthur asleep at night. Kyle set the split
+  (50 / 30 / 20) and said to go live the same day. `[idle] page_pct = 30` and
+  `scene_pct = 20` in `config/display.toml`; the running feeder picked them up by itself.
+  **The first full round was read back from the clock's own screen:** the home page, the
+  weather page (sun, 63°, `NOV` over `18`) from 0:45, home again, then the rat scene from
+  2:24, ending with him seated at his spot. The feeder logged no error. **The ten-minute
+  run at 8 a second and the test patterns were never run on the clock** (D-0023), and
+  Kyle has not yet said how any of it looks on the LEDs. What it is made of:
   - The loop ticks 8 times a second on the wall clock (`arthur/timebase.py`). Measured on the
     clock: 8 frames a second is comfortable (slowest push 64 ms of a 125 ms budget); figures
     in `docs/reference/awtrix-ng.md`.
@@ -109,7 +114,9 @@ _Last updated: 2026-11-18, early afternoon._ Current state only. History belongs
     first. With three scenes each plays about six or seven times an hour.
   - Night sleep: in the quiet hours (22:00 to 07:00 Boston time) the home page shows him
     curled up, breathing every 12 s with Zs, 10 screen changes a minute instead of 27.
-  - The studio plays all of it: an Idle show switch, sample weather, and the `idle_hour` and
+  - The studio plays all of it. Its Idle show switch follows the config (so it is on) and
+    can be unticked to keep idle on the home page alone in the studio; it never writes the
+    config. Also sample weather, and the `idle_hour` and
     `visit_mid_scene` scenarios, and `night_falls` and `morning` for the sleep transitions.
     Fixtures `idle_page`, `idle_page_detail`, `idle_rat`, `idle_rat_turned`, `idle_bird`,
     `idle_bird_perched`, `idle_stretch`, `idle_stretch_knead` and `ready_asleep` pin one
@@ -123,25 +130,31 @@ _Last updated: 2026-11-18, early afternoon._ Current state only. History belongs
 - **The running feeder has this code.** It was restarted at 13:47 on 2026-11-18, the first
   run of the 8-a-second loop and the weather source against the real robot and clock. It
   logged in, showed the home page (the clock's read-back showed Arthur, the bars and the
-  last-visit line) and logged no error in its first minute. With the shares at 0 nothing
-  new is shown. It has not been watched for longer than that, or through a visit.
+  last-visit line) and logged no error in its first minute. It has played the idle show
+  since 13:53. It has not been watched through a real visit, so a visit cutting into a
+  page or scene has only been seen in tests and the studio.
 - **Not built:** the Pi deployment (systemd unit, log retention), night dimming, food and
   water. See Later.
 ## Next
-**In hand, with Claude: the idle show (D-0019).** Left to do:
-- **Kyle, in the studio:** tick the Idle show switch and play `idle_hour`; look at the tiles
-  in All states. React to the new side-on leap and the stretch scene, the rat scene, the
+**In hand, with Claude: the idle show (D-0019), live and waiting for Kyle's reactions.**
+- **Kyle, at the clock over the next days:** say what looks wrong and what wears. The studio
+  (`idle_hour`, and the tiles in All states) shows any one part on demand.
+  React to the new side-on leap and the stretch scene, the rat scene, the
   second endings, the sleeping cat, the dissolve and the wipe, the rat's grey and the
   bird's blue, and whether the bird's wings (beating four times a second for about 20 s)
   are too busy. Known weak spots in the new work: his run before the crouch is only four
   frames; the second hind-leg stretch and the kneading are subtle. (The bird hovers at
   the far right edge before the leap; Kyle chose to leave that as it is.)
-- **Kyle, at the clock, about 15 minutes with the feeder stopped:** the bench's ten-minute run
-  at 8 a second and its test patterns (`scripts/push_bench.py`: `sustained`, `walk`,
-  `dissolve`, `wipe`, `slide`, `counter`), then any one cutaway with
-  `scripts/push_test.py --clock http://ADDRESS idle_rat`.
-- **Go live:** set `page_pct = 30` and `scene_pct = 20` in `config/display.toml` and restart
-  the feeder. The page can go first by setting only `page_pct`.
+- **Watch the clock's health.** It now takes about 4,500 pushes an hour, up from about
+  1,600, in bursts of 8 a second for 36 s of every three minutes. Trouble would look like
+  a frozen picture, the stale border during a scene, or the clock restarting; push errors
+  go to `logs/feeder-console.log`. **To switch the show off, set both shares to 0 in
+  `config/display.toml`**; the feeder reloads the file by itself, no restart.
+- **Still worth doing once, feeder stopped:** the bench's ten-minute run
+  (`scripts/push_bench.py --clock http://ADDRESS sustained`), for numbers to go with what
+  the eye sees.
+- **When Kyle has seen the weather page on the LEDs:** remove the unplayed layout
+  (`weather`, tile `idle_page_detail`) (D-0021).
 
 1. Kyle: watch Arthur's next visits on the clock. In use should last until he leaves, then a
    countdown from about 8:00 that reaches zero as the clean cycle starts, then about two

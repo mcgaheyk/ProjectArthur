@@ -98,9 +98,12 @@ def test_idle_hour_starts_rounds_on_the_home_page_in_daytime():
             cues.setdefault((s.cue.kind, s.cue.at), t)
     starts = sorted((t, kind) for (kind, _), t in cues.items())
     assert starts == [(45, "page"), (144, "scene"), (225, "page"), (324, "scene")]
-    # The repository's config plays no show.
+    # The repository's config plays the same show; with both shares at 0 it plays none.
     snap, health, now = sc.at(150)
-    assert to_display_state(snap, health, now, CFG).cue is None
+    assert to_display_state(snap, health, now, CFG).cue == \
+        to_display_state(snap, health, now, SHOW_CFG).cue
+    off = replace(CFG, idle=replace(CFG.idle, page_pct=0, scene_pct=0))
+    assert to_display_state(snap, health, now, off).cue is None
 
 
 def test_a_visit_cuts_into_a_scene_at_once():
