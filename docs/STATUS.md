@@ -12,7 +12,7 @@ _Last updated: 2026-11-18, early afternoon._ Current state only. History belongs
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
 - **The clock is live.** The feeder (`python -m arthur.feeder`) has been **running on Kyle's
-  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, and at 09:10 on 2026-11-18 after the push bench), detached under `caffeinate`, against the real robot and
+  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, at 09:10 on 2026-11-18 after the push bench, and at 13:47 that day after Kyle watched in use on the clock), detached under `caffeinate`, against the real robot and
   the real clock (D-0018). It logged in, read the robot and showed idle; the clock's screen
   read-back matched our render of the robot's state on all 832 pixels. **No real visit has
   been watched on the clock yet.** It stops on a Mac restart and the clock shows the stale
@@ -53,8 +53,9 @@ _Last updated: 2026-11-18, early afternoon._ Current state only. History belongs
   - Transport: `arthur/transports/awtrix_ng.py`. Before pushing, it turns off the TC002's
     double-size drawing (`enlargeApps`); after pushing, it takes every other app out of the
     clock's rotation (a new install rotates Time and Status with ours). Both are rechecked
-    every five minutes. Kyle said idle looks good on the LEDs; no other screen has been seen
-    on hardware.
+    every five minutes. Kyle said idle looks good on the LEDs, and watched in use on the
+    clock for about 90 s on 2026-11-18 (`scripts/push_test.py in_use`); he has not said what
+    he thought of it. No other screen has been seen on hardware.
   - Push test: `scripts/push_test.py --clock http://HOST [NAME] [--seconds N] [--readback]`
     shows any one screen on a real clock. Stop the feeder first, or the two fight over the
     screen.
@@ -119,10 +120,11 @@ _Last updated: 2026-11-18, early afternoon._ Current state only. History belongs
   side-on leap and the stretch scene (D-0022). He has seen stills of both, not the built
   animations. He has not yet reacted to the rat scene, the sleeping cat or the
   transitions, and has seen nothing on LEDs. Every screen here is a first cut.**
-- **The running feeder is older than this code.** It was started at 09:10 on 2026-11-18,
-  before the 8-a-second loop and the weather source existed. The next restart brings both in:
-  the loop changes and the feeder starts fetching the weather, though with the shares at 0
-  nothing new is shown. That restart has not been tried against the real robot and clock.
+- **The running feeder has this code.** It was restarted at 13:47 on 2026-11-18, the first
+  run of the 8-a-second loop and the weather source against the real robot and clock. It
+  logged in, showed the home page (the clock's read-back showed Arthur, the bars and the
+  last-visit line) and logged no error in its first minute. With the shares at 0 nothing
+  new is shown. It has not been watched for longer than that, or through a visit.
 - **Not built:** the Pi deployment (systemd unit, log retention), night dimming, food and
   water. See Later.
 ## Next
