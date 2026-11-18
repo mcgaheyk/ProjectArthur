@@ -11,9 +11,10 @@ from aiohttp import web
 from arthur.config import default_config
 from arthur.fixtures import FIXTURES
 from arthur.mapping import to_display_state
-from arthur.pushtest import build_parser, clock_url, compare, guarded, main
+from arthur.pushtest import READBACK_SETTLE_S, build_parser, clock_url, compare, guarded, main
 from arthur.render import Frame, render
 from arthur.sim.server import CLOCKS, create_app
+from arthur.timebase import SHOW_FPS
 from arthur.transports import AwtrixNgTransport, TransportError
 
 CFG = default_config()
@@ -91,15 +92,41 @@ async def test_animates_and_pushes_only_on_change(client):
     assert rc == 0
     fx = FIXTURES["ready"]
     state = to_display_state(fx.snapshot, fx.health, fx.now, CFG)
-    # Count distinct consecutive frames over the same 20 s, at the script's tick.
+    # Count distinct consecutive frames over the same 20 s, at the script's beat (fx.now is
+    # on a whole second, so the beats are every 1/SHOW_FPS s from the start).
     frames, t = [], 0.0
     while t <= 20:
         frames.append(render(state, fx.now + timedelta(seconds=t), CFG).to_rgb888())
-        t += 0.25
+        t += 1 / SHOW_FPS
     changes = 1 + sum(a != b for a, b in itertools.pairwise(frames))
     assert 1 < changes < len(frames)
     assert out.count("(new frame)") == changes
     assert "(heartbeat)" not in out  # 20 s is shorter than the 30 s heartbeat
+
+
+class RecordingTime(FakeTime):
+    def __init__(self) -> None:
+        super().__init__()
+        self.wakes: list[tuple[float, float]] = []  # (slept, woke at)
+
+    async def sleep(self, s: float) -> None:
+        self.t += s
+        self.wakes.append((s, self.t))
+
+
+async def test_ticks_on_the_beat_and_read_back_drops_beats(client):
+    fake = RecordingTime()
+    rc, _out, _ = await push(client, "ready", "--seconds", "3", fake=fake)
+    assert rc == 0
+    assert [s for s, _ in fake.wakes] == [1 / SHOW_FPS] * (3 * SHOW_FPS)
+
+    fake = RecordingTime()
+    rc, _out, _ = await push(client, "ready", "--seconds", "3", "--readback", fake=fake)
+    assert rc == 0
+    beats = [t for s, t in fake.wakes if s != READBACK_SETTLE_S]
+    # Every tick wakes on an eighth of the fixture's clock, even after a read-back's 0.2 s.
+    assert all((t - 1000) * SHOW_FPS == round((t - 1000) * SHOW_FPS) for t in beats)
+    assert any(s == READBACK_SETTLE_S for s, _ in fake.wakes)
 
 
 async def test_still_screen_gets_heartbeats(client):

@@ -1,9 +1,10 @@
 """The simulator server: clock routes, studio API, the feeder end to end, and reload."""
 
+import asyncio
 import base64
 import shutil
 import sys
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -12,7 +13,17 @@ from arthur.config import DEFAULT_PATH
 from arthur.render import Frame
 from arthur.sim.clock import BODY_LIMIT, STALE_RGB
 from arthur.sim.pipeline import LOOP_S
-from arthur.sim.server import CLOCKS, FEEDER, PIPE, check_reload, create_app
+from arthur.sim.server import (
+    CLOCKS,
+    FEEDER,
+    PIPE,
+    STATE_EVERY_S,
+    _feeder_loop,
+    broadcast,
+    check_reload,
+    create_app,
+    feeder_step,
+)
 
 
 class FakeTime:
@@ -346,6 +357,84 @@ async def test_ws_hello(client):
     assert set(msg["clocks"]) == {"52x16"}
     assert "feeder_alive" in msg["state"]
     await ws.close()
+
+
+async def _next(ws, timeout=2.0):
+    return await ws.receive_json(timeout=timeout)
+
+
+async def _nothing_sent(ws) -> bool:
+    try:
+        await ws.receive_json(timeout=0.15)
+    except TimeoutError:
+        return True
+    return False
+
+
+async def test_changed_frame_goes_out_straight_after_the_tick(client, fake_time):
+    app = client.app
+    feeder = app[FEEDER]
+    ws = await client.ws_connect("/studio/ws")
+    assert (await _next(ws))["type"] == "hello"
+
+    feeder.apply({"mode": "fixture", "fixture": "robot_off"})
+    await feeder_step(app)  # pushes to the fake clock, then broadcasts what it drew
+    msg = await _next(ws)
+    assert msg["type"] == "tick" and set(msg["clocks"]) == {"52x16"}
+    assert "state" in msg  # the first broadcast carries the state
+    want = the_clock(client).screen_json()["pixels"]
+    assert msg["clocks"]["52x16"]["pixels"] == want
+
+    # A new frame within the same quarter second: the pixels go at once, without the state.
+    feeder.apply({"fixture": "drawer_full"})
+    await feeder_step(app)
+    msg = await _next(ws)
+    assert msg["clocks"]["52x16"]["pixels"] == the_clock(client).screen_json()["pixels"] != want
+    assert "state" not in msg
+
+    # Nothing changed and the state was sent just now: nothing goes out.
+    await feeder_step(app)
+    assert await _nothing_sent(ws)
+    await ws.close()
+
+
+async def test_state_goes_out_at_most_four_times_a_second(client, fake_time):
+    app = client.app
+    ws = await client.ws_connect("/studio/ws")
+    await _next(ws)  # hello
+    await broadcast(app)
+    assert "state" in await _next(ws)
+    fake_time.t += STATE_EVERY_S - 0.01
+    await broadcast(app)
+    assert await _nothing_sent(ws)
+    fake_time.t += 0.01
+    await broadcast(app)
+    msg = await _next(ws)
+    assert "state" in msg and msg["clocks"] == {}
+    # A forced state (a control change, a reload) is not held back.
+    await broadcast(app, force_state=True)
+    assert "state" in await _next(ws)
+    assert STATE_EVERY_S == 0.25
+    await ws.close()
+
+
+async def test_studio_feeder_ticks_on_the_beat(client, monkeypatch):
+    app = client.app
+    app[FEEDER].base_url = None  # tick without pushing; only the timing is under test
+    start = datetime(2026, 11, 18, 9, 0, 0, 300_000, tzinfo=UTC)
+    wall = [start]
+    waits: list[float] = []
+
+    async def sleep(s):
+        waits.append(s)
+        wall[0] += timedelta(seconds=s)
+        if len(waits) >= 12:
+            raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await _feeder_loop(app, wall_fn=lambda: wall[0], sleep=sleep)
+    assert waits[0] == pytest.approx(0.075)  # from .300 to the next eighth, .375
+    assert waits[1:] == [0.125] * 11
 
 
 # --- live reload of the config ------------------------------------------------------------

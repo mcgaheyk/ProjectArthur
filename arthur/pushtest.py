@@ -5,7 +5,8 @@
 
 NAME is a display kind or fixture name, as for ``python -m arthur.render.preview NAME``
 (default ``ready``). The fixture is mapped once, at its own time, and rendered at 52x16 as
-time moves on from there, the way the studio plays a fixture. A frame is pushed when it
+time moves on from there, the way the studio plays a fixture, on the feeder's beat
+(:data:`arthur.timebase.SHOW_FPS` a second). A frame is pushed when it
 changes, and at least every ``heartbeat_s`` of config/display.toml, for ``--seconds``
 (default 60; 0 pushes one frame and exits).
 
@@ -37,11 +38,10 @@ from arthur.mapping import to_display_state
 from arthur.pusher import Pusher
 from arthur.render import Frame, list_variants, render
 from arthur.render.preview import names_text
+from arthur.timebase import until_next_tick
 from arthur.transports import AwtrixNgTransport, TransportError
 
 DEFAULT_NAME = "ready"
-#: How often the screen is re-rendered. Screens change on whole seconds.
-TICK_S = 0.25
 #: Wait between a push and its read-back, so the clock has drawn at least one frame.
 READBACK_SETTLE_S = 0.2
 #: How many differing pixels the read-back lists.
@@ -141,7 +141,9 @@ async def run(
                         say(line)
             if time_fn() - t0 >= opts.seconds:
                 break
-            await sleep(TICK_S)
+            # The next beat of the fixture's own clock (fx.now + elapsed), as the feeder
+            # wakes on the wall clock's: a slow push or read-back drops beats, never queues.
+            await sleep(until_next_tick(fx.now + timedelta(seconds=time_fn() - t0)))
         if opts.clear:
             await transport.clear()
             say(f"cleared app {opts.app}")

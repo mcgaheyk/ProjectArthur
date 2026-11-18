@@ -27,7 +27,8 @@ Studio
                               robot log ({"mode": "log", "log": {"sub_mode": "follow"|"replay",
                               "visit", "position", "speed", "playing"}})
   GET  /studio/png            ?fixture=&size=&variant=&scale=&gap=&stale=
-  GET  /studio/ws             WebSocket: the clock's pixels and the state when they change
+  GET  /studio/ws             WebSocket: the clock's pixels straight after each feeder tick
+                              that changed them, and the state at most 4 times a second
 
 The server binds to 127.0.0.1 only (see ``__main__``).
 
@@ -43,7 +44,8 @@ import contextlib
 import json
 import logging
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +66,7 @@ from arthur.sim.feeder import (
     StudioFeeder,
 )
 from arthur.sim.pipeline import LOOP_S, ReloadingPipeline, size_key
+from arthur.timebase import until_next_tick
 
 log = logging.getLogger("arthur.sim")
 
@@ -428,10 +431,18 @@ def _clock_pixels(app: web.Application) -> dict[str, dict[str, Any]]:
     return {sk: c.screen_json() for sk, c in app[CLOCKS].items()}
 
 
+#: The state block goes out at most this often (it is the larger part of a message).
+STATE_EVERY_S = 0.25
+#: The background broadcast runs this often, for what no feeder tick announces: the stale
+#: border appearing, pushes from a feeder outside the studio, and the state block.
+BROADCAST_POLL_S = 0.25
+
+
 class _Broadcast:
-    def __init__(self) -> None:
+    def __init__(self, time_fn: Callable[[], float] = time.monotonic) -> None:
+        self.time_fn = time_fn
         self.last_pixels: dict[str, list[int]] = {}
-        self.last_state_t = 0.0
+        self.last_state_t: float | None = None
 
 
 async def _send(ws: web.WebSocketResponse, msg: dict[str, Any]) -> bool:
@@ -444,16 +455,19 @@ async def _send(ws: web.WebSocketResponse, msg: dict[str, Any]) -> bool:
 
 async def broadcast(app: web.Application, *, force_state: bool = False,
                     extra: dict[str, Any] | None = None) -> None:
-    """Send changed clock pixels, and the state at most ~4 times a second (or when forced)."""
+    """Send changed clock pixels, and the state at most every STATE_EVERY_S (or when forced).
+
+    Pixels go out whenever they changed; a frame never waits for the state block."""
     sockets: set = app[SOCKETS]
     if not sockets:
         return
     b: _Broadcast = app[OPTIONS]["broadcast"]
     screens = _clock_pixels(app)
     changed = {sk: s for sk, s in screens.items() if b.last_pixels.get(sk) != s["pixels"]}
-    now = time.monotonic()
-    send_state = force_state or bool(changed) or now - b.last_state_t >= 0.25
-    if not send_state and extra is None:
+    now = b.time_fn()
+    send_state = (force_state or b.last_state_t is None
+                  or now - b.last_state_t >= STATE_EVERY_S)
+    if not changed and not send_state and extra is None:
         return
     msg: dict[str, Any] = {"type": "tick", "clocks": changed}
     if send_state:
@@ -513,17 +527,34 @@ async def _wait_until_listening(base_url: str | None, timeout_s: float = 10) -> 
         return
 
 
-async def _feeder_loop(app: web.Application) -> None:
-    feeder = app[FEEDER]
-    await _wait_until_listening(feeder.base_url)
+async def feeder_step(app: web.Application) -> None:
+    """One tick of the studio's feeder, then the frame straight to the page if it changed."""
+    try:
+        await app[FEEDER].tick()
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        log.exception("feeder tick failed")
+    try:
+        await broadcast(app)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        log.exception("broadcast failed")
+
+
+async def _feeder_loop(
+    app: web.Application,
+    *,
+    wall_fn: Callable[[], datetime] = lambda: datetime.now(UTC),
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> None:
+    """Ticks on the feeder's beat of the wall clock (arthur.timebase); a long tick drops
+    beats rather than queueing them."""
+    await _wait_until_listening(app[FEEDER].base_url)
     while True:
-        try:
-            await feeder.tick()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            log.exception("feeder tick failed")
-        await asyncio.sleep(0.25)
+        await feeder_step(app)
+        await sleep(until_next_tick(wall_fn()))
 
 
 async def _broadcast_loop(app: web.Application) -> None:
@@ -534,7 +565,7 @@ async def _broadcast_loop(app: web.Application) -> None:
             raise
         except Exception:
             log.exception("broadcast failed")
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(BROADCAST_POLL_S)
 
 
 async def check_reload(app: web.Application) -> bool | None:
@@ -631,7 +662,7 @@ def create_app(
                                log_dir=log_dir)
     app[SOCKETS] = set()
     app[GALLERY_CACHE] = {}
-    app[OPTIONS] = {"start_tasks": start_tasks, "broadcast": _Broadcast()}
+    app[OPTIONS] = {"start_tasks": start_tasks, "broadcast": _Broadcast(time_fn)}
 
     _add_clock_routes(app)
     r = app.router

@@ -5,9 +5,10 @@
 
 Pipeline: ``source → RobotSnapshot → mapping → DisplayState → render → Frame → transport``.
 The source (:class:`~arthur.sources.whisker.WhiskerSource`) holds the Whisker connection in a
-task of its own and writes the spike's log files; this loop asks it what it knows every
-:data:`TICK_S`, maps and draws the frame (52x16, each kind's default variant, as the studio
-does) and pushes it when it changed or the heartbeat is due (:class:`~arthur.pusher.Pusher`),
+task of its own and writes the spike's log files; this loop asks it what it knows on every
+beat of the wall clock (:data:`~arthur.timebase.SHOW_FPS` a second, lined up with whole
+seconds), maps and draws the frame (52x16, each kind's default variant, as the studio does)
+and pushes it when it changed or the heartbeat is due (:class:`~arthur.pusher.Pusher`),
 with ``lifetimeMs`` = ``ttl_s`` so the clock marks the frame stale by itself if the feeder
 stops (D-0004).
 
@@ -44,6 +45,7 @@ from arthur.pusher import Pusher
 from arthur.pushtest import clock_url
 from arthur.render import render
 from arthur.spikelog import ScrubFilter, read_credentials, scrub
+from arthur.timebase import until_next_tick
 from arthur.transports import AwtrixNgTransport
 from arthur.transports.base import DisplayTransport
 
@@ -52,8 +54,6 @@ log = logging.getLogger("arthur.feeder")
 EXIT_OK = 0
 EXIT_USAGE = 2
 DEFAULT_APP = "litter"
-#: How often the screen is mapped and drawn. Screens change on whole seconds.
-TICK_S = 0.25
 #: How often the config file's modification time is checked.
 CONFIG_CHECK_S = 1.0
 #: After the source task dies of a bug, start it again after this long.
@@ -261,7 +261,9 @@ class Feeder:
                 await self.tick()
                 if stop.is_set():
                     break
-                await self.sleep(TICK_S)
+                # Wake on the next beat of the wall clock. A tick that ran long (a slow push
+                # is awaited inside it) lands on a later beat; the ones it covered are dropped.
+                await self.sleep(until_next_tick(self.wall_fn()))
         finally:
             stop.set()
             try:

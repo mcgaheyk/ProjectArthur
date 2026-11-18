@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import os
 import shutil
@@ -240,6 +241,70 @@ async def test_config_reload_keeps_last_good(client, clock, tmp_path, caplog):
     assert feeder.cfg.timings.heartbeat_s == 20
     assert source.configs and source.configs[-1].timings.heartbeat_s == 20
     assert "config reloaded" in caplog.text
+
+
+# ---- the beat ---------------------------------------------------------------------------
+
+
+class SlowTransport:
+    """The real transport, with every push taking ``delay_s`` of fake time."""
+
+    def __init__(self, inner: AwtrixNgTransport, clock: FakeTime, delay_s: float) -> None:
+        self.inner, self.clock, self.delay_s = inner, clock, delay_s
+
+    async def show(self, frame, ttl_s):
+        self.clock.t += self.delay_s
+        await self.inner.show(frame, ttl_s)
+
+    async def clear(self):
+        await self.inner.clear()
+
+    async def close(self):
+        await self.inner.close()
+
+
+def tick_times(source: FakeSource, clock: FakeTime) -> list[float]:
+    """Record the fake time of every tick (each tick asks the source once)."""
+    seen: list[float] = []
+    view = source.view
+
+    def recording(now):
+        seen.append(clock.t)
+        return view(now)
+
+    source.view = recording
+    return seen
+
+
+async def test_ticks_land_on_eighths_of_the_wall_clock(client, clock):
+    clock.t = 1000.3  # start between beats: 0.3 s past a whole second of the wall clock
+    source = FakeSource(clock, ROBOT_OFF)
+    seen = tick_times(source, clock)
+    await run_for(make_feeder(client, clock, source), clock, 3)
+    assert seen[0] == 1000.3
+    assert seen[1] == 1000.375  # the next eighth, not 0.125 s after the start
+    assert all(t * 8 == int(t * 8) for t in seen[1:])  # every later tick is on an eighth
+    assert all(b - a == 0.125 for a, b in itertools.pairwise(seen[1:]))
+    assert 1001.0 in seen and 1002.0 in seen  # whole seconds are beats
+
+
+async def test_slow_push_drops_ticks_rather_than_queueing(client, clock):
+    source = FakeSource(clock, ROBOT_OFF)
+    seen = tick_times(source, clock)
+    inner = AwtrixNgTransport(base(client), session=client.session, time_fn=clock)
+    feeder = fd.Feeder(source, SlowTransport(inner, clock, 0.3), CFG, time_fn=clock,
+                       wall_fn=clock.wall, sleep=clock.sleep)
+
+    def new_frame_every_tick(c):  # so every tick pushes, and every push is slow
+        source.snapshot = READY if source.snapshot is ROBOT_OFF else ROBOT_OFF
+
+    clock.on_tick = new_frame_every_tick
+    await run_for(feeder, clock, 3)
+    # Each tick takes 0.3 s: the next one is the first beat after it ends (0.375 s on), and the
+    # two beats it covered are dropped, not run late back to back.
+    assert seen[:4] == [1000.0, 1000.375, 1000.75, 1001.125]
+    assert all(b - a == 0.375 for a, b in itertools.pairwise(seen))
+    assert feeder.pusher.pushes == len(seen)
 
 
 # ---- the command line ------------------------------------------------------------------
