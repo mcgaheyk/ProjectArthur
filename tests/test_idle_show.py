@@ -33,12 +33,12 @@ ROUNDS = (0, 1, 98_765)
 GOLDEN = Path(__file__).parent / "golden" / "strips"
 UPDATE = os.environ.get("ARTHUR_UPDATE_GOLDEN") == "1"
 
-#: Changed frames allowed in one 36-second scene slot (288 frames, so about a third). The
-#: placeholders change every frame only while he walks (72 frames for the rat, 62 for the
-#: bird), plus a dozen quiet-part glances, 11 for the glance and the two wipes, and a few for
-#: sitting and blinking: measured 91-94 (rat) and 82-86 (bird) over rounds 0-19. Real art may
-#: move more; raise this on purpose.
-CHANGED_FRAME_BUDGET = 100
+#: Changed frames allowed in one 36-second scene slot (288 frames). The bird placeholder
+#: measured 82-86 over rounds 0-19. The rat scene (tests/test_scene_rat.py) measured 105-122:
+#: its quiet part moves in small darts and twitches (about 40 changes), the burst changes on
+#: nearly every frame while something crosses the stage (about 45), the settle's walk and
+#: sit about 20, and the glance and wipes 11. Raise this on purpose.
+CHANGED_FRAME_BUDGET = 130
 
 
 def at(cue: Cue, k: int, us: int = 0) -> datetime:
@@ -244,8 +244,11 @@ def test_rounds_vary_the_quiet_part_and_repeat_exactly(name):
     assert quiet_frames(3) == rounds[3]
 
 
-@pytest.mark.parametrize("name", sorted(show.SCENES))
+@pytest.mark.parametrize("name", ["bird"])
 def test_quiet_part_changes_at_most_about_once_a_second(name):
+    # This checks the placeholder's shape, not a rule of the show: only the bird is still a
+    # placeholder. Delete it when the real bird scene lands; a real scene tests its own quiet
+    # part (tests/test_scene_rat.py).
     # The placeholders end with 3 burst beats and 4 settling beats; the rest is the quiet part.
     for n in range(10):
         for length in SLOT_LENGTHS:
