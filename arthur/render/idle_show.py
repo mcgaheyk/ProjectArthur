@@ -90,7 +90,7 @@ SCENE_FRAMES_AROUND = GLANCE_FRAMES + 2 * WIPE_FRAMES
 GLANCE_POSE = "right"
 REST_POSE = "rest"
 #: The page played when a page cue names none.
-DEFAULT_PAGE = "weather"
+DEFAULT_PAGE = "weather_big"
 #: Seed of the dissolve's pixel order (the push bench's, so its measurements still apply).
 DISSOLVE_SEED = 52_16
 

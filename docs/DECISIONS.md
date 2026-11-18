@@ -382,6 +382,7 @@ or as a glitch, the rat's and bird's colours, and how the split feels over a wor
 this was written only the bench (`scripts/push_bench.py`) was built.
 
 ## D-0020 — Weather comes from Open-Meteo, and it is a decoration
+_→ See D-0021 for the layout: the page no longer shows the high and low._
 
 **2026-11-18.** The idle show's page (D-0019) shows Boston's temperature, a weather picture and
 today's high and low, with the date as month and day. Kyle does not want the day of the week.
@@ -406,3 +407,21 @@ alone until the next fetch.
 
 **Not known.** How often the "current" values really change, and what a rate-limit refusal
 looks like. The free terms allow 10,000 calls a day; we make 96.
+
+## D-0021 — The weather page is the big-temperature layout
+
+**2026-11-18.** Kyle compared the two layouts built for the idle show's page (D-0019) and chose
+the big one, `weather_big`: the weather picture, the temperature at double size, and the date
+stacked at the right (`NOV` over `18`). It is the page a page cue plays.
+
+**Why.** His pick, made from a side-by-side picture and the studio. The temperature fills the
+height of the screen, so it reads from across the room.
+
+**Rejected.** The layout with the temperature at normal size, today's high and low beside it
+and the date on one line. D-0020 says the page shows the high and low; it no longer does. The
+weather source still fetches them.
+
+**Accepted.** The rejected layout stays in the code as `weather`, never played, with one tile
+(`idle_page_detail`), until Kyle has seen the page on the LEDs. Remove it then.
+
+**Not known.** How the double-size digits look on real LEDs.

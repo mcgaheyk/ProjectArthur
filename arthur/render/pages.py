@@ -3,13 +3,14 @@
 A page is ``(state, now, cfg) -> Frame`` at 52x16 with the border empty; it runs on whole
 seconds like the home page. The player dissolves into and out of it.
 
-Two layouts of Boston's weather and the date, for Kyle to choose between in the studio:
+Two layouts of Boston's weather and the date. Kyle chose ``weather_big`` in the studio
+(D-0021); ``weather`` is kept, unplayed, until he has seen the page on the LEDs:
 
-- ``weather`` (the page a page cue plays by default): a weather glyph on the left; beside it
-  the temperature in the 7-row font with today's high and low in the small font after it,
-  and the date (``NOV 18``) on the line below.
-- ``weather_big``: the same glyph, the temperature at double size and the date stacked
-  (``NOV`` over ``18``) to its right; no high and low.
+- ``weather_big`` (the page a page cue plays by default): a weather glyph on the left, the
+  temperature at double size and the date stacked (``NOV`` over ``18``) to its right; no
+  high and low.
+- ``weather``: the same glyph; beside it the temperature in the 7-row font with today's high
+  and low in the small font after it, and the date (``NOV 18``) on the line below.
 
 With no fresh reading (``state.weather`` is None) both show the date alone, centred in the
 7-row font: never an old temperature. The date is the month and the day in the config's zone;

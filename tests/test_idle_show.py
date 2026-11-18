@@ -377,9 +377,9 @@ def test_page_frames_are_clean_steady_and_strict():
             assert f == play(cue, k, FRAME_US - 1)
 
 
-def test_page_with_no_name_is_the_weather_page():
+def test_page_with_no_name_is_the_default_page():
     k = 40
-    assert play(page_cue(None), k) == play(page_cue("weather"), k)
+    assert play(page_cue(None), k) == play(page_cue(show.DEFAULT_PAGE), k)
 
 
 def test_unknown_page_shows_home():
@@ -425,7 +425,8 @@ def test_show_fixtures():
         assert fx.loop_s == fx.cue.length_s
         assert fx.loop_s * SHOW_FPS == int(fx.loop_s * SHOW_FPS)  # whole beats
     assert page.cue.kind == "page" and page.cue.at == NOW - timedelta(seconds=2)
-    assert render(page.display_state(CFG), NOW, CFG) == weather_page(
+    assert page.cue.name == show.DEFAULT_PAGE
+    assert render(page.display_state(CFG), NOW, CFG) == show.PAGES[page.cue.name](
         page.display_state(CFG), NOW, CFG)
     assert (rat.cue.name, bird.cue.name) == ("rat", "bird")
     assert rat.cue.at == bird.cue.at == NOW and rat.cue.length_s == 36

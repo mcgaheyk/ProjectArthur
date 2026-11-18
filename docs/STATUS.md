@@ -1,6 +1,6 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-18, late morning._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-18, midday._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
 - **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
@@ -88,8 +88,10 @@ _Last updated: 2026-11-18, late morning._ Current state only. History belongs in
   - The schedule (`arthur/schedule.py`), decided in mapping and carried as a cue.
   - The engine (`arthur/render/idle_show.py`): a page dissolves in and out; a scene opens
     with the bars wiping away beside seated Arthur and closes with them wiping back.
-  - The weather and date page in two layouts, `weather` and `weather_big`
-    (`arthur/render/pages.py`). The date is `NOV 18`: Kyle does not want the weekday.
+  - The weather and date page (`arthur/render/pages.py`). **Kyle chose the big-temperature
+    layout, `weather_big`** (D-0021): the picture, the temperature at double size, the date
+    stacked as `NOV` over `18`, no high and low and no weekday. The other layout, `weather`,
+    is kept unplayed until he has seen the page on LEDs.
   - The weather source (`arthur/sources/weather.py`): Open-Meteo for Boston every 15 minutes,
     confirmed with one live request (`docs/reference/open-meteo.md`).
   - The rat scene with both endings (`arthur/render/scenes/rat.py`): the rat creeps toward
@@ -102,12 +104,13 @@ _Last updated: 2026-11-18, late morning._ Current state only. History belongs in
     curled up, breathing every 12 s with Zs, 10 screen changes a minute instead of 27.
   - The studio plays all of it: an Idle show switch, sample weather, and the `idle_hour` and
     `visit_mid_scene` scenarios, and `night_falls` and `morning` for the sleep transitions.
-    Fixtures `idle_page`, `idle_page_big`, `idle_rat`, `idle_rat_turned`, `idle_bird`,
+    Fixtures `idle_page`, `idle_page_detail`, `idle_rat`, `idle_rat_turned`, `idle_bird`,
     `idle_bird_perched` and `ready_asleep` pin one screen each. In `idle_hour` the first
     bird scene is at 2:24, the first rat at 5:24, the perched ending at 8:24 and the
     tables-turned ending at 11:24.
-  **Kyle has seen stills of the art and the weather page, not the studio, and nothing on
-  LEDs. Every screen here is a first cut for him to react to.**
+  **Kyle opened the studio on 2026-11-18 and chose the weather layout. He has not yet
+  reacted to the scenes, the sleeping cat or the transitions, and has seen nothing on LEDs.
+  Every screen here is a first cut for him to react to.**
 - **The running feeder is older than this code.** It was started at 09:10 on 2026-11-18,
   before the 8-a-second loop and the weather source existed. The next restart brings both in:
   the loop changes and the feeder starts fetching the weather, though with the shares at 0
@@ -117,10 +120,9 @@ _Last updated: 2026-11-18, late morning._ Current state only. History belongs in
 ## Next
 **In hand, with Claude: the idle show (D-0019).** Left to do:
 - **Kyle, in the studio:** tick the Idle show switch and play `idle_hour`; look at the tiles
-  in All states. Choose the weather layout (`weather` or `weather_big`), react to the rat
-  and bird scenes and their second endings, the sleeping cat, the dissolve and the wipe, the
-  rat's grey and the bird's blue, whether the high and low should stay orange, and whether
-  the bird's wings (beating four times a second for about 20 s) are too busy.
+  in All states. React to the rat and bird scenes and their second endings, the sleeping
+  cat, the dissolve and the wipe, the rat's grey and the bird's blue, and whether the
+  bird's wings (beating four times a second for about 20 s) are too busy.
 - **Kyle, at the clock, about 15 minutes with the feeder stopped:** the bench's ten-minute run
   at 8 a second and its test patterns (`scripts/push_bench.py`: `sustained`, `walk`,
   `dissolve`, `wipe`, `slide`, `counter`), then any one cutaway with

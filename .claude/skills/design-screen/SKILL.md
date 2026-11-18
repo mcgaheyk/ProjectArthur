@@ -78,7 +78,7 @@ and still readable in one glance from across a room. Clear first, funny second.
 ## 3. Loop
 1. Edit the layout, icon (text-art under `arthur/render/icons/`) or config.
 2. Print it: `uv run python -m arthur.render.preview --all` (or name one state). For a page
-   or scene, name its fixture (`idle_page`, `idle_page_big`, `idle_rat`, `idle_rat_turned`,
+   or scene, name its fixture (`idle_page`, `idle_page_detail`, `idle_rat`, `idle_rat_turned`,
    `idle_bird`, `idle_bird_perched`): `--at SECONDS` picks a moment, `--sheet DIR --frames N --step 0.125` writes a
    strip of consecutive frames as a PNG to open and look at, and `--weather` sets the reading.
 3. Look at it in the studio: start the "studio" server and open the All states view in the

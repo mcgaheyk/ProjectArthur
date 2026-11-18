@@ -226,16 +226,18 @@ def _show(name: str, description: str, cue: Cue) -> Fixture:
 
 
 _LIST += [
+    # The page the show plays is the big-temperature layout, weather_big (D-0021).
     _show("idle_page", "Idle show: the weather page, 2 s into its 54 s slot (the page itself)",
-          Cue(kind="page", at=ago(2), length_s=PAGE_SLOT_S, n=0, name="weather")),
+          Cue(kind="page", at=ago(2), length_s=PAGE_SLOT_S, n=0, name="weather_big")),
     replace(_show("idle_page_rain", "Idle show: the weather page, rain at 41 F",
-                  Cue(kind="page", at=ago(2), length_s=PAGE_SLOT_S, n=0, name="weather")),
+                  Cue(kind="page", at=ago(2), length_s=PAGE_SLOT_S, n=0, name="weather_big")),
             weather=RAIN_WEATHER),
     replace(_show("idle_page_night", "Idle show: the weather page, a clear night at 28 F",
-                  Cue(kind="page", at=ago(2), length_s=PAGE_SLOT_S, n=0, name="weather")),
+                  Cue(kind="page", at=ago(2), length_s=PAGE_SLOT_S, n=0, name="weather_big")),
             weather=NIGHT_WEATHER),
-    _show("idle_page_big", "Idle show: the big-temperature weather page (weather_big)",
-          Cue(kind="page", at=ago(2), length_s=PAGE_SLOT_S, n=0, name="weather_big")),
+    _show("idle_page_detail", "Idle show: the other weather layout, with the high and low "
+          "(weather; not played)",
+          Cue(kind="page", at=ago(2), length_s=PAGE_SLOT_S, n=0, name="weather")),
     _show("idle_rat", "Idle show: the rat scene from the start of its 36 s slot",
           Cue(kind="scene", at=NOW, length_s=SCENE_SLOT_S, n=0, name="rat")),
     # Round 2 is the first round whose seeded pick gives the rat scene's other ending.

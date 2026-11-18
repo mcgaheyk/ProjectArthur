@@ -164,7 +164,7 @@ async def test_switch_turns_the_show_on_in_memory_only(client):
     st = await (await client.post("/studio/control", json={"idle_show": True})).json()
     assert st["idle_show"] is True and st["idle_show_shares"] == SHOW_SHARES
     show = st["showing"]["show"]
-    assert (show["part"], show["name"]) == ("page", "weather")
+    assert (show["part"], show["name"]) == ("page", "weather_big")
     assert show["left_s"] == pytest.approx(99 - 50)
     assert feeder.last_state.cue.kind == "page"
     # Nothing written, nothing changed in the loaded config.

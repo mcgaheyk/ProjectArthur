@@ -216,15 +216,15 @@ def test_the_temperature_is_only_the_readings(name):
 def test_pages_are_registered():
     assert show.PAGES["weather"] is pages.weather_page
     assert show.PAGES["weather_big"] is pages.weather_big_page
-    assert show.DEFAULT_PAGE == "weather"
+    assert show.DEFAULT_PAGE == "weather_big"
 
 
 # --- fixtures and preview --------------------------------------------------------------------
 
 
 def test_weather_page_fixtures():
-    for name, page_name in (("idle_page", "weather"), ("idle_page_rain", "weather"),
-                            ("idle_page_night", "weather"), ("idle_page_big", "weather_big")):
+    for name, page_name in (("idle_page", "weather_big"), ("idle_page_rain", "weather_big"),
+                            ("idle_page_night", "weather_big"), ("idle_page_detail", "weather")):
         fx = FIXTURES[name]
         st = fx.display_state(CFG)
         assert st.weather == fx.weather is not None and fx.cue.name == page_name
@@ -240,7 +240,7 @@ def test_preview_weather_override(capsys, tmp_path):
     assert "idle_page [61 day 41 47 35] [ready]" in out
     assert "idle_page [no weather] [ready]" in out
     assert "idle_page [0 night 28] [ready]" in out
-    assert preview_main(["idle_page_big", "--weather", "glyphs", "--sheet", str(tmp_path),
+    assert preview_main(["idle_page_detail", "--weather", "glyphs", "--sheet", str(tmp_path),
                          "--frames", "2"]) == 0
-    assert list(tmp_path.glob("sheet__idle_page_big__*frames2.png"))
+    assert list(tmp_path.glob("sheet__idle_page_detail__*frames2.png"))
     assert preview_main(["idle_page", "--weather", "61,dusk"]) == 2
