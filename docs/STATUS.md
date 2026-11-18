@@ -19,7 +19,7 @@ _Last updated: 2026-11-18, morning._ Current state only. History belongs in git 
   border while the Mac sleeps. Its messages go to `logs/feeder-console.log`. Stop it with
   `pkill -f arthur.feeder`; start it with the command in CLAUDE.md. Never run a second copy,
   or `scripts/spike_log.py`, on the same account.
-- **Built and tested (737 tests):**
+- **Built and tested (1,736 tests):**
   - Feeder: `arthur/feeder.py` (the loop), `arthur/pusher.py` (when to push),
     `arthur/sources/whisker.py` (the one Whisker connection). On a login or API failure it
     shows NO DATA and retries; it reloads `config/display.toml` when the file changes; it
@@ -77,25 +77,47 @@ _Last updated: 2026-11-18, morning._ Current state only. History belongs in git 
     `logs/petlibro-*.jsonl` and `logs/petlibro-console.log`. It stops on a Mac restart and
     pauses during sleep; stop it with `pkill -f spike_petlibro`. Never start a second copy on
     the same account.
-- **In progress: the idle show (D-0019).** Idle will rotate in a three-minute round: home
-  45 s, a weather and date page 54 s, home 45 s, a 36-second scene (a rat chase or Arthur
-  leaping at a bird), with Arthur asleep at night. Kyle approved the plan on 2026-11-18.
-  **Built so far: only the bench**, `scripts/push_bench.py`, which times frame pushes to the
-  real clock and shows motion test patterns. Measured that morning: 8 frames a second is
-  comfortable (slowest push 64 ms of a 125 ms budget); figures in
-  `docs/reference/awtrix-ng.md`. The research behind the design is
-  `docs/research/2026-11-18-led-animation-and-idle-cadence.md`. **Nothing on the clock has
-  changed yet.**
+- **In progress: the idle show (D-0019, D-0020).** Idle will rotate in a three-minute round:
+  home 45 s, a weather and date page 54 s, home 45 s, a 36-second scene, with Arthur asleep at
+  night. Kyle approved the plan and set the split (50 / 30 / 20) on 2026-11-18.
+  **It is built but switched off:** `[idle] page_pct` and `scene_pct` are 0 in
+  `config/display.toml`, so the clock still shows only the home page. Built and tested:
+  - The loop ticks 8 times a second on the wall clock (`arthur/timebase.py`). Measured on the
+    clock: 8 frames a second is comfortable (slowest push 64 ms of a 125 ms budget); figures
+    in `docs/reference/awtrix-ng.md`.
+  - The schedule (`arthur/schedule.py`), decided in mapping and carried as a cue.
+  - The engine (`arthur/render/idle_show.py`): a page dissolves in and out; a scene opens
+    with the bars wiping away beside seated Arthur and closes with them wiping back.
+  - The weather and date page in two layouts, `weather` and `weather_big`
+    (`arthur/render/pages.py`). The date is `NOV 18`: Kyle does not want the weekday.
+  - The weather source (`arthur/sources/weather.py`): Open-Meteo for Boston every 15 minutes,
+    confirmed with one live request (`docs/reference/open-meteo.md`).
+  - The rat scene with both endings (`arthur/render/scenes/rat.py`).
+  - The studio plays all of it: an Idle show switch, sample weather, and the `idle_hour` and
+    `visit_mid_scene` scenarios. Fixtures `idle_page`, `idle_page_big`, `idle_rat`,
+    `idle_rat_turned` and `idle_bird` pin one cutaway each.
+  **The bird scene is still a placeholder and night sleep is not built** (both were being
+  written when this was last updated). **Kyle has seen stills of the art and the weather
+  page, not the studio, and nothing on LEDs.**
+- **The running feeder is older than this code.** It was started at 09:10 on 2026-11-18,
+  before the 8-a-second loop and the weather source existed. The next restart brings both in:
+  the loop changes and the feeder starts fetching the weather, though with the shares at 0
+  nothing new is shown. That restart has not been tried against the real robot and clock.
 - **Not built:** the Pi deployment (systemd unit, log retention), night dimming, food and
   water. See Later.
 ## Next
-**In hand, with Claude: the idle show (D-0019).** Steps left, one commit each: the steady
-1/8 s loop; config (timezone, `[idle]`, `[weather]`, colours); the cue, schedule and mapping;
-the scene engine with transitions; studio support, the weather page and the Open-Meteo poller;
-go live with the weather page; the rat scenes, the bird scene and night sleep; go live with
-scenes. Still owed from the bench, with Kyle watching the LEDs: the ten-minute run at 8 a
-second and the test patterns (`walk`, `dissolve`, `wipe`, `slide`, `counter`). Stop the feeder
-for those and restart it after.
+**In hand, with Claude: the idle show (D-0019).** Left to do:
+- Finish the bird scene and night sleep, then review both.
+- **Kyle, in the studio:** tick the Idle show switch and play `idle_hour`; look at the tiles
+  in All states. Choose the weather layout (`weather` or `weather_big`), react to the rat
+  scene and its second ending, the dissolve and the wipe, the rat's grey and the bird's blue,
+  and whether the high and low should stay orange.
+- **Kyle, at the clock, about 15 minutes with the feeder stopped:** the bench's ten-minute run
+  at 8 a second and its test patterns (`scripts/push_bench.py`: `sustained`, `walk`,
+  `dissolve`, `wipe`, `slide`, `counter`), then any one cutaway with
+  `scripts/push_test.py --clock http://ADDRESS idle_rat`.
+- **Go live:** set `page_pct = 30` and `scene_pct = 20` in `config/display.toml` and restart
+  the feeder. The page can go first by setting only `page_pct`.
 
 1. Kyle: watch Arthur's next visits on the clock. In use should last until he leaves, then a
    countdown from about 8:00 that reaches zero as the clean cycle starts, then about two
