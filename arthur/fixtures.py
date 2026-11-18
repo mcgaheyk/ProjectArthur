@@ -228,6 +228,9 @@ _LIST += [
           Cue(kind="page", at=ago(2), length_s=PAGE_SLOT_S, n=0, name="weather_big")),
     _show("idle_rat", "Idle show: the rat scene from the start of its 36 s slot",
           Cue(kind="scene", at=NOW, length_s=SCENE_SLOT_S, n=0, name="rat")),
+    # Round 2 is the first round whose seeded pick gives the rat scene's other ending.
+    _show("idle_rat_turned", "Idle show: the rat scene with the tables turned (round 2)",
+          Cue(kind="scene", at=NOW, length_s=SCENE_SLOT_S, n=2, name="rat")),
     _show("idle_bird", "Idle show: the bird scene from the start of its 36 s slot",
           Cue(kind="scene", at=NOW, length_s=SCENE_SLOT_S, n=0, name="bird")),
 ]
