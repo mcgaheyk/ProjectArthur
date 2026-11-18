@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import tomllib
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 RGB = tuple[int, int, int]
 
@@ -131,6 +133,32 @@ class Timings:
     interrupted_rest_s: float = 2
 
 
+@dataclass(frozen=True)
+class Idle:
+    """The idle show (D-0019): rounds of home page, information page and scene."""
+
+    round_s: float = 180
+    #: Share of each round for the information page and for a scene, in percent. 0 is off; the
+    #: home page keeps the rest.
+    page_pct: float = 0
+    scene_pct: float = 0
+    #: No cutaway starts until idle has lasted this long.
+    settle_s: float = 45
+    #: Quiet hours (the cat asleep) in the local zone, whole hours; equal values mean none.
+    quiet_from_h: int = 22
+    quiet_until_h: int = 7
+
+
+@dataclass(frozen=True)
+class WeatherConfig:
+    """Where the weather page's forecast is for, and how often it is fetched."""
+
+    latitude: float
+    longitude: float
+    refresh_s: float = 900
+    max_age_s: float = 2700
+
+
 #: An empty caption table, for configs without [captions].
 NO_CAPTIONS: Mapping[str, tuple[str, ...]] = MappingProxyType({})
 
@@ -145,9 +173,18 @@ class Config:
     #: Caption key → the jokes to pick from. Screens fall back to a plain word when a key is
     #: missing or none of its captions fits.
     captions: Mapping[str, tuple[str, ...]] = NO_CAPTIONS
+    #: The local time zone (``[display] timezone``); UTC when the key is absent.
+    tz: ZoneInfo = field(default_factory=lambda: ZoneInfo("UTC"))
+    idle: Idle = field(default_factory=Idle)
+    #: ``None`` when there is no ``[weather]`` table.
+    weather: WeatherConfig | None = None
 
     def rgb(self, role: str) -> RGB:
         return self.palette.rgb(role)
+
+    def local(self, now: datetime) -> datetime:
+        """The aware ``now`` as wall-clock time in :attr:`tz`."""
+        return now.astimezone(self.tz)
 
 
 def _section(data: Mapping[str, Any], name: str) -> Mapping[str, Any]:
@@ -170,6 +207,59 @@ def _numbers(sec: Mapping[str, Any], cls: type, name: str) -> Any:
             raise ConfigError(f"[{name}] {key} must not be negative")
         kwargs[key] = value
     return cls(**kwargs)
+
+
+def _timezone(display: Mapping[str, Any]) -> ZoneInfo:
+    name = display.get("timezone", "UTC")
+    if not isinstance(name, str) or not name.strip():
+        raise ConfigError(f"[display] timezone must be a zone name, got {name!r}")
+    try:
+        return ZoneInfo(name.strip())
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ConfigError(f"[display] timezone {name!r} is not a known time zone") from exc
+
+
+def _idle(sec: Mapping[str, Any]) -> Idle:
+    idle = _numbers(sec, Idle, "idle")
+    if idle.round_s <= 0:
+        raise ConfigError("[idle] round_s must be above 0")
+    for key in ("page_pct", "scene_pct"):
+        if getattr(idle, key) > 100:
+            raise ConfigError(f"[idle] {key} must be 0 to 100")
+    if idle.page_pct + idle.scene_pct > 90:
+        raise ConfigError("[idle] page_pct and scene_pct together must be at most 90")
+    for key in ("quiet_from_h", "quiet_until_h"):
+        h = getattr(idle, key)
+        if not isinstance(h, int) or h > 23:
+            raise ConfigError(f"[idle] {key} must be a whole hour, 0 to 23")
+    return idle
+
+
+def _weather(data: Mapping[str, Any]) -> WeatherConfig | None:
+    if "weather" not in data:
+        return None
+    sec = _section(data, "weather")
+    unknown = set(sec) - set(WeatherConfig.__dataclass_fields__)
+    if unknown:
+        raise ConfigError(f"unknown key(s) in [weather]: {', '.join(sorted(unknown))}")
+    kwargs = {}
+    for key, value in sec.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ConfigError(f"[weather] {key} must be a number, got {value!r}")
+        kwargs[key] = value
+    for key in ("latitude", "longitude"):
+        if key not in kwargs:
+            raise ConfigError(f"[weather] is missing {key}")
+    if not -90 <= kwargs["latitude"] <= 90:
+        raise ConfigError("[weather] latitude must be within -90 to 90")
+    if not -180 <= kwargs["longitude"] <= 180:
+        raise ConfigError("[weather] longitude must be within -180 to 180")
+    weather = WeatherConfig(**kwargs)
+    if weather.refresh_s < 300:
+        raise ConfigError("[weather] refresh_s must be at least 300")
+    if weather.max_age_s < weather.refresh_s:
+        raise ConfigError("[weather] max_age_s must be at least refresh_s")
+    return weather
 
 
 def _captions(sec: Mapping[str, Any]) -> Mapping[str, tuple[str, ...]]:
@@ -216,6 +306,9 @@ def config_from_dict(data: Mapping[str, Any], source: str = "<dict>") -> Config:
         timings=_numbers(_section(data, "timings"), Timings, "timings"),
         source=source,
         captions=_captions(_section(data, "captions")),
+        tz=_timezone(display),
+        idle=_idle(_section(data, "idle")),
+        weather=_weather(data),
     )
 
 

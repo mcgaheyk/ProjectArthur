@@ -4,6 +4,8 @@
 [display]
 # Frame size: the Ulanzi TC002's 52x16 matrix (the only size the renderer supports).
 size = "52x16"
+# Local time zone (an IANA name): the night quiet hours and the date on the weather page.
+timezone = "America/New_York"
 
 # Semantic colour roles. Screens and icons refer to roles, never to hex values.
 # The scheme is warm (Kyle's office is reddish, Arthur is orange). A light, soapy blue is the one
@@ -88,6 +90,27 @@ in_use_cat_s = 4              # in use: seconds of the cat page (Arthur, timer, 
 interrupted_title_s = 2       # interrupted: seconds of INTERRUPTION in each episode
 interrupted_phrase_s = 3      # interrupted: seconds of the second phrase in each episode
 interrupted_rest_s = 2        # interrupted: seconds of the empty globe before he walks in again
+
+# The idle show (D-0019): idle takes turns between the home page, the weather and date page
+# and a short scene, in rounds lined up with the wall clock. The intended shares are 30 (page)
+# and 20 (scene); they stay 0 until the idle show goes live, which leaves idle on the home page.
+[idle]
+round_s = 180                 # length of one round, seconds
+page_pct = 0                  # share of each round for the weather and date page, 0-100 (0 = off)
+scene_pct = 0                 # share of each round for a scene, 0-100 (0 = off)
+# page_pct and scene_pct together are at most 90; the home page keeps the rest.
+settle_s = 45                 # no page or scene starts until idle has lasted this long
+# Night, in the local time zone: Arthur sleeps on the home page and there are no scenes.
+# Whole hours 0-23; the same hour twice means no quiet hours.
+quiet_from_h = 22
+quiet_until_h = 7
+
+# Where the weather page's forecast is for: Boston, the city centre.
+[weather]
+latitude = 42.36              # decimal degrees, north positive
+longitude = -71.06            # decimal degrees, east positive (west is negative)
+refresh_s = 900               # fetch the forecast this often; never under 300
+max_age_s = 2700              # a forecast older than this is not shown; at least refresh_s
 
 # Captions are jokes. One is picked per visit (from when the state began), so it stays put for
 # the whole visit and changes between visits. Add your own; a caption too wide for its line
