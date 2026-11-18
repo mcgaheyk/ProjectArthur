@@ -16,19 +16,28 @@ from arthur.render import idle_show as show
 from arthur.render import render
 from arthur.render.idle_show import mirror
 from arthur.render.scenes import bird as B
-from arthur.render.scenes._common import CROUCH_A, CROUCH_B, SPREAD, Seat, Sprite, cells, gap
+from arthur.render.scenes._common import (
+    CROUCH_A,
+    CROUCH_B,
+    POUNCE_CLAP,
+    POUNCE_OPEN,
+    Seat,
+    Sprite,
+    cells,
+    gap,
+)
 
 CFG = default_config()
 READY = FIXTURES["ready"].display_state(CFG)
 SLOT_LENGTHS = (24, 36, 54)
 ROUNDS = range(24)
 #: Changed frames allowed in a 36 s slot of this scene, glance and wipes included. Measured
-#: 173-186 over rounds 0-11: the bird beats its wings every 2 frames all the time it is in
+#: 176-189 over rounds 0-11: the bird beats its wings every 2 frames all the time it is in
 #: the air (about 85 changes in the quiet part), the burst changes on nearly every frame
 #: (about 45), the walk home about 30.
 CHANGED_FRAME_BUDGET = 200
-#: Pixels a frame: the bird (6 wide) 2, 3 when it flees; Arthur running (14 wide) 5; the
-#: leap 4 rows.
+#: Pixels a frame: the bird (6 wide) 2, 3 when it flees; Arthur running (14 wide) or
+#: leaping (14 to 18 wide) 5; the leap 4 rows.
 BIRD_MAX, BIRD_FLEE_MAX, ARTHUR_MAX, LEAP_ROWS_MAX = 2, 3, 5, 4
 FLEE_PARTS = ("chase", "top")
 #: A round with each ending (round 2 is the first perched round).
@@ -174,28 +183,62 @@ def test_the_chase_and_the_wind_up(n):
     arts = [s.arthur.rows for s in windup]
     assert set(arts) == {CROUCH_A, CROUCH_B}
     assert [len(list(g)) for _, g in itertools.groupby(arts)] == [2] * (len(windup) // 2)
-    # He stops beneath the bird and a little short of it.
+    # He stops well short of the bird, which hovers ahead of him and high up.
     crouch, bird = cells(windup[0].arthur, CFG), cells(windup[0].prey, CFG)
-    assert max(x for x, _ in crouch) < max(x for x, _ in bird)
+    assert min(x for x, _ in bird) - max(x for x, _ in crouch) >= 10
     assert max(y for _, y in bird) < min(y for _, y in crouch)
 
 
+def centre_x(actor) -> float:
+    c = cells(actor, CFG)
+    return sum(x for x, _ in c) / len(c)
+
+
+@pytest.mark.parametrize("n", ROUNDS)
+def test_the_leap_is_side_on_and_carries_him_right(n):
+    ss = shots(n)
+    windup, leap, top = part(ss, "windup"), part(ss, "leap"), part(ss, "top")
+    drop, land = part(ss, "drop"), part(ss, "land")
+    airborne = [s.arthur for s in leap + top + drop]
+    assert all(isinstance(a, Sprite) for a in airborne)
+    # Side-on, facing right: his eye is in the right third of every frame (a face-on cat
+    # has two eyes, either side of the middle).
+    eye = CFG.palette.chars["eye"]
+    for a in airborne:
+        eyes = [(i, r.index(eye)) for i, r in enumerate(a.rows) if eye in r]
+        assert len(eyes) == 1 and eyes[0][1] >= 2 * len(a.rows[0]) // 3, a.rows
+    # Rising towards the top right, then falling towards the bottom right.
+    xs = [centre_x(s.arthur) for s in [windup[-1], *leap, top[0], *drop]]
+    assert all(b > a for a, b in itertools.pairwise(xs)), xs
+    assert 10 <= centre_x(top[0].arthur) - centre_x(windup[-1].arthur) <= 14
+    rows = [top_row(s.arthur) for s in leap + top[:1]]
+    assert all(b < a for a, b in itertools.pairwise(rows)), rows
+    # He lands front paws first: the first landed frame touches the floor in front only.
+    touch = cells(land[0].arthur, CFG)
+    floor = [x for x, y in touch if y == show.STAGE_H - 1]
+    assert floor and min(floor) > centre_x(land[0].arthur)
+    assert isinstance(land[1].arthur, Sprite) and land[1].arthur.rows == CROUCH_A
+
+
 @pytest.mark.parametrize(("n", "length"), all_cases())
-def test_the_spread_is_held_at_the_top_of_the_leap(n, length):
+def test_the_open_and_the_clap_are_held_at_the_top_of_the_leap(n, length):
     ss = shots(n, length)
     top = part(ss, "top")
     assert len(top) >= 5
-    assert all(s.arthur == Sprite(SPREAD, B.LEAP_X, B.TOP_Y) for s in top)
-    # The longest-held moving pose: no other run of one airborne picture of him is as long.
+    arts = [s.arthur.rows for s in top]
+    assert arts == [POUNCE_OPEN] * B.OPEN_HOLD + [POUNCE_CLAP] * B.CLAP_HOLD
+    assert {(s.arthur.x, s.arthur.y) for s in top} == {(B.TOP_X, B.TOP_Y)}  # hanging still
+    # The clap is the longest-held moving pose: no other airborne picture of him lasts as long.
     runs = [(k, len(list(g))) for k, g in itertools.groupby(
         s.arthur for s in ss if isinstance(s.arthur, Sprite))]
-    spread_run = max(r for k, r in runs if k.rows == SPREAD)
-    assert all(r < spread_run for k, r in runs if k.rows != SPREAD)
-    # The highest he gets: no other airborne frame of him reaches its top row.
-    airborne = [s.arthur for s in ss if isinstance(s.arthur, Sprite)]
-    high = min(top_row(a) for a in airborne)
-    assert all(a.rows == SPREAD for a in airborne if top_row(a) == high)
-    assert top_row(top[0].arthur) == high
+    clap_run = max(r for k, r in runs if k.rows == POUNCE_CLAP)
+    assert all(r < clap_run for k, r in runs if k.rows != POUNCE_CLAP)
+    # The highest he gets: no frame of him outside the top is higher.
+    airborne = [s for s in ss if isinstance(s.arthur, Sprite)]
+    high = top_row(top[0].arthur)
+    assert all(top_row(s.arthur) >= high for s in airborne)
+    assert all(top_row(s.arthur) > high for s in airborne
+               if s.part not in ("top", "drop"))
 
 
 @pytest.mark.parametrize("n", ROUNDS)
@@ -204,16 +247,18 @@ def test_the_bird_escapes_up_and_away_as_he_reaches_the_top(n):
     leap, top = part(ss, "leap"), part(ss, "top")
     before, first = leap[-1].prey, top[0]
     cat, bird = cells(first.arthur, CFG), cells(first.prey, CFG)
-    assert first.prey.x > before.x  # it has hopped away to the right
+    assert first.prey.x > before.x and top_row(first.prey) < top_row(before)  # up and away
     assert gap(cat, bird) >= 1
-    right_paw = max(x for x, _ in cat)
-    assert min(x for x, _ in bird) > right_paw + 1
-    eyes = B.TOP_Y + 3
-    assert max(y for _, y in bird) < eyes  # up at the height of his raised paws
-    # His paw reaches where the bird's beak was.
-    assert right_paw == min(x for x, _ in cells(before, CFG))
-    # It is gone out of the top right before he lands.
-    assert all(s.prey is None for s in part(ss, "drop") + part(ss, "land"))
+    # It was just in front of his open paws: one unlit pixel short of the V, level with it.
+    assert gap(cat, cells(before, CFG)) == 1
+    paws = [y for x, y in cat if x >= max(x for x, _ in cat) - 1]
+    assert min(paws) <= min(y for _, y in cells(before, CFG))
+    assert max(paws) >= max(y for _, y in cells(before, CFG))
+    # His paws clap shut on empty air, and it is gone before he starts to fall.
+    claps = [s for s in top if s.arthur.rows == POUNCE_CLAP]
+    assert claps[0].prey is None or min(x for x, _ in cells(claps[0].prey, CFG)) >= \
+        show.STAGE_W - 2
+    assert all(s.prey is None for s in claps[1:] + part(ss, "drop") + part(ss, "land"))
 
 
 @pytest.mark.parametrize(("n", "length"), all_cases())
@@ -246,12 +291,16 @@ def test_the_feather_zig_zags_down_onto_his_head_and_drifts_off(n, length):
 @pytest.mark.parametrize("n", ROUNDS)
 def test_he_lands_where_he_came_down_and_walks_home(n):
     ss = shots(n)
-    drop, land = part(ss, "drop"), part(ss, "land")
-    spread = cells(drop[-1].arthur, CFG)
-    seat = cells(land[0].arthur, CFG)
-    centre = sum(x for x, _ in spread) / len(spread)
-    head = [x for x, y in seat if y <= 4]
-    assert abs(centre - sum(head) / len(head)) <= 1
+    land = part(ss, "land")
+    crouch = next(s.arthur for s in land if isinstance(s.arthur, Sprite)
+                  and s.arthur.rows == CROUCH_A)
+    seat = next(s.arthur for s in land if isinstance(s.arthur, Seat))
+    assert seat == Seat("rest", B.LAND_DX)
+    # Seated, his body (tail aside) is where the landing crouch's was.
+    body = [x for x, y in cells(seat, CFG) if x <= seat.dx + 12]
+    assert abs(centre_x(crouch) - sum(body) / len(body)) <= 1
+    # His tail still fits on the stage.
+    assert max(x for x, _ in cells(seat, CFG)) <= show.STAGE_W - 1
     walk = [s.arthur for s in part(ss, "settle") if isinstance(s.arthur, Sprite)]
     xs = [a.x for a in walk]
     assert all(b - a == -1 for a, b in itertools.pairwise(xs))  # a column a frame, leftwards

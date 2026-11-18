@@ -1,4 +1,4 @@
-"""The bird. A small bird potters about above Arthur; he chases it and leaps at it, arms spread.
+"""The bird. A small bird potters about above Arthur; he chases it and leaps across at it.
 
 Three parts (D-0019; motion from ``docs/research/2026-11-18-led-animation-and-idle-cadence.md``:
 travelling motion is the most distracting kind, small motion in one place the least):
@@ -13,10 +13,13 @@ travelling motion is the most distracting kind, small motion in one place the le
    at :data:`QUIET_END`.
 2. **Burst**, fixed: the bird drifts closer and hovers above the middle of the stage while
    Arthur is dead still; it flutters off to the right and he runs after it on all fours; it
-   stops near the top right and he stops beneath it, a little short; the wind-up (crouched,
-   rear wiggling); the leap: three frames up and five hanging at the top spread-eagled, while
-   the bird hops up and away out of the top right corner; two frames falling, and he lands
-   sitting, facing us, where he came down. A feather zig-zags down onto his head.
+   stops high at the right and he stops well short of it; the wind-up (crouched, rear
+   wiggling); the leap, seen from the side: he springs off, rises in two frames tilted up
+   towards it, and at the top flings his forelegs open just in front of it; it hops up and
+   away, his paws clap shut on empty air, and he hangs there while it leaves by the top
+   right corner. Two frames falling forward, front paws leading; he lands front paws first,
+   squashes into a crouch and sits, facing us, where he came down, 11 columns on from where
+   he jumped. A feather zig-zags down onto his head.
 3. **Settle**, fixed: he sits a second with the feather on his head, blinks, and walks home
    (the feather drifts off behind him), sits at his spot and rests.
 
@@ -42,9 +45,13 @@ from arthur.render.scenes._common import (
     CROUCH_B,
     FLOOR,
     LAUNCH,
-    REACH,
+    LEAP_DOWN_A,
+    LEAP_DOWN_B,
+    LEAP_UP_A,
+    LEAP_UP_B,
+    POUNCE_CLAP,
+    POUNCE_OPEN,
     SPOT_X,
-    SPREAD,
     Seat,
     Shot,
     Sprite,
@@ -147,39 +154,51 @@ LEAD_MIN, LEAD_MAX = 8, 16
 QUIET_END = (34, 1)
 
 #: The burst. (a) It drifts closer, a column a frame, and hovers above the middle of the stage.
-MID = (22, 2)
+MID = (29, 2)
 APPROACH_SPEED = 1
 MID_HOVER = 6
 #: (b) It flutters off to the right; Arthur runs after it a frame or two later, and both stop:
-#: the bird hovering at HOVER, Arthur crouched at CROUCH_X, beneath it and a little short.
-FLEE_STEPS = (3, 3, 3, 3, 3, 2)
+#: the bird hovering at HOVER, high at the right, Arthur crouched at CROUCH_X, well short of
+#: it, so the leap has somewhere to go. The bird's five steps take no longer than his run.
+FLEE_STEPS = (3, 3, 3, 3, 3)
 SPRING_DELAYS = (1, 2)
-RUN_SPEED = 4
-CROUCH_X = SPOT_X + 6 * RUN_SPEED  # 26: six strides of 4 from his spot
+RUN_SPEED = 3
+CROUCH_X = SPOT_X + 4 * RUN_SPEED  # 14: four strides of 3 from his spot
 CROUCH_Y = FLOOR - len(CROUCH_A) + 1
-#: The leap's column: SPREAD (15 wide) centred where the crouch (14 wide) was.
-LEAP_X = CROUCH_X - 1
-#: The bird hovers with its beak exactly where his right paw will be at the top.
-HOVER = (LEAP_X + len(SPREAD[0]) - 1, 1)
+#: (d) The leap, side-on, facing right: the launch, two frames rising, then the top, where he
+#: hangs. Each is (art, column, row) of the art's top-left; he travels 11 columns right.
+RISE: tuple[tuple[tuple[str, ...], int, int], ...] = (
+    (LAUNCH, CROUCH_X, FLOOR - len(LAUNCH) + 1),  # top row 6, hind feet still down
+    (LEAP_UP_A, CROUCH_X + 4, 3),
+    (LEAP_UP_B, CROUCH_X + 8, 1),
+)
+TOP_X, TOP_Y = CROUCH_X + 11, 0
+#: The bird hovers just in front of his open paws: one unlit column beyond the upper paw
+#: (POUNCE_OPEN's last column), level with the opening of the V.
+HOVER = (TOP_X + len(POUNCE_OPEN[0]) + 1, 1)
 #: Frames it hovers there before it turns to face him.
 TURN_AFTER = 2
 #: (c) The wind-up: crouched, the rear wiggling, each crouch frame held 2 frames.
 WINDUP = 8
 WIGGLE_HOLD = 2
-#: (d) The leap: the crouch, then three rising frames, then the top, held. Rows of the art's
-#: top: the crouch is at 9.
-RISE: tuple[tuple[tuple[str, ...], int, int], ...] = (
-    (LAUNCH, CROUCH_X, FLOOR - len(LAUNCH) + 1),  # top row 6
-    (REACH, LEAP_X, 3),
-    (REACH, LEAP_X, 1),
+#: At the top: paws flung open (the bird hops away on the first of these frames), then
+#: clapped shut on empty air and held, a cartoon hang.
+OPEN_HOLD = 2
+CLAP_HOLD = 5
+#: The bird hops up and away, 2 columns and a row a frame, and leaves by the top right.
+ESCAPE_STEP = (2, -1)
+#: (e) Two frames falling, front paws leading; then, landed: the front paws touch the floor
+#: first, the rear comes down into a crouch, and he sits facing us where he came down.
+DROP: tuple[tuple[tuple[str, ...], int, int], ...] = (
+    (LEAP_DOWN_A, TOP_X + 1, 1),
+    (LEAP_DOWN_B, TOP_X + 5, 4),
 )
-TOP_Y = 0
-TOP_HOLD = 5
-#: The bird hops up and away on his first frame at the top and leaves by the top right.
-ESCAPE_STEP = (3, -1)
-#: (e) Falling, same pose, and landing sitting where he came down.
-DROP_YS = (1, 3)
-LAND_DX = LEAP_X + 1  # seated, his head's centre (stage column 6 + dx) is the spread's
+LAND_X = TOP_X + 5  # 30: the landing crouch's column
+TOUCH = (LEAP_DOWN_B, LAND_X, FLOOR - len(LEAP_DOWN_B) + 1)
+SQUASH = 2
+#: Seated, his body (stage columns dx .. dx + 12) is where the crouch's was; his tail reaches
+#: dx + 17 = 48, inside the stage.
+LAND_DX = LAND_X + 1
 #: (f) The feather: one column left or right and one row down every 2 frames, from the top,
 #: starting as he starts to fall; it rests on his head between his ears.
 FEATHER_HOLD = 2
@@ -370,23 +389,30 @@ def burst_shots(ctx: SceneContext, t0: int) -> list[Shot]:
         cat = Seat("right") if j < delay else runs[j - delay]
         add(cat, b, "chase")
     hover = Bird(*HOVER)
-    # (c) The wind-up: crouched beneath it, the rear wiggling.
+    # (c) The wind-up: crouched well short of it, the rear wiggling.
     for i in range(WINDUP):
         art = CROUCH_A if (i // WIGGLE_HOLD) % 2 == 0 else CROUCH_B
         add(Sprite(art, CROUCH_X, CROUCH_Y), hover, "windup")
-    # (d) The leap: up in three frames, then the top, held; the bird hops away at the top.
+    # (d) The leap, side-on: the launch and two frames rising towards it.
     for art, x, y in RISE:
         add(Sprite(art, x, y), hover, "leap")
+    # At the top his paws fly open in front of it; it hops up and away, and they clap shut
+    # on empty air. He hangs there while it leaves by the top right.
     bx, by = HOVER
-    for i in range(TOP_HOLD):
+    for i in range(OPEN_HOLD + CLAP_HOLD):
         bx, by = bx + ESCAPE_STEP[0], by + ESCAPE_STEP[1]
         b = Bird(bx, by, "fly", False) if bx < STAGE_W else None
-        add(Sprite(SPREAD, LEAP_X, TOP_Y), b, "top")
-    # (e) Falling, the same pose; the feather starts down from the top.
+        art = POUNCE_OPEN if i < OPEN_HOLD else POUNCE_CLAP
+        add(Sprite(art, TOP_X, TOP_Y), b, "top")
+    # (e) Falling forward, front paws leading; the feather starts down from the top.
     feather = [feather_at(x, y) for x, y in FEATHER_PATH for _ in range(FEATHER_HOLD)]
-    for y in DROP_YS:
-        add(Sprite(SPREAD, LEAP_X, y), None, "drop", feather.pop(0))
-    # (f) Landed, sitting where he came down; the feather settles on his head.
+    for art, x, y in DROP:
+        add(Sprite(art, x, y), None, "drop", feather.pop(0))
+    # (f) Landed: front paws first, the squash, then sitting where he came down; the feather
+    # settles on his head.
+    add(Sprite(*TOUCH), None, "land", feather.pop(0))
+    for _ in range(SQUASH):
+        add(Sprite(CROUCH_A, LAND_X, CROUCH_Y), None, "land", feather.pop(0) if feather else None)
     while feather:
         add(Seat("rest", LAND_DX), None, "land", feather.pop(0))
     return shots

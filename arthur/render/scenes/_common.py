@@ -334,32 +334,79 @@ LAUNCH = (
     ".SOOOOOOO.....",
     ".O.OO.........",
 )
-#: Rising, belly to us: arms straight up beside his ears, legs together. 15 wide, aligned
-#: with SPREAD (the head is in the same columns), 10 tall.
-REACH = (
-    "..C.O.....O.C..",
-    "..O.OO...OO.O..",
-    "..O.OOOOOOO.O..",
-    "..OOOEOOOEOOO..",
-    "...OOOCNCOOO...",
-    "....OOCCCOO....",
-    "....OOCCCOO....",
-    "....OOCCCOO....",
-    ".....OO.OO.....",
-    ".....C.S.C.....",
+#: Airborne and rising, side view, facing right: the body tilted steeply up towards the top
+#: right, both front paws reaching up past his ears, hind legs trailing straight back. Same
+#: head as ``LAUNCH``. 16 wide, 10 tall.
+LEAP_UP_A = (
+    "............C...",
+    "...........O.OC.",
+    "...........OOO..",
+    ".........OSOEO..",
+    ".......OSOOOON..",
+    ".....OOOOOOOO...",
+    "...OOOOOOOO.....",
+    ".SOOO...........",
+    "OO..............",
+    "C...............",
 )
-#: The top of the leap: belly to us, arms flung up and out, legs splayed, tail hanging.
-#: 15 wide, 11 tall.
-SPREAD = (
-    "C...O.....O...C",
-    "OO..OO...OO..OO",
-    ".OO.OOOOOOO.OO.",
-    "..OOOEOOOEOOO..",
-    "...OOOCNCOOO...",
-    "....OOCCCOO....",
-    "....OOCCCOO....",
-    "....OOCCCOO....",
-    "...OO.CCC.OO...",
-    "..OO...S...OO..",
-    "..C....S....C..",
+#: Still rising, flatter: nearly level, his head tipped up, the front paws reaching forward
+#: and up together, hind legs and tail trailing. 18 wide, 8 tall.
+LEAP_UP_B = (
+    "...........O.O....",
+    "...........OOO..C.",
+    "........OSOSOEO.O.",
+    "......OOOOOOOONO..",
+    "S..OOOOOOOOOOOO...",
+    ".OOOOOOOOO........",
+    "OO................",
+    "C.................",
+)
+#: The top of the leap: flying level, forelegs flung wide open, one reaching up and forward,
+#: one down and forward (a V open to the right), hind legs trailing, tail up. 18 wide, 7
+#: tall; the paws are the rightmost column but one and the last.
+POUNCE_OPEN = (
+    "...........O.O...C",
+    "S..........OOO..O.",
+    ".O...OSOSOSOEO.O..",
+    "..OOOOOOOOOOONO...",
+    "..OOOOOOOOOOOO....",
+    ".OO...........OO..",
+    "C...............C.",
+)
+#: The same moment a frame later: the front paws clapped shut on empty air, straight ahead.
+#: Same size, body and head as POUNCE_OPEN.
+POUNCE_CLAP = (
+    "...........O.O....",
+    "S..........OOO....",
+    ".O...OSOSOSOEO....",
+    "..OOOOOOOOOOONOOC.",
+    "..OOOOOOOOOOOOOOC.",
+    ".OO...............",
+    "C.................",
+)
+#: Falling, side view, facing right: the body tilted down towards the bottom right, front
+#: paws leading down, tail flicked up behind. 18 wide, 9 tall.
+LEAP_DOWN_A = (
+    "S.................",
+    ".O................",
+    "..OOSOSO..........",
+    "..OOOOOOOSO.O.O...",
+    ".OOOOOOOOOOOOOO...",
+    "OO......OOOOOEO...",
+    "C..........OOOON..",
+    "............OO.O..",
+    "............C...C.",
+)
+#: Falling steeper, nearly nose down, front paws straight down to meet the floor, the rear
+#: and tail still up. 14 wide, 9 tall; the paws are the bottom row.
+LEAP_DOWN_B = (
+    "S.O...........",
+    ".O.O..........",
+    "...OOSO.......",
+    "...OOOOSO.O.O.",
+    "....OOOOOOOOO.",
+    ".....OOOOOOEO.",
+    ".......OOOOON.",
+    "........OO.OO.",
+    "........C...C.",
 )
