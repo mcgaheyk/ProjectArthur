@@ -58,6 +58,8 @@ simulates the clock so screens can be designed without the hardware on the desk.
   Check for a running one first: `pgrep -fl arthur.feeder`
 - `uv run python scripts/push_test.py --clock http://ADDRESS NAME` shows one screen on a real
   clock; stop the feeder first or the two fight over the screen
+- `uv run python scripts/push_bench.py --clock http://ADDRESS MODE` times frame pushes to a real
+  clock and shows motion test patterns (`--help` lists the modes); stop the feeder first
 - `uv run --env-file .env python scripts/spike_log.py` logs the real robot without a clock.
   Superseded by the feeder; never run both
 - `uv run --env-file .env python scripts/spike_petlibro.py` logs the real PETLIBRO devices,
