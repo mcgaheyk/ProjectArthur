@@ -24,7 +24,13 @@ and still readable in one glance from across a room. Clear first, funny second.
   to inside the box where he looks in at us, then "INTERRUPTION" and a second phrase. He
   has come to have a look; he is not being told off.
 - **Idle** must show the **bin level and the litter level**, plus one more thing (last visit,
-  visits today).
+  visits today). That is the home page.
+- **Idle is a show** (D-0019, Kyle's split: 50 % home page, 30 % weather page, 20 % scenes).
+  A **page** is information (the weather, the temperature and the date as `NOV 18`; Kyle does
+  not want the weekday). A **scene** is a 36-second story with Arthur: he stays seated and
+  watches for most of it, then a short burst (a chase, a leap), then he settles back in his
+  spot. At night he sleeps and there are no scenes. A real robot event replaces any of it at
+  once.
 - **Level bars carry meaning by colour** (D-0011). Litter follows the robot's own state word:
   green optimal, yellow refill or overfill, red low or empty. The drawer is orange and turns
   red when nearly full.
@@ -49,9 +55,21 @@ and still readable in one glance from across a room. Clear first, funny second.
   stale. Keep anything essential readable with that border on, and draw nothing there. The
   deliberate exceptions are the flashing red ring on `drawer_full` (D-0011) and the moving
   blue border on `cleaning` (D-0012).
-- Plan for about one frame a second. No smooth animation. Each changed frame is an HTTP push
-  to the clock. Live states may change every second. **Idle is alive but not busy** (D-0013):
-  short gestures with still pauses between them, and still for at least half of every minute.
+- Plan for about one frame a second on every state's own screen and on pages. Each changed
+  frame is an HTTP push to the clock. Live states may change every second. **The home page is
+  alive but not busy** (D-0013): short gestures with still pauses between them, and still for
+  at least half of every minute.
+- **Scenes and transitions run at 8 frames a second** (D-0019; measured on the clock). The
+  rules for them, from `docs/research/2026-11-18-led-animation-and-idle-cadence.md`:
+  - Motion that travels across the screen is the most distracting kind. Keep it to a short
+    burst; fill the rest of a scene with small movements that stay in one place.
+  - A sprite moves at most about a third of its own length per frame.
+  - Ease by holding key poses (a freeze, a crouch, the top of a leap), not by slowing down.
+  - Exact palette colours only. No brightness fades: a dimmed orange turns red on these LEDs.
+    Change screens with a dissolve or a wipe.
+  - Keep an unlit pixel between two sprites; on black, that gap is the only outline.
+  - A scene starts and ends with Arthur seated at his spot, so the bars can wipe away and back.
+  - Vary a scene from its seed so no two rounds match.
 - Every label must fit its box. Text that runs off is a bug; the tests check it.
 - A person reads this from across a room. Prefer one clear thing over three small ones, and
   make states differ by shape as well as colour.
@@ -59,9 +77,14 @@ and still readable in one glance from across a room. Clear first, funny second.
 
 ## 3. Loop
 1. Edit the layout, icon (text-art under `arthur/render/icons/`) or config.
-2. Print it: `uv run python -m arthur.render.preview --all` (or name one state).
+2. Print it: `uv run python -m arthur.render.preview --all` (or name one state). For a page
+   or scene, name its fixture (`idle_page`, `idle_page_big`, `idle_rat`, `idle_rat_turned`,
+   `idle_bird`): `--at SECONDS` picks a moment, `--sheet DIR --frames N --step 0.125` writes a
+   strip of consecutive frames as a PNG to open and look at, and `--weather` sets the reading.
 3. Look at it in the studio: start the "studio" server and open the All states view in the
-   browser pane, then play a visit in the Scenario view to see transitions. To see a screen
+   browser pane, then play a visit in the Scenario view to see transitions. To see the idle
+   show in rotation, tick the studio's Idle show switch and play the `idle_hour` scenario (the
+   repository config keeps the shares at 0 until the show goes live). To see a screen
    against what the robot really did, pick the Robot log source and replay a recorded visit.
 4. When offering alternatives, add them as variants so they appear side by side, and let Kyle
    choose. Remove the losers afterwards.
