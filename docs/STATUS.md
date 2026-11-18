@@ -1,6 +1,6 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-18, morning._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-18, late morning._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
 - **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
@@ -19,7 +19,7 @@ _Last updated: 2026-11-18, morning._ Current state only. History belongs in git 
   border while the Mac sleeps. Its messages go to `logs/feeder-console.log`. Stop it with
   `pkill -f arthur.feeder`; start it with the command in CLAUDE.md. Never run a second copy,
   or `scripts/spike_log.py`, on the same account.
-- **Built and tested (1,736 tests):**
+- **Built and tested (2,374 tests):**
   - Feeder: `arthur/feeder.py` (the loop), `arthur/pusher.py` (when to push),
     `arthur/sources/whisker.py` (the one Whisker connection). On a login or API failure it
     shows NO DATA and retries; it reloads `config/display.toml` when the file changes; it
@@ -92,13 +92,20 @@ _Last updated: 2026-11-18, morning._ Current state only. History belongs in git 
     (`arthur/render/pages.py`). The date is `NOV 18`: Kyle does not want the weekday.
   - The weather source (`arthur/sources/weather.py`): Open-Meteo for Boston every 15 minutes,
     confirmed with one live request (`docs/reference/open-meteo.md`).
-  - The rat scene with both endings (`arthur/render/scenes/rat.py`).
+  - The rat scene with both endings (`arthur/render/scenes/rat.py`): the rat creeps toward
+    seated Arthur, bolts, and scurries back across the empty stage with him galloping after
+    it; one round in four the tables are turned.
+  - The bird scene with both endings (`arthur/render/scenes/bird.py`): he watches it, chases
+    it, crouches, and hangs at the top of his leap spread-eagled; a feather lands on his
+    head; one round in four the bird comes back and perches there.
+  - Night sleep: in the quiet hours (22:00 to 07:00 Boston time) the home page shows him
+    curled up, breathing every 12 s with Zs, 10 screen changes a minute instead of 27.
   - The studio plays all of it: an Idle show switch, sample weather, and the `idle_hour` and
-    `visit_mid_scene` scenarios. Fixtures `idle_page`, `idle_page_big`, `idle_rat`,
-    `idle_rat_turned` and `idle_bird` pin one cutaway each.
-  **The bird scene is still a placeholder and night sleep is not built** (both were being
-  written when this was last updated). **Kyle has seen stills of the art and the weather
-  page, not the studio, and nothing on LEDs.**
+    `visit_mid_scene` scenarios, and `night_falls` and `morning` for the sleep transitions.
+    Fixtures `idle_page`, `idle_page_big`, `idle_rat`, `idle_rat_turned`, `idle_bird` and
+    `ready_asleep` pin one screen each (round 2 of the bird scene is its perched ending).
+  **Kyle has seen stills of the art and the weather page, not the studio, and nothing on
+  LEDs. Every screen here is a first cut for him to react to.**
 - **The running feeder is older than this code.** It was started at 09:10 on 2026-11-18,
   before the 8-a-second loop and the weather source existed. The next restart brings both in:
   the loop changes and the feeder starts fetching the weather, though with the shares at 0
@@ -107,11 +114,11 @@ _Last updated: 2026-11-18, morning._ Current state only. History belongs in git 
   water. See Later.
 ## Next
 **In hand, with Claude: the idle show (D-0019).** Left to do:
-- Finish the bird scene and night sleep, then review both.
 - **Kyle, in the studio:** tick the Idle show switch and play `idle_hour`; look at the tiles
   in All states. Choose the weather layout (`weather` or `weather_big`), react to the rat
-  scene and its second ending, the dissolve and the wipe, the rat's grey and the bird's blue,
-  and whether the high and low should stay orange.
+  and bird scenes and their second endings, the sleeping cat, the dissolve and the wipe, the
+  rat's grey and the bird's blue, whether the high and low should stay orange, and whether
+  the bird's wings (beating four times a second for about 20 s) are too busy.
 - **Kyle, at the clock, about 15 minutes with the feeder stopped:** the bench's ten-minute run
   at 8 a second and its test patterns (`scripts/push_bench.py`: `sustained`, `walk`,
   `dissolve`, `wipe`, `slide`, `counter`), then any one cutaway with
