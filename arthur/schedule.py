@@ -13,11 +13,14 @@ Inside a round::
 home page gets the remaining ``home`` seconds, ``home // 2`` before the page and the rest
 after it. With 180 / 30 / 20: home 0-45, page 45-99, home 99-144, scene 144-180. A share of
 0 removes its slot.
+
+The night (quiet hours) is decided here too: :func:`asleep_since` and :func:`woke_at` give the
+instants mapping carries on ``DisplayState`` so the renderer can time Arthur's sleep.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from fractions import Fraction
 
 from arthur.config import Config
@@ -58,6 +61,67 @@ def is_quiet(now: datetime, cfg: Config) -> bool:
     if start < end:
         return start <= h < end
     return h >= start or h < end  # wraps midnight
+
+
+#: Seconds after the quiet hours end that mapping keeps ``DisplayState.woke_at`` set: long
+#: enough for the renderer's waking (eyes open, then the yawn; see ``screens.WAKE_SCRIPT``).
+WAKE_S = 4
+
+
+def _at_local_hour(day: date, hour: int, cfg: Config) -> datetime:
+    """``hour``:00 on the local ``day``, as an aware UTC instant. Built in the local zone, so
+    it is right across a clock change; an hour the change skips is read with the offset in
+    force before it (zoneinfo's ``fold=0``)."""
+    return datetime(day.year, day.month, day.day, hour, tzinfo=cfg.tz).astimezone(UTC)
+
+
+def quiet_window(now: datetime, cfg: Config) -> tuple[datetime, datetime] | None:
+    """``(start, end)`` of the quiet hours containing ``now``, as aware UTC instants; None
+    outside quiet hours or when there are none. A night that crosses a clock change is an
+    hour longer or shorter than usual, as the wall clock says."""
+    if not is_quiet(now, cfg):
+        return None
+    start_h, end_h = cfg.idle.quiet_from_h, cfg.idle.quiet_until_h
+    local = cfg.local(now)
+    today = local.date()
+    one_day = timedelta(days=1)
+    if start_h < end_h:
+        return _at_local_hour(today, start_h, cfg), _at_local_hour(today, end_h, cfg)
+    if local.hour >= start_h:  # the evening part of a window that wraps midnight
+        return _at_local_hour(today, start_h, cfg), _at_local_hour(today + one_day, end_h, cfg)
+    return _at_local_hour(today - one_day, start_h, cfg), _at_local_hour(today, end_h, cfg)
+
+
+def last_quiet_end(now: datetime, cfg: Config) -> datetime | None:
+    """The latest instant at or before ``now`` when quiet hours ended; None with none."""
+    if cfg.idle.quiet_from_h == cfg.idle.quiet_until_h:
+        return None
+    today = cfg.local(now).date()
+    end = _at_local_hour(today, cfg.idle.quiet_until_h, cfg)
+    if end > now:
+        end = _at_local_hour(today - timedelta(days=1), cfg.idle.quiet_until_h, cfg)
+    return end
+
+
+def asleep_since(since: datetime | None, now: datetime, cfg: Config) -> datetime | None:
+    """When idle Arthur's current sleep began: in quiet hours, the later of their start and
+    the moment idle began (``since``; None counts as long ago). None outside quiet hours."""
+    window = quiet_window(now, cfg)
+    if window is None:
+        return None
+    start = window[0]
+    return start if since is None or since < start else since
+
+
+def woke_at(since: datetime | None, now: datetime, cfg: Config) -> datetime | None:
+    """When the quiet hours ended, for :data:`WAKE_S` seconds after it, if Arthur was asleep
+    then (idle began before the end; None counts as long ago). None otherwise."""
+    end = last_quiet_end(now, cfg)
+    if end is None or (now - end).total_seconds() >= WAKE_S:
+        return None
+    if since is not None and since >= end:
+        return None  # idle began after the night: he was never asleep
+    return end
 
 
 def idle_cue(since: datetime | None, now: datetime, cfg: Config) -> Cue | None:

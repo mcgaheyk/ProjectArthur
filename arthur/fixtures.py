@@ -26,6 +26,10 @@ from arthur.timebase import SHOW_FPS
 NOW = datetime(2026, 11, 15, 18, 0, 0, tzinfo=UTC)
 
 
+#: A night-time "now": 03:00 in Boston (EST), inside the quiet hours (22:00 to 07:00).
+NIGHT_NOW = datetime(2026, 11, 15, 8, 0, 0, tzinfo=UTC)
+
+
 def ago(seconds: float, now: datetime = NOW) -> datetime:
     return now - timedelta(seconds=seconds)
 
@@ -193,6 +197,12 @@ _LIST: list[Fixture] = [
         waste_drawer_level=85.0, litter_level_state="OPTIMAL"),
     _fx("ready_laser_dirty", "ready", "Idle, the robot says the laser is dirty",
         is_laser_dirty=True),
+    # Night: 03:00 in Boston, idle since 01:00, so asleep since the quiet hours began at 22:00.
+    # A whole hour, so no idle-show slot is under way; the 12 s breath loops in the gallery.
+    _fx("ready_asleep", "ready",
+        "Idle at 3 am: Arthur curled up asleep, breathing slowly, a Z on each out-breath",
+        now=NIGHT_NOW, status_since=ago(2 * 3600, NIGHT_NOW),
+        last_visit_at=ago(2 * 3600 + 600, NIGHT_NOW), last_seen=ago(5, NIGHT_NOW)),
 ]
 
 # --- layer 4: idle, the idle show (D-0019). Pinned cues; the repository config schedules none.
@@ -283,7 +293,10 @@ class Scenario:
         return step.snapshot, health, now
 
 
-SCENARIO_START = datetime(2026, 11, 15, 9, 0, 0, tzinfo=UTC)
+#: Where the visit scenarios start: 10:00 in Boston (EST), by day, so their idle moments show
+#: the day's home page and not a sleeping cat; a whole hour, so a round of the idle show begins
+#: on the home page (as :data:`SHOW_START`).
+SCENARIO_START = datetime(2026, 11, 15, 15, 0, 0, tzinfo=UTC)
 
 
 def _t(s: float) -> datetime:
@@ -456,6 +469,41 @@ def _visit_mid_scene() -> Scenario:
     )
 
 
+#: Where the night scenarios start: 21:57 and 06:57 in Boston (EST), three minutes before the
+#: quiet hours begin and end; a multiple of the idle show's three-minute round, so a round
+#: begins on the home page.
+DUSK_START = datetime(2026, 11, 16, 2, 57, 0, tzinfo=UTC)
+DAWN_START = datetime(2026, 11, 16, 11, 57, 0, tzinfo=UTC)
+
+
+def _idle_from(start: datetime) -> RobotSnapshot:
+    """Idle since three hours before ``start``."""
+    return replace(BASE, status_since=start - timedelta(hours=3),
+                   last_visit_at=start - timedelta(hours=3, minutes=10), last_seen=start)
+
+
+def _night_falls() -> Scenario:
+    return Scenario(
+        "night_falls",
+        "Idle from 21:57 Boston time: at 22:00 (3:00 in) Arthur yawns, curls up and sleeps, "
+        "breathing every 12 s with a Z on the out-breath",
+        DUSK_START,
+        (Step(0, "ready", _idle_from(DUSK_START)),),
+        300,
+    )
+
+
+def _morning() -> Scenario:
+    return Scenario(
+        "morning",
+        "Idle from 06:57 Boston time, asleep: at 07:00 (3:00 in) Arthur opens his eyes, "
+        "sits up into a yawn, and the day's gestures take over",
+        DAWN_START,
+        (Step(0, "ready", _idle_from(DAWN_START)),),
+        240,
+    )
+
+
 SCENARIOS: dict[str, Scenario] = {
     s.name: s
     for s in (
@@ -473,5 +521,7 @@ SCENARIOS: dict[str, Scenario] = {
         _no_weight(),
         _idle_hour(),
         _visit_mid_scene(),
+        _night_falls(),
+        _morning(),
     )
 }

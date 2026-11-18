@@ -1030,6 +1030,62 @@ def idle_tail(pose: str) -> tuple[str, ...]:
 LASER_WORDS = ("WIPE LASER", "LASER DIRTY", "LASER")
 
 
+# --- Idle Arthur at night (D-0019): asleep in quiet hours ---------------------------------
+# Mapping says when (``DisplayState.asleep_since``, ``woke_at``; arthur/schedule.py); the
+# renderer times the yawn, the breathing and the waking from those and ``now``.
+
+#: Arthur curled up: pose name → icon. Each has its own tail, wrapped along the floor inside
+#: the 16x16 box, so the seated long tail (columns 15-18) is not drawn.
+SLEEP_POSES: dict[str, str] = {
+    "sleep_in": "arthur_curl_in",  # breathed in: the back one row higher
+    "sleep_out": "arthur_curl_out",  # breathed out, with the Zs
+    "sleep_wake": "arthur_curl_awake",  # still curled, eyes open
+}
+#: A 4x4 "Z" beside his head on the out-breath, and a smaller "z" higher up and to the right.
+#: (The 3x3 :data:`Z_ART` reads as an "I" at this size.)
+SLEEP_Z = ("CCCC", "..C.", ".C..", "CCCC")
+SLEEP_Z_AT = (8, 2)
+SLEEP_Z_SMALL = ("CCC", "..C", ".C.", "CCC")
+SLEEP_Z_SMALL_AT = (13, 1)
+#: Going to sleep, one pose a second from ``asleep_since``; the breathing follows.
+FALL_ASLEEP: tuple[str, ...] = ("yawn", "yawn")
+#: One slow breath, in seconds: breathed in for the first half, out (with the Zs) for the rest.
+#: Two changes a breath, so 10 changed frames a minute.
+BREATH_S = 12
+#: Waking, one pose a second from ``woke_at``: eyes open while curled, then sitting up into the
+#: yawn; then the day's script. Its length is ``schedule.WAKE_S`` (tested).
+WAKE_SCRIPT: tuple[str, ...] = ("sleep_wake", "sleep_wake", "yawn", "yawn")
+
+
+def _whole_s(since: datetime, now: datetime) -> int:
+    return math.floor((now - since).total_seconds())
+
+
+def night_pose(state: DisplayState, now: datetime) -> str | None:
+    """Arthur's pose at ``now`` from the night fields (a key of :data:`SLEEP_POSES` or of
+    :data:`IDLE_POSES`), or None when the day's script applies."""
+    if state.woke_at is not None:
+        k = _whole_s(state.woke_at, now)
+        return WAKE_SCRIPT[k] if 0 <= k < len(WAKE_SCRIPT) else None
+    if state.asleep_since is None:
+        return None
+    k = _whole_s(state.asleep_since, now)
+    if k < 0:
+        return None
+    if k < len(FALL_ASLEEP):
+        return FALL_ASLEEP[k]
+    b = (k - len(FALL_ASLEEP)) % BREATH_S
+    return "sleep_in" if b < BREATH_S // 2 else "sleep_out"
+
+
+def draw_sleeping_arthur(f: Frame, cfg: Config, pose: str) -> None:
+    """Arthur curled up in ``pose`` (a key of :data:`SLEEP_POSES`) in the home page's box."""
+    draw_icon(f, SLEEP_POSES[pose], 0, 0, cfg, size=PIC)
+    if pose == "sleep_out":
+        draw_art(f, SLEEP_Z, *SLEEP_Z_AT, cfg)
+        draw_art(f, SLEEP_Z_SMALL, *SLEEP_Z_SMALL_AT, cfg)
+
+
 def draw_idle_arthur(f: Frame, cfg: Config, pose: str, x: int = 0, y: int = 0) -> None:
     """Idle Arthur in ``pose`` (a key of :data:`IDLE_POSES`), icon and long tail, with the
     icon's top-left at (x, y). The home page draws him at (0, 0); the idle show's stage, which
@@ -1056,10 +1112,16 @@ def _ready_arthur_52(state: DisplayState, now: datetime, cfg: Config) -> Frame:
 def home_page(
     state: DisplayState, now: datetime, cfg: Config, pose: str | None = None
 ) -> Frame:
-    """Idle's home page: Arthur, the two level bars and the bottom line. ``pose`` forces
-    Arthur's pose (a key of :data:`IDLE_POSES`) instead of the minute's script."""
+    """Idle's home page: Arthur, the two level bars and the bottom line. Arthur follows the
+    night fields (asleep, waking) when mapping set them, else the minute's script. ``pose``
+    forces his pose (a key of :data:`IDLE_POSES` or :data:`SLEEP_POSES`) instead."""
     f = _f52()
-    draw_idle_arthur(f, cfg, pose if pose is not None else idle_pose(now))
+    if pose is None:
+        pose = night_pose(state, now) or idle_pose(now)
+    if pose in SLEEP_POSES:
+        draw_sleeping_arthur(f, cfg, pose)
+    else:
+        draw_idle_arthur(f, cfg, pose)
     _levels_52(f, state, cfg, 1, 5, x=IDLE_X)
     if state.laser_dirty:
         line = first_fitting(LASER_WORDS, IDLE_R - IDLE_X + 1, small_font())

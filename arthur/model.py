@@ -163,6 +163,12 @@ class DisplayState:
     - ``weather``: ready → the latest weather reading if it is fresh, else None.
     - ``cue``: ready → the idle show's page or scene to play now (see arthur/schedule.py),
       None on the home page. Both are None for every other kind.
+    - ``asleep_since``: ready in quiet hours → when Arthur's current sleep began, the later of
+      the quiet hours' start and ``since``; None by day and for every other kind. The home
+      page yawns for two seconds from it, then shows him curled up asleep.
+    - ``woke_at``: ready, for a few seconds after the quiet hours end (``schedule.WAKE_S``),
+      when they ended, if he was asleep then; else None. The home page wakes him from it
+      (eyes open while curled, then the yawn) before the day's script takes over.
     """
 
     kind: str
@@ -183,6 +189,8 @@ class DisplayState:
     laser_dirty: bool = False
     weather: Weather | None = None
     cue: Cue | None = None
+    asleep_since: datetime | None = None
+    woke_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in KINDS:

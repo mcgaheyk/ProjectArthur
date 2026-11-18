@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 from arthur.config import Config, WeatherConfig
 from arthur.model import Cue, DisplayState, FeederHealth, RobotSnapshot, Weather
-from arthur.schedule import idle_cue
+from arthur.schedule import asleep_since, idle_cue, woke_at
 
 #: Our own fault set: pylitterbot has no fault classifier. Status name → short code.
 #: ``UNKNOWN`` shows the raw ``status_code``.
@@ -153,7 +153,8 @@ def to_display_state(
 
     ``weather`` is the latest reading, if any; it is shown only on ready and only while
     fresh. ``cue`` pins the idle show's cutaway (fixtures, tests); without it ready asks the
-    schedule. Every other kind gets neither.
+    schedule. Ready also gets the night's ``asleep_since`` and ``woke_at`` from the schedule.
+    Every other kind gets none of these.
     """
     reason = _no_data_reason(snapshot, health, now, cfg)
     if reason is not None or snapshot is None:
@@ -166,6 +167,8 @@ def to_display_state(
         extra["weather"] = _fresh_weather(weather, now, cfg)
         since = extra.get("since")
         extra["cue"] = cue if cue is not None else idle_cue(since, now, cfg)  # type: ignore[arg-type]
+        extra["asleep_since"] = asleep_since(since, now, cfg)  # type: ignore[arg-type]
+        extra["woke_at"] = woke_at(since, now, cfg)  # type: ignore[arg-type]
     return DisplayState(
         kind=kind,
         drawer_pct=snapshot.waste_drawer_level,
