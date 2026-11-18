@@ -82,6 +82,12 @@ function idle(e) {
   return document.activeElement !== e && !e.dataset.dragging;
 }
 
+// A scrubber keeps the focus after one click, so focus cannot mean "in use" for it: only a
+// drag in progress does. Otherwise its time stands still until something else is clicked.
+function free(scrub) {
+  return !scrub.dataset.dragging;
+}
+
 export function initLive({ control, getMeta }) {
   const clocks = {}; // size key ("52x16", the only one) -> { matrix, nodes }
   let lastState = null;
@@ -326,7 +332,7 @@ export function initLive({ control, getMeta }) {
     for (const b of $("log-speed-seg").children) b.classList.toggle("on", Number(b.dataset.speed) === lg.speed);
     const scrub = $("log-scrubber");
     scrub.max = String(lg.duration || 0);
-    if (idle(scrub)) {
+    if (free(scrub)) {
       scrub.value = String(lg.position || 0);
       $("log-time").textContent = `${fmtTime(lg.position)} / ${fmtTime(lg.duration)}` +
         (lg.sub_mode === "replay" && lg.log_time ? `  · ${fmtLocal(lg.log_time, false)}` : "");
@@ -503,7 +509,7 @@ export function initLive({ control, getMeta }) {
     for (const b of $("speed-seg").children) b.classList.toggle("on", Number(b.dataset.speed) === st.speed);
     const scrub = $("scrubber");
     scrub.max = String(st.duration || 0);
-    if (idle(scrub)) {
+    if (free(scrub)) {
       scrub.value = String(st.position || 0);
       $("scenario-time").textContent = `${fmtTime(st.position)} / ${fmtTime(st.duration)}`;
     }
