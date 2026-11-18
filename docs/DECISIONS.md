@@ -380,3 +380,29 @@ laser dot, a mug pushed off a desk and a page of visits and weight were offered 
 **Not known.** How 8 pushes a second look on the LEDs, whether the dissolve reads as glitter
 or as a glitch, the rat's and bird's colours, and how the split feels over a working day. When
 this was written only the bench (`scripts/push_bench.py`) was built.
+
+## D-0020 — Weather comes from Open-Meteo, and it is a decoration
+
+**2026-11-18.** The idle show's page (D-0019) shows Boston's temperature, a weather picture and
+today's high and low, with the date as month and day. Kyle does not want the day of the week.
+
+- **Source: Open-Meteo's forecast API**, one request every 15 minutes for the city-centre
+  coordinates in `[weather]`. No account and no key. The request carries nothing that
+  identifies Kyle. Confirmed with one live request (`docs/reference/open-meteo.md`).
+- **It is not robot data and is held to a lower standard of duty.** The reading reaches the
+  screen only on idle. One older than `max_age_s` (45 minutes) is dropped in mapping and the
+  page shows the date alone; an old temperature is never shown as current.
+- **It can never hurt the display.** The weather source runs as a second service beside the
+  Whisker source. If it fails, or cannot be read, the feeder carries on without it.
+- **Licence:** CC BY 4.0, attribution "Weather data by Open-Meteo.com".
+
+**Why.** One call returns everything the page needs, with a numeric weather code that maps
+straight to a picture. The US National Weather Service gives real station readings but takes
+several calls, returns free text, and its observations can lag or come back empty.
+
+**Accepted.** The values are from weather models, not a thermometer at the airport, so the
+temperature can differ a little from other apps. After the Mac sleeps, the page shows the date
+alone until the next fetch.
+
+**Not known.** How often the "current" values really change, and what a rate-limit refusal
+looks like. The free terms allow 10,000 calls a day; we make 96.

@@ -15,7 +15,9 @@ simulates the clock so screens can be designed without the hardware on the desk.
 - `docs/reference/pylitterbot.md`, `docs/reference/awtrix-ng.md`: verified API notes.
 - `docs/reference/petlibro.md`: PETLIBRO cloud API notes (food and water). Read from a
   third-party integration's source, not yet confirmed live.
-- `docs/research/`: the hardware and firmware comparison behind the decisions.
+- `docs/reference/open-meteo.md`: the weather API the idle show's page uses, confirmed live.
+- `docs/research/`: the hardware and firmware comparison behind the decisions, and the LED
+  animation and idle cadence research behind the idle show (D-0019).
 - `docs/handoff.md`: the original brief. DECISIONS.md overrides it where they differ.
 
 ## Pipeline
@@ -23,18 +25,21 @@ simulates the clock so screens can be designed without the hardware on the desk.
 
 | Stage | Module | Rule |
 |---|---|---|
-| source | `arthur/sources/` | `whisker.py` is the live robot and writes `logs/spike-*.jsonl`; `logfile.py` reads that log for the studio; `tracker.py` keeps what the feeder observed over time (when a status began, when the cat left) for both. pylitterbot is imported only by `whisker.py` and `arthur/spikelog.py` |
-| mapping | `arthur/mapping.py` | Pure function. Knows nothing about displays or pixels |
-| render | `arthur/render/` | Pure function of DisplayState, time, config and size. Knows nothing about AWTRIX |
+| source | `arthur/sources/` | `whisker.py` is the live robot and writes `logs/spike-*.jsonl`; `logfile.py` reads that log for the studio; `tracker.py` keeps what the feeder observed over time (when a status began, when the cat left) for both. pylitterbot is imported only by `whisker.py` and `arthur/spikelog.py`. `weather.py` fetches Boston's weather from Open-Meteo for the idle show's page; it is a decoration, never robot data |
+| mapping | `arthur/mapping.py`, `arthur/schedule.py` | Pure functions. Know nothing about displays or pixels. The schedule says which part of the idle show is on (home, page or scene) and mapping carries it on the state as a cue (D-0019) |
+| render | `arthur/render/` | Pure function of DisplayState, time, config and size. Knows nothing about AWTRIX. `idle_show.py` plays a cue; `pages.py` holds the weather page; each scene is one file under `scenes/` |
 | transport | `arthur/transports/` | Behind an interface. The only code that knows the clock's API |
 | simulator | `arthur/sim/` | A fake clock that speaks the same API subset, plus the studio page |
-| feeder | `arthur/feeder.py`, `arthur/pusher.py` | The run loop: every 0.25 s it asks the source, maps, renders and pushes when the frame changed or the heartbeat is due |
+| feeder | `arthur/feeder.py`, `arthur/pusher.py` | The run loop: 8 times a second, on the beat of the wall clock (`arthur/timebase.py`), it asks the sources, maps, renders and pushes when the frame changed or the heartbeat is due |
 
 ## Invariants
 - **The feeder draws every pixel.** The clock only shows a bitmap (D-0003). Do not move layout
   into AWTRIX text, icon or progress keys.
 - **One size: 52x16**, the Ulanzi TC002 (D-0010). The 32x8 layouts were removed on purpose; do
   not add a second size back without Kyle asking.
+- **The idle show is decoration** (D-0019). Pages and scenes play only on idle, any real robot
+  event replaces them at once, and a failure in the weather source or in drawing a page or
+  scene must fall back to the home page, never stop the display.
 - **One config file.** Colours, thresholds and timings live in `config/display.toml`.
 - **Credentials** come from the environment or a gitignored `.env` that Kyle fills in himself.
   Never read `.env` or `.whisker-token.json`, never print or log their contents.
