@@ -3,10 +3,11 @@ from datetime import timedelta
 
 import pytest
 
-from arthur.config import default_config
+from arthur.config import WeatherConfig, default_config
 from arthur.fixtures import BASE, FIXTURES, HEALTHY, NOW, ago
 from arthur.mapping import to_display_state
-from arthur.model import KINDS, LAYERS, DisplayState, FeederHealth
+from arthur.model import KINDS, LAYERS, Cue, DisplayState, FeederHealth, Weather
+from arthur.schedule import idle_cue
 
 CFG = default_config()
 
@@ -318,3 +319,89 @@ def test_fixture_maps_to_its_kind(name):
 def test_a_fixture_per_kind():
     for kind in KINDS:
         assert kind in FIXTURES and FIXTURES[kind].kind == kind
+
+
+# --- the idle show: weather and cue (D-0019) ----------------------------------------------
+
+READING = Weather(
+    temp_f=41.0, code=3, is_day=True, high_f=47.0, low_f=35.0, fetched_at=ago(600)
+)
+PAGE_CUE = Cue(kind="page", at=ago(10), length_s=54, n=7, name="weather")
+
+
+@pytest.mark.parametrize("status", sorted(STATUS_KIND))
+def test_weather_and_cue_set_only_on_ready(status):
+    s = to_display_state(_as(status), HEALTHY, NOW, CFG, weather=READING, cue=PAGE_CUE)
+    if s.kind == "ready":
+        assert (s.weather, s.cue) == (READING, PAGE_CUE)
+    else:
+        assert (s.weather, s.cue) == (None, None)
+
+
+def test_weather_and_cue_dropped_on_no_data_and_just_cleaned():
+    s = to_display_state(BASE, FeederHealth(error="auth"), NOW, CFG, weather=READING,
+                         cue=PAGE_CUE)
+    assert (s.kind, s.weather, s.cue) == ("no_data", None, None)
+    fx = FIXTURES["just_cleaned"]
+    s = to_display_state(fx.snapshot, fx.health, fx.now, CFG, weather=READING, cue=PAGE_CUE)
+    assert (s.kind, s.weather, s.cue) == ("just_cleaned", None, None)
+
+
+def test_stale_and_future_weather_dropped():
+    max_age = CFG.weather.max_age_s
+    at_limit = replace(READING, fetched_at=NOW - timedelta(seconds=max_age))
+    assert to_display_state(BASE, HEALTHY, NOW, CFG, weather=at_limit).weather == at_limit
+    just_now = replace(READING, fetched_at=NOW)
+    assert to_display_state(BASE, HEALTHY, NOW, CFG, weather=just_now).weather == just_now
+    stale = replace(READING, fetched_at=NOW - timedelta(seconds=max_age + 1))
+    assert to_display_state(BASE, HEALTHY, NOW, CFG, weather=stale).weather is None
+    future = replace(READING, fetched_at=NOW + timedelta(seconds=1))
+    assert to_display_state(BASE, HEALTHY, NOW, CFG, weather=future).weather is None
+
+
+def test_weather_max_age_without_a_weather_table():
+    cfg = replace(CFG, weather=None)
+    default = WeatherConfig.__dataclass_fields__["max_age_s"].default
+    ok = replace(READING, fetched_at=NOW - timedelta(seconds=default))
+    old = replace(READING, fetched_at=NOW - timedelta(seconds=default + 1))
+    assert to_display_state(BASE, HEALTHY, NOW, cfg, weather=ok).weather == ok
+    assert to_display_state(BASE, HEALTHY, NOW, cfg, weather=old).weather is None
+
+
+SHOW_ON = replace(CFG, idle=replace(CFG.idle, page_pct=30, scene_pct=20, quiet_from_h=0,
+                                    quiet_until_h=0))
+
+
+def test_ready_asks_the_schedule():
+    # NOW is a round start; BASE has been ready for an hour, so the page at +45 s plays.
+    t = NOW + timedelta(seconds=50)
+    s = to_display_state(BASE, FeederHealth(last_contact_at=t), t, SHOW_ON)
+    assert s.cue == idle_cue(BASE.status_since, t, SHOW_ON)
+    assert s.cue is not None and s.cue.kind == "page" and s.cue.at == NOW + timedelta(seconds=45)
+
+
+def test_page_cue_without_weather():
+    t = NOW + timedelta(seconds=50)
+    s = to_display_state(BASE, FeederHealth(last_contact_at=t), t, SHOW_ON, weather=None)
+    assert s.weather is None and s.cue is not None and s.cue.kind == "page"
+
+
+def test_explicit_cue_wins_over_the_schedule():
+    scene = Cue(kind="scene", at=NOW, length_s=36, name="rat")
+    # At NOW the schedule says home; at +50 s it says page. The given cue wins both times.
+    for t in (NOW, NOW + timedelta(seconds=50)):
+        s = to_display_state(BASE, FeederHealth(last_contact_at=t), t, SHOW_ON, cue=scene)
+        assert s.cue == scene
+
+
+def test_cue_kind_is_checked():
+    with pytest.raises(ValueError):
+        Cue(kind="home", at=NOW, length_s=10)
+
+
+@pytest.mark.parametrize("name", list(FIXTURES))
+def test_repository_config_gives_every_fixture_no_cue(name):
+    fx = FIXTURES[name]
+    for s in range(0, 600, 3):
+        now = fx.now + timedelta(seconds=s)
+        assert to_display_state(fx.snapshot, fx.health, now, CFG).cue is None

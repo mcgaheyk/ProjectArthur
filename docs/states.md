@@ -70,6 +70,28 @@ other three, which stayed `CAT_DETECTED` until the clean cycle. What does track 
 |---|---|---|
 | `ready` | Status `READY` and nothing above applies. | Bin level (`waste_drawer_level`, 0–100) and litter level (`litter_level`, 0–100), plus one more thing: currently the time since the last visit. Visits today is a candidate. Both bars carry meaning by colour; see Level colours. |
 
+### The idle show (D-0019)
+Idle is still one state, `ready`. While it lasts, the screen takes turns in a round lined up
+with the wall clock (three minutes by default):
+
+| Part | Share | What it is |
+|---|---|---|
+| Home page | the rest (50 %) | The screen described above. It opens every round and comes back between the other two. |
+| Page | `page_pct` (30 %) | Boston's weather, the temperature and the date. With no fresh weather reading it shows the date alone, never an old temperature. |
+| Scene | `scene_pct` (20 %) | A short story with Arthur: a rat chase, or a leap at a bird. It carries no information. |
+
+- **The round is decided in mapping** (`arthur/schedule.py`) and carried on the display state
+  as a cue: which part, when its slot began and how long it is. The renderer plays the cue.
+- **Nothing starts until idle has lasted `settle_s`**, and a slot that began before then is
+  skipped whole, so a page or scene never starts part-way through.
+- **Any state above idle cuts in at once.** The cue belongs to `ready` only; a visit, a fault
+  or drawer-full replaces the screen in the middle of a scene, with no transition.
+- **At night** (`quiet_from_h` to `quiet_until_h`, local time) there are no scenes and Arthur
+  sleeps on the home page. The page carries on.
+- With both shares at 0 the show is off and idle is the home page alone.
+- Weather is not robot data. It comes from Open-Meteo through its own source and reaches the
+  screen only on `ready`; a reading older than `max_age_s` is dropped in mapping.
+
 ## Level colours
 The same rules apply wherever a level is drawn: the idle bars and digits, and the drawer bar on
 the live screens (D-0011).

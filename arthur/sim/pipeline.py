@@ -31,8 +31,18 @@ ROOT = Path(arthur.__file__).resolve().parent
 #: the fixture's time plus (seconds since it was selected, modulo this).
 LOOP_S = 30
 
-#: Watched source modules, imported in this order.
-MODULES = ("arthur.model", "arthur.mapping", "arthur.fixtures", "arthur.render")
+#: Watched source modules, imported in this order. ``arthur.schedule`` has no slot on
+#: :class:`Pipeline`; it is reloaded so that the fresh ``arthur.mapping`` imports the fresh one.
+MODULES = (
+    "arthur.model",
+    "arthur.schedule",
+    "arthur.mapping",
+    "arthur.fixtures",
+    "arthur.render",
+)
+
+#: Package attributes that point at reloadable modules (``arthur.<name>``).
+_PACKAGE_ATTRS = ("model", "schedule", "mapping", "fixtures", "render")
 
 
 def _is_reloadable(name: str) -> bool:
@@ -41,7 +51,13 @@ def _is_reloadable(name: str) -> bool:
 
 def watched_files(config_path: Path) -> list[Path]:
     """Every file whose change triggers a reload."""
-    files = [config_path, ROOT / "mapping.py", ROOT / "model.py", ROOT / "fixtures.py"]
+    files = [
+        config_path,
+        ROOT / "mapping.py",
+        ROOT / "model.py",
+        ROOT / "schedule.py",
+        ROOT / "fixtures.py",
+    ]
     render_dir = ROOT / "render"
     for p in sorted(render_dir.rglob("*")):
         if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc":
@@ -215,14 +231,20 @@ def fresh_pipeline(config_path: Path | None, version: int) -> Pipeline:
     """
     cfg = load_config(config_path)  # config errors fail before modules are touched
     saved = {n: m for n, m in sys.modules.items() if _is_reloadable(n)}
-    saved_attrs = {a: getattr(arthur, a) for a in ("model", "mapping", "fixtures", "render")
-                   if hasattr(arthur, a)}
+    saved_attrs = {a: getattr(arthur, a) for a in _PACKAGE_ATTRS if hasattr(arthur, a)}
     for n in saved:
         del sys.modules[n]
     importlib.invalidate_caches()
     try:
-        mods = [importlib.import_module(n) for n in MODULES]
-        p = Pipeline(cfg, mods[0], mods[1], mods[2], mods[3], version)
+        mods = {n: importlib.import_module(n) for n in MODULES}
+        p = Pipeline(
+            cfg,
+            model=mods["arthur.model"],
+            mapping=mods["arthur.mapping"],
+            fixtures=mods["arthur.fixtures"],
+            render_mod=mods["arthur.render"],
+            version=version,
+        )
         p.validate()
         return p
     except BaseException:

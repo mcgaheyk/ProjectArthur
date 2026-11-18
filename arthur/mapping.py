@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from arthur.config import Config
-from arthur.model import DisplayState, FeederHealth, RobotSnapshot
+from arthur.config import Config, WeatherConfig
+from arthur.model import Cue, DisplayState, FeederHealth, RobotSnapshot, Weather
+from arthur.schedule import idle_cue
 
 #: Our own fault set: pylitterbot has no fault classifier. Status name → short code.
 #: ``UNKNOWN`` shows the raw ``status_code``.
@@ -124,10 +125,36 @@ def _kind_and_fields(
     return "ready", {"since": s.status_since}
 
 
+#: How old a weather reading may be when there is no ``[weather]`` table.
+_DEFAULT_WEATHER_MAX_AGE_S: float = WeatherConfig.__dataclass_fields__["max_age_s"].default
+
+
+def _fresh_weather(weather: Weather | None, now: datetime, cfg: Config) -> Weather | None:
+    """``weather`` if it is at most ``max_age_s`` old; None if stale or dated in the future."""
+    if weather is None:
+        return None
+    max_age = cfg.weather.max_age_s if cfg.weather is not None else _DEFAULT_WEATHER_MAX_AGE_S
+    age = (now - weather.fetched_at).total_seconds()
+    if 0 <= age <= max_age:
+        return weather
+    return None
+
+
 def to_display_state(
-    snapshot: RobotSnapshot | None, health: FeederHealth, now: datetime, cfg: Config
+    snapshot: RobotSnapshot | None,
+    health: FeederHealth,
+    now: datetime,
+    cfg: Config,
+    *,
+    weather: Weather | None = None,
+    cue: Cue | None = None,
 ) -> DisplayState:
-    """Decide what to show. Pure function of its arguments."""
+    """Decide what to show. Pure function of its arguments.
+
+    ``weather`` is the latest reading, if any; it is shown only on ready and only while
+    fresh. ``cue`` pins the idle show's cutaway (fixtures, tests); without it ready asks the
+    schedule. Every other kind gets neither.
+    """
     reason = _no_data_reason(snapshot, health, now, cfg)
     if reason is not None or snapshot is None:
         return DisplayState(
@@ -135,6 +162,10 @@ def to_display_state(
         )
 
     kind, extra = _kind_and_fields(snapshot, now, cfg)
+    if kind == "ready":
+        extra["weather"] = _fresh_weather(weather, now, cfg)
+        since = extra.get("since")
+        extra["cue"] = cue if cue is not None else idle_cue(since, now, cfg)  # type: ignore[arg-type]
     return DisplayState(
         kind=kind,
         drawer_pct=snapshot.waste_drawer_level,

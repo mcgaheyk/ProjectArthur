@@ -106,6 +106,42 @@ class FeederHealth:
     error: str | None = None  # None, "auth", "api" or "no_robots"
 
 
+#: Values of ``Cue.kind``.
+CUE_KINDS: tuple[str, ...] = ("page", "scene")
+
+
+@dataclass(frozen=True)
+class Weather:
+    """One weather reading for the idle show's page (D-0019)."""
+
+    temp_f: float
+    code: int  # WMO weather code
+    is_day: bool
+    high_f: float | None
+    low_f: float | None
+    fetched_at: datetime  # aware UTC
+
+
+@dataclass(frozen=True)
+class Cue:
+    """A cutaway from the idle home page that the renderer should play (D-0019).
+
+    ``at`` is when its slot began and ``length_s`` the slot's length, so the renderer can
+    place any ``now`` inside it. ``n`` is the round number, which seeds which scene plays and
+    its variations. ``name`` pins one page or scene by name (fixtures and tests).
+    """
+
+    kind: str  # "page" or "scene"
+    at: datetime  # when its slot began, aware UTC
+    length_s: float
+    n: int = 0
+    name: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in CUE_KINDS:
+            raise ValueError(f"unknown cue kind {self.kind!r}")
+
+
 @dataclass(frozen=True)
 class DisplayState:
     """What to show. Pure data: time-dependent text is computed by the renderer from ``now``.
@@ -124,6 +160,9 @@ class DisplayState:
     - ``detail``: extra word for the kind: powering → ``"up"``/``"down"``; no_data → the reason
       (``"auth"``, ``"api"``, ``"no_robots"``, ``"timeout"``, ``"no_snapshot"``).
     - ``laser_dirty``: the robot's ``is_laser_dirty`` (every kind but no_data).
+    - ``weather``: ready → the latest weather reading if it is fresh, else None.
+    - ``cue``: ready → the idle show's page or scene to play now (see arthur/schedule.py),
+      None on the home page. Both are None for every other kind.
     """
 
     kind: str
@@ -142,6 +181,8 @@ class DisplayState:
     pet_weight_lbs: float | None = None
     sleeping: bool = False
     laser_dirty: bool = False
+    weather: Weather | None = None
+    cue: Cue | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in KINDS:
