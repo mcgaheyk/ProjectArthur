@@ -195,17 +195,25 @@ Actor = Seat | Sprite
 @dataclass(frozen=True)
 class Shot:
     """One frame of a scene: Arthur (or nobody), the other animal (or nobody), and which part
-    of the scene it belongs to (for tests and review; it does not change the picture)."""
+    of the scene it belongs to (for tests and review; it does not change the picture).
+    ``extra`` is an optional third, small thing (a falling feather), drawn under Arthur."""
 
     arthur: Actor | None
     prey: Actor | None
     part: str
+    extra: Actor | None = None
 
     def draw(self, stage: Frame, cfg: Config) -> None:
         if self.prey is not None:
             self.prey.draw(stage, cfg)
+        if self.extra is not None:
+            self.extra.draw(stage, cfg)
         if self.arthur is not None:
             self.arthur.draw(stage, cfg)
+
+    def picture(self) -> tuple[Actor | None, Actor | None, Actor | None]:
+        """What is drawn (everything but ``part``)."""
+        return self.arthur, self.prey, self.extra
 
 
 def shots_to_beats(cfg: Config, shots: Sequence[Shot]) -> list[Beat]:
@@ -214,8 +222,7 @@ def shots_to_beats(cfg: Config, shots: Sequence[Shot]) -> list[Beat]:
     i = 0
     while i < len(shots):
         j = i + 1
-        while j < len(shots) and (shots[j].arthur, shots[j].prey) == (
-                shots[i].arthur, shots[i].prey):
+        while j < len(shots) and shots[j].picture() == shots[i].picture():
             j += 1
         shot = shots[i]
         beats.append(Beat(j - i, lambda stage, _k, s=shot: s.draw(stage, cfg)))
@@ -293,3 +300,66 @@ def settle(cfg: Config, from_x: int, walk_frames: int, total: int) -> list[Beat]
         seated(cfg, BLINK_FRAMES, "blink"),
         seated(cfg, sit - first),
     ]
+
+
+# =========================================================================================
+# Arthur leaping (the bird scene's; any scene with a pounce can use them)
+# =========================================================================================
+
+#: Crouched to spring, side view, facing right: 14 wide, 5 tall, feet on the bottom row.
+CROUCH_A = (
+    ".S........O.O.",
+    ".O.OOO....OOO.",
+    "..OOSOSOOOOEO.",
+    "..OOOOOOOOOON.",
+    "..OO.....OOO..",
+)
+#: The same with his rear wiggled a pixel left (the wind-up alternates the two).
+CROUCH_B = (
+    "S.........O.O.",
+    "O.OOO.....OOO.",
+    "..OOSOSOOOOEO.",
+    "..OOOOOOOOOON.",
+    "..OO.....OOO..",
+)
+#: Springing off the floor, side view, facing right: hind feet still down, body stretched up
+#: towards the top right, front paws reaching. 14 wide, 8 tall, feet on the bottom row.
+LAUNCH = (
+    "...........C..",
+    "..........O.OC",
+    "..........OOO.",
+    "........OOOEO.",
+    "......OSOSOON.",
+    "....OOOOOOO...",
+    ".SOOOOOOO.....",
+    ".O.OO.........",
+)
+#: Rising, belly to us: arms straight up beside his ears, legs together. 15 wide, aligned
+#: with SPREAD (the head is in the same columns), 10 tall.
+REACH = (
+    "..C.O.....O.C..",
+    "..O.OO...OO.O..",
+    "..O.OOOOOOO.O..",
+    "..OOOEOOOEOOO..",
+    "...OOOCNCOOO...",
+    "....OOCCCOO....",
+    "....OOCCCOO....",
+    "....OOCCCOO....",
+    ".....OO.OO.....",
+    ".....C.S.C.....",
+)
+#: The top of the leap: belly to us, arms flung up and out, legs splayed, tail hanging.
+#: 15 wide, 11 tall.
+SPREAD = (
+    "C...O.....O...C",
+    "OO..OO...OO..OO",
+    ".OO.OOOOOOO.OO.",
+    "..OOOEOOOEOOO..",
+    "...OOOCNCOOO...",
+    "....OOCCCOO....",
+    "....OOCCCOO....",
+    "....OOCCCOO....",
+    "...OO.CCC.OO...",
+    "..OO...S...OO..",
+    "..C....S....C..",
+)

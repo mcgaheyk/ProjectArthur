@@ -33,12 +33,13 @@ ROUNDS = (0, 1, 98_765)
 GOLDEN = Path(__file__).parent / "golden" / "strips"
 UPDATE = os.environ.get("ARTHUR_UPDATE_GOLDEN") == "1"
 
-#: Changed frames allowed in one 36-second scene slot (288 frames). The bird placeholder
-#: measured 82-86 over rounds 0-19. The rat scene (tests/test_scene_rat.py) measured 105-122:
-#: its quiet part moves in small darts and twitches (about 40 changes), the burst changes on
-#: nearly every frame while something crosses the stage (about 45), the settle's walk and
-#: sit about 20, and the glance and wipes 11. Raise this on purpose.
-CHANGED_FRAME_BUDGET = 130
+#: Changed frames allowed in one 36-second scene slot (288 frames). The rat scene
+#: (tests/test_scene_rat.py) measured 105-122: its quiet part moves in small darts and
+#: twitches (about 40 changes), the burst changes on nearly every frame while something
+#: crosses the stage (about 45), the settle's walk and sit about 20, and the glance and wipes
+#: 11. The bird scene (tests/test_scene_bird.py) measured 173-186 over rounds 0-11: its bird
+#: beats its wings every 2 frames all the time it is in the air. Raise this on purpose.
+CHANGED_FRAME_BUDGET = 200
 
 
 def at(cue: Cue, k: int, us: int = 0) -> datetime:
@@ -244,32 +245,17 @@ def test_rounds_vary_the_quiet_part_and_repeat_exactly(name):
     assert quiet_frames(3) == rounds[3]
 
 
-@pytest.mark.parametrize("name", ["bird"])
-def test_quiet_part_changes_at_most_about_once_a_second(name):
-    # This checks the placeholder's shape, not a rule of the show: only the bird is still a
-    # placeholder. Delete it when the real bird scene lands; a real scene tests its own quiet
-    # part (tests/test_scene_rat.py).
-    # The placeholders end with 3 burst beats and 4 settling beats; the rest is the quiet part.
-    for n in range(10):
-        for length in SLOT_LENGTHS:
-            cue = scene_cue(name, n, length)
-            body = body_frames(cue)
-            quiet = show.scene_beats(name, CFG, n, body)[:-7]
-            assert show.beats_length(quiet) == body - 14 * SHOW_FPS  # 8 s burst, 6 s settle
-            assert all(b.frames >= SHOW_FPS for b in quiet), (n, length)
-            assert len(quiet) >= 2  # 24 s leaves under 8 s of quiet
-
-
-def test_placeholders_differ():
+def test_scenes_differ():
     def body(name):
         cue = scene_cue(name)
         beats = show.scene_beats(name, CFG, 0, body_frames(cue))
         return [show.body_stage(beats, j) for j in range(body_frames(cue))]
 
-    rat, bird = body("rat"), body("bird")
-    assert rat != bird
-    # The burst differs too, not only the seeded quiet part.
-    assert rat[-80:] != bird[-80:]
+    bodies = {name: body(name) for name in sorted(show.SCENES)}
+    for a, b in itertools.combinations(sorted(bodies), 2):
+        assert bodies[a] != bodies[b]
+        # The burst differs too, not only the seeded quiet part.
+        assert bodies[a][-80:] != bodies[b][-80:]
 
 
 @pytest.mark.parametrize("name", sorted(show.SCENES))
