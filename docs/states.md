@@ -87,7 +87,11 @@ with the wall clock (three minutes by default):
 - **Any state above idle cuts in at once.** The cue belongs to `ready` only; a visit, a fault
   or drawer-full replaces the screen in the middle of a scene, with no transition.
 - **At night** (`quiet_from_h` to `quiet_until_h`, local time) there are no scenes and Arthur
-  sleeps on the home page. The page carries on.
+  sleeps on the home page: curled up, breathing once every 12 seconds, with Zs on the
+  out-breath. The bars and the bottom line stay. Mapping sets `asleep_since` (the later of the
+  quiet hours' start and the moment idle began) and, for four seconds after they end,
+  `woke_at`; the renderer times the yawn before he curls up and the waking from those. The
+  page carries on over the sleeping home page.
 - With both shares at 0 the show is off and idle is the home page alone.
 - Weather is not robot data. It comes from Open-Meteo through its own source and reaches the
   screen only on `ready`; a reading older than `max_age_s` is dropped in mapping.
