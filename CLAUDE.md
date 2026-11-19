@@ -8,6 +8,12 @@ decides what to show, draws the frame itself, and pushes it to a Ulanzi TC002 pi
 (52x16) running AWTRIX NG. The feeder will run on a Raspberry Pi 5. A browser **studio**
 simulates the clock so screens can be designed without the hardware on the desk.
 
+**If this is someone else's copy.** This file, STATUS.md and DECISIONS.md describe Kyle's clock
+and Kyle's cat. In a copy someone cloned to run their own, the clock address, `.env` and
+`config/display.toml` are theirs, STATUS.md's feeder "running on Kyle's Mac" is not on this
+machine (check with `pgrep -fl arthur.feeder`), and Kyle's directions in the `design-screen`
+skill are defaults the owner may change. The README is the setup guide for them.
+
 ## Read before working
 - `docs/STATUS.md` (imported above): what is done and what is next. Current state only.
 - `docs/DECISIONS.md`: why things are this way. Append-only.
