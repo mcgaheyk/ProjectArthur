@@ -70,7 +70,7 @@ out of the clock's rotation and turns off its double-size drawing by itself.
 Install [uv](https://docs.astral.sh/uv/), then:
 
 ```bash
-git clone https://github.com/OWNER/ProjectArthur.git
+git clone https://github.com/mcgaheyk/ProjectArthur.git
 ```
 
 ```bash

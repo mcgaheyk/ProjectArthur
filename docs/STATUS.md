@@ -157,8 +157,9 @@ _Last updated: 2026-11-19, afternoon._ Current state only. History belongs in gi
   repo now has a README written for them (hardware, installing NG, setup, keeping it running,
   making it their cat), an MIT `LICENSE`, `BUILD-YOUR-OWN.md` (a prompt that has Claude Code or
   Codex build one for other hardware, reading this repo's docs from a clone named
-  `reference/`), a systemd unit, and a note in CLAUDE.md for other people's copies. The repo
-  has no remote and nothing is pushed. **History checked on 2026-11-19:** no `.env`, token or
+  `reference/`), a systemd unit, and a note in CLAUDE.md for other people's copies. **The repo
+  is on GitHub, private,** as `mcgaheyk/ProjectArthur`, pushed on 2026-11-19 with its whole
+  history; the README's links work for Kyle only until it is public. **History checked on 2026-11-19:** no `.env`, token or
   log was ever committed; `tests/data/real-cycles.jsonl` has no serials or account ids. Kyle's
   name is the commit author and is on about 100 lines of the docs. **No fresh agent has tried
   the prompt yet.**
@@ -166,10 +167,9 @@ _Last updated: 2026-11-19, afternoon._ Current state only. History belongs in gi
   has not run on a Pi; log retention), night dimming, food and water. See Later.
 ## Next
 **Sharing (D-0026), Kyle's steps before posting:**
-- Decide whether the repo goes public under your name (commit author and docs) or as a fresh
-  copy. `LICENSE` says "the ProjectArthur contributors" until then.
-- Create the GitHub repo, replace `OWNER` in `README.md` and `BUILD-YOUR-OWN.md`, push.
-  CLAUDE.md's "Nothing is pushed" changes then.
+- Make the repo public when ready (on GitHub: Settings, then Change visibility). Its whole
+  history is there, so Kyle's name goes public with it; a fresh copy with one commit is the
+  alternative. `LICENSE` says "the ProjectArthur contributors"; Kyle may put his name there.
 - Record a short clip of the clock for the README's top and the post; better after a real
   visit has been watched on the clock (item 1 below).
 - With Claude, optional: a fresh agent follows `BUILD-YOUR-OWN.md` once, display faked, to see

@@ -16,7 +16,7 @@ the prompt points the agent at them.
    ```
 
    ```bash
-   git clone https://github.com/OWNER/ProjectArthur.git reference
+   git clone https://github.com/mcgaheyk/ProjectArthur.git reference
    ```
 
 2. Open Claude Code or Codex in `litter-display` (not inside `reference`).
