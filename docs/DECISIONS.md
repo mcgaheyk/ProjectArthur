@@ -543,3 +543,40 @@ the last visit whenever it is read, not only at start. How soon after a detectio
 has it. What the first minutes after a real gap look like on the clock: only the tests have
 seen one. The studio's Replay does not apply the gap rule; its last-visit time was already
 taken from the history.
+
+## D-0026 — Shared as code plus a build-your-own prompt
+
+**2026-11-19.** People commenting on Kyle's posts want one of their own. The project will be
+shared as a public GitHub repository (Kyle creates it and pushes), and a Reddit post links to
+it; the instructions live in the repository, where they can be corrected, not in the post.
+
+- **Two ways in.** Same hardware (a Litter-Robot 4 and a TC002): clone and run, following the
+  README, which is now written for them. Anything else: `BUILD-YOUR-OWN.md`, a prompt for
+  Claude Code or Codex. The agent clones this repository as `reference/`, reads `states.md`,
+  this file and the reference notes, plans for the person's hardware and waits for an OK. The
+  prompt names the rules that cost the most to learn (D-0004, D-0017, D-0018, D-0025, one
+  Whisker connection, checking names against the source) instead of restating the docs.
+- **MIT licence**, the same as pylitterbot. The copyright line says "the ProjectArthur
+  contributors" until Kyle decides whether his name goes public with it.
+- **Running it beyond Kyle's Mac.** A systemd unit for the Pi or any Linux machine,
+  `scripts/arthur-feeder.service`, reads the clock's address from `.env`. The Mac script now
+  looks for uv where its installers put it and creates `logs/` on a fresh clone; it keeps
+  Kyle's clock address on its `CLOCK=` line, which others change.
+- **CLAUDE.md says** that in someone else's copy, STATUS.md describes Kyle's setup, not theirs.
+- **Checked before sharing:** no `.env`, token or log was ever committed, and the real-visit
+  fixture holds no serials or account ids. Kyle's name is the commit author and is throughout
+  the docs; the Boston coordinates are downtown.
+
+**Why.** The code alone serves only people with exactly this hardware, and many who asked
+will have something else, a TC001 or a Home Assistant dashboard. A prompt alone loses what was
+learned against the real robot: an agent that does not know D-0017 and D-0025 builds something
+that looks right and reads visits wrong. The docs are the distilled part, so the prompt points
+at them.
+
+**Rejected.** Instructions in the Reddit post itself: they cannot be updated and cannot hold
+code. A prompt instead of the code. Bringing back the 32x8 layouts for TC001 owners: D-0010
+stands, and the prompt points them at commit 91e4960.
+
+**Not known.** Whether a fresh agent following the prompt reaches a working display; none has
+tried. Whether the systemd unit runs as written; there is no Pi yet. Whether the feeder can
+share a Whisker account with Home Assistant's Litter-Robot integration.

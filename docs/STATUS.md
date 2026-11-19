@@ -1,6 +1,6 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-19, morning._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-19, afternoon._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
 - **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
@@ -153,9 +153,29 @@ _Last updated: 2026-11-19, morning._ Current state only. History belongs in git 
   last-visit line) and logged no error in its first minute. It has played the idle show
   since 13:53. It has not been watched through a real visit, so a visit cutting into a
   page or scene has only been seen in tests and the studio.
-- **Not built:** the Pi deployment (systemd unit, log retention), night dimming, food and
-  water. See Later.
+- **Ready to share, not public yet (D-0026).** People asked Kyle how to make their own, so the
+  repo now has a README written for them (hardware, installing NG, setup, keeping it running,
+  making it their cat), an MIT `LICENSE`, `BUILD-YOUR-OWN.md` (a prompt that has Claude Code or
+  Codex build one for other hardware, reading this repo's docs from a clone named
+  `reference/`), a systemd unit, and a note in CLAUDE.md for other people's copies. The repo
+  has no remote and nothing is pushed. **History checked on 2026-11-19:** no `.env`, token or
+  log was ever committed; `tests/data/real-cycles.jsonl` has no serials or account ids. Kyle's
+  name is the commit author and is on about 100 lines of the docs. **No fresh agent has tried
+  the prompt yet.**
+- **Not built:** the Pi deployment (the unit `scripts/arthur-feeder.service` is written but
+  has not run on a Pi; log retention), night dimming, food and water. See Later.
 ## Next
+**Sharing (D-0026), Kyle's steps before posting:**
+- Decide whether the repo goes public under your name (commit author and docs) or as a fresh
+  copy. `LICENSE` says "the ProjectArthur contributors" until then.
+- Create the GitHub repo, replace `OWNER` in `README.md` and `BUILD-YOUR-OWN.md`, push.
+  CLAUDE.md's "Nothing is pushed" changes then.
+- Record a short clip of the clock for the README's top and the post; better after a real
+  visit has been watched on the clock (item 1 below).
+- With Claude, optional: a fresh agent follows `BUILD-YOUR-OWN.md` once, display faked, to see
+  whether it reaches a working screen.
+
+
 **In hand, with Claude: the idle show (D-0019), live and waiting for Kyle's reactions.**
 - **Kyle, at the clock over the next days:** say what looks wrong and what wears. The studio
   (`idle_hour`, and the tiles in All states) shows any one part on demand.
@@ -198,8 +218,9 @@ _Last updated: 2026-11-19, morning._ Current state only. History belongs in git 
    share it to the same second account. The running spike picks it up within the hour.
 
 ## Later
-- Pi 5 deployment: Raspberry Pi OS Lite (64-bit), a systemd unit for `python -m arthur.feeder`
-  (the feeder already reconnects with backoff and stops cleanly on SIGTERM), and retention for
+- Pi 5 deployment: Raspberry Pi OS Lite (64-bit), the systemd unit in
+  `scripts/arthur-feeder.service` (written, never run; the feeder already reconnects with
+  backoff and stops cleanly on SIGTERM), and retention for
   `logs/`, which grow by a file a day and are never deleted. The memory check (pylitterbot pulls in boto3/botocore) only matters if it is the
   1 GB model.
 - Night dimming. The TC002 has no light sensor and NG has no night schedule, so the feeder has
@@ -272,3 +293,5 @@ _Last updated: 2026-11-19, morning._ Current state only. History belongs in git 
   reboot (open reports #141 and #142 say it may not). After the 2026-11-18 power loss both were
   out, but the feeder's overdue check may have put them out again; it does not log that.
 - Which Raspberry Pi 5 it is (RAM size).
+- Whether the feeder can share a Whisker account with Home Assistant's Litter-Robot
+  integration. People who build their own will ask; the README does not claim either way.
