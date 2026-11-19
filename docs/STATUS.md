@@ -1,6 +1,6 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-18, evening._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-18, late evening._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
 - **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
@@ -16,7 +16,10 @@ _Last updated: 2026-11-18, evening._ Current state only. History belongs in git 
   the real clock (D-0018). It logged in, read the robot and showed idle; the clock's screen
   read-back matched our render of the robot's state on all 832 pixels. **No real visit has
   been watched on the clock yet.** It stops on a Mac restart and the clock shows the stale
-  border while the Mac sleeps. Its messages go to `logs/feeder-console.log`. Stop it with
+  border while the Mac sleeps. **The clock survives a power loss:** on 2026-11-18 its battery
+  ran down at 21:17 and Kyle charged it at about 23:26; it rejoined Wi-Fi, the running feeder
+  drew on it again at 23:27 with no restart, and four minutes later only our app was in the
+  rotation and double-size drawing was off. Keep it on USB power. Its messages go to `logs/feeder-console.log`. Stop it with
   `pkill -f arthur.feeder`; start it with `open -a Terminal scripts/start_feeder.command`,
   **never from a Claude session's shell**: the 13:47 copy lost the clock (not the robot) at
   17:22, when the session that started it closed, and the clock showed the stale border until
@@ -167,8 +170,7 @@ _Last updated: 2026-11-18, evening._ Current state only. History belongs in git 
 2. Kyle: react to the screens, now on real LEDs: which jokes land, which art does not read,
    colours and dim shades. Any one screen: `scripts/push_test.py` (stop the feeder first).
 3. With Claude, when they happen or can be staged: the cases the feeder has never met. The
-   stale border (stop the feeder for two minutes), a clock reboot (do Time and Status stay
-   out of the rotation?), an interruption, drawer full, the robot offline. The remaining
+   stale border (stop the feeder for two minutes), an interruption, drawer full, the robot offline. The remaining
    guesses about the clock are at the end of `docs/reference/awtrix-ng.md`.
 4. When the Pi arrives: deploy the feeder there (Later, first item) and stop the Mac's copy.
    Give the clock a fixed address in the router first; the feeder is started with its
@@ -242,10 +244,11 @@ _Last updated: 2026-11-18, evening._ Current state only. History belongs in git 
 - How fast Whisker pushes "cat detected" after Arthur steps in. The push trails the robot's
   own timestamp by up to 5 s; the robot's own delay is not known.
 - What the feeder does in the cases it has never met live: a visit with no weight push, an
-  interruption, Whisker's connection dropping, a rejected login, a clock reboot (D-0018).
+  interruption, Whisker's connection dropping, a rejected login (D-0018).
 - How colours and dim shades read on the TC002's LEDs. NG is installed; only idle has been looked at.
 - AWTRIX NG on the TC002: whether re-pushing an app clears the stale mark (inferred, not
   confirmed); what an empty rotation shows after a clock reboot; exactly which pixels the three
-  indicators use; whether the built-in apps stay out of the rotation after a reboot (open
-  reports #141 and #142 say app order and a disabled app can change).
+  indicators use; whether the clock itself keeps Time and Status out of the rotation after a
+  reboot (open reports #141 and #142 say it may not). After the 2026-11-18 power loss both were
+  out, but the feeder's overdue check may have put them out again; it does not log that.
 - Which Raspberry Pi 5 it is (RAM size).

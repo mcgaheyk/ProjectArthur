@@ -97,6 +97,13 @@ on Kyle's TC002 the same day. A new TC002 has two built-in apps in the rotation,
   then listed `litter` with `slot: 0` and Time and Status with `enabled: false, inLoop: false,
   slot: null`, as the docs describe. Still to check: whether Time or Status come back after a
   reboot (#141, #142). If they do, the transport puts them out again within `settings_check_s`.
+- **After a power loss (2026-11-18):** the battery ran down at 21:17 and the clock was charged
+  at about 23:26. It rejoined Wi-Fi by itself; the feeder's first push landed at 23:27:05. At
+  23:31 `GET /api/v1/apps` listed `litter` enabled, Time and Status `enabled: false`, and
+  `enlargeApps` was false. **Confirmed: within a minute of a reboot the rotation and setting
+  are right with the feeder running.** Not settled: whether the clock kept them by itself.
+  The transport's last check was over 300 s old at the first push, so it re-checked then, and
+  it does not log a correction.
 
 ### Double size on the TC002: `enlargeApps` must be off
 **Found 2026-11-16; our first notes missed it.** On a TC002, a pushed app or notification is
@@ -273,7 +280,8 @@ Ulanzi's product page. Earlier notes here called NG on the TC002 "a beta from la
 - **A new install has two built-in apps in the rotation, Time and Status**, 7 s each, so a
   pushed app only shows a third of the time. `PUT /api/v1/apps/order
   {"order":["litter"],"disabled":["Time","Status"]}` answered `200 {"ok":true}` and left only
-  ours. `GET` on that route is 405. Not yet checked: whether this survives a reboot (#141, #142).
+  ours. `GET` on that route is 405. Whether the clock keeps this by itself across a reboot is
+  still open (#141, #142); see "After a power loss" above.
   The transport now does this itself (see "Rotation" above).
 - **First frames (commit 7f3279a, `scripts/push_test.py`):** the transport's `enlargeApps:
   false` and bitmap push were accepted unchanged. Read-back of 12 animated frames matched what
@@ -283,8 +291,8 @@ Ulanzi's product page. Earlier notes here called NG on the TC002 "a beta from la
 
 ### Open reports that mention the TC002 (2026-11-16)
 - #141: the order of apps changes after a reboot. #142: a disabled Status app turns itself
-  back on after a reboot. Neither matters with a single pushed app, but check that the built-in
-  apps stay out of the rotation after a reboot.
+  back on after a reboot. Neither matters with a single pushed app. After the 2026-11-18 power
+  loss the built-in apps were out of the rotation within a minute, with the feeder running.
 - Closed: #86 the clock never rejoined Wi-Fi after a router restart (fixed in 1.2.3); #85 the
   battery would not charge past about 80 %.
 - No open report of flicker, crashes or pushed bitmaps misbehaving was found.
