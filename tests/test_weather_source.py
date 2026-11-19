@@ -101,6 +101,22 @@ def test_malformed_responses_raise_a_clear_error(data, words):
         parse_open_meteo(data, T0)
 
 
+def _in_celsius() -> dict:
+    data = copy.deepcopy(SAMPLE)
+    data["current_units"]["temperature_2m"] = "°C"
+    data["current"]["temperature_2m"] = 11.4
+    return data
+
+
+def test_celsius_when_asked_for():
+    assert parse_open_meteo(_in_celsius(), T0, "celsius").temp_f == 11.4
+
+
+def test_fahrenheit_answer_to_a_celsius_request_is_refused():
+    with pytest.raises(WeatherError, match="not °C"):
+        parse_open_meteo(SAMPLE, T0, "celsius")
+
+
 # ---- a fake Open-Meteo ----------------------------------------------------------------------
 
 
@@ -251,6 +267,27 @@ async def test_a_reloaded_place_is_used_from_the_next_fetch(fake):
     clock.on_sleep = lambda c: src.update_config(moved)
     await run(src)
     assert [q["latitude"] for q, _ in fake.requests] == ["42.36", "40.71"]
+
+
+async def test_celsius_is_requested_and_read(fake):
+    fake.replies = [(200, _in_celsius())]
+    cfg = replace(CFG, weather=replace(CFG.weather, units="celsius"))
+    clock = FakeTime(sleeps=1)
+    src = make_source(fake, clock, cfg)
+    await run(src)
+    assert fake.requests[0][0]["temperature_unit"] == "celsius"
+    assert src.view(T0).temp_f == 11.4 and src.failures == 0
+
+
+async def test_a_new_unit_drops_the_reading_at_once(fake):
+    clock = FakeTime(sleeps=1)
+    src = make_source(fake, clock)
+    await run(src)
+    assert src.view(T0) is not None
+    src.update_config(replace(CFG, weather=replace(CFG.weather, max_age_s=3600)))
+    assert src.view(T0) is not None  # same unit: kept
+    src.update_config(replace(CFG, weather=replace(CFG.weather, units="celsius")))
+    assert src.view(T0) is None  # never a Fahrenheit number shown as Celsius
 
 
 async def test_no_weather_table_fetches_nothing(fake):

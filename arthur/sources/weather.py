@@ -23,7 +23,7 @@ from typing import Any
 import aiohttp
 
 from arthur import spikelog as sl
-from arthur.config import Config, WeatherConfig
+from arthur.config import WEATHER_UNITS, Config, WeatherConfig
 from arthur.model import Weather
 
 log = logging.getLogger("arthur.weather")
@@ -75,10 +75,12 @@ def _first_of_day(daily: Any, key: str) -> float | None:
     return v
 
 
-def parse_open_meteo(data: Mapping[str, Any], fetched_at: datetime) -> Weather:
+def parse_open_meteo(data: Mapping[str, Any], fetched_at: datetime,
+                     units: str = "fahrenheit") -> Weather:
     """One :class:`Weather` from a forecast response (the request in :func:`request_params`).
 
-    Needs ``current.temperature_2m`` (°F), ``current.weather_code`` and ``current.is_day``;
+    Needs ``current.temperature_2m`` (in ``units``, as requested), ``current.weather_code`` and
+    ``current.is_day``;
     the day's high and low are ``None`` when missing. Raises :class:`WeatherError` on an
     error response or a malformed one. ``fetched_at`` must be aware.
     """
@@ -91,9 +93,10 @@ def parse_open_meteo(data: Mapping[str, Any], fetched_at: datetime) -> Weather:
     current = data.get("current")
     if not isinstance(current, Mapping):
         raise WeatherError("response has no 'current' object")
-    units = data.get("current_units")
-    if isinstance(units, Mapping) and units.get("temperature_2m") not in (None, "°F"):
-        raise WeatherError(f"temperature is in {units['temperature_2m']!r}, not °F")
+    symbol = WEATHER_UNITS[units]
+    answered = data.get("current_units")
+    if isinstance(answered, Mapping) and answered.get("temperature_2m") not in (None, symbol):
+        raise WeatherError(f"temperature is in {answered['temperature_2m']!r}, not {symbol}")
 
     temp = _number(current.get("temperature_2m"))
     if temp is None:
@@ -125,7 +128,7 @@ def request_params(wc: WeatherConfig, tz_name: str) -> dict[str, str]:
         "longitude": str(wc.longitude),
         "current": "temperature_2m,weather_code,is_day",
         "daily": "temperature_2m_max,temperature_2m_min",
-        "temperature_unit": "fahrenheit",
+        "temperature_unit": wc.units,
         "timezone": tz_name,
         "forecast_days": "1",
     }
@@ -167,7 +170,11 @@ class WeatherSource:
         return self.reading
 
     def update_config(self, cfg: Config) -> None:
-        """Take a reloaded config. A new place or refresh applies from the next fetch."""
+        """Take a reloaded config. A new place or refresh applies from the next fetch; a new
+        unit drops the reading at once, so a number is never shown in the wrong unit."""
+        old, new = self.cfg.weather, cfg.weather
+        if old is not None and new is not None and old.units != new.units:
+            self.reading = None
         self.cfg = cfg
 
     async def fetch(self, session: aiohttp.ClientSession, wc: WeatherConfig) -> Weather:
@@ -187,7 +194,7 @@ class WeatherSource:
             if resp.status != 200:
                 reason = data.get("reason") if isinstance(data, Mapping) else None
                 raise WeatherError(f"HTTP {resp.status}: {reason or 'no reason given'}")
-        return parse_open_meteo(data, self._wall())
+        return parse_open_meteo(data, self._wall(), wc.units)
 
     async def run(self, stop: asyncio.Event) -> None:
         """Fetch now, then every ``refresh_s``, until ``stop``. Never returns on failure."""

@@ -128,6 +128,13 @@ def test_weather_defaults_when_only_coordinates_given():
     d["weather"] = {"latitude": 0, "longitude": 0}
     w = config_from_dict(d).weather
     assert (w.refresh_s, w.max_age_s) == (900, 2700)
+    assert w.units == "fahrenheit"
+
+
+def test_weather_in_celsius():
+    d = _data()
+    d["weather"]["units"] = "celsius"
+    assert config_from_dict(d).weather.units == "celsius"
 
 
 def test_local_summer_and_winter():
@@ -184,6 +191,10 @@ def test_idle_shares_at_the_limits_accepted():
         ({"refresh_s": 299}, "refresh_s must be at least 300"),
         ({"refresh_s": 1800, "max_age_s": 1799}, "max_age_s must be at least refresh_s"),
         ({"city": 1}, "unknown key.*city"),
+        ({"units": "kelvin"}, "units must be"),
+        ({"units": "Celsius"}, "units must be"),
+        ({"units": ["celsius"]}, "units must be"),
+        ({"units": 1}, "units must be"),
     ],
 )
 def test_bad_weather_rejected(changes, match):

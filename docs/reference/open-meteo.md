@@ -63,9 +63,23 @@ Fields we read (`parse_open_meteo`):
 | `current.is_day` | `Weather.is_day` (1 → day, 0 → night) | error |
 | `daily.temperature_2m_max[0]` | `Weather.high_f` | `None` if absent, empty or null; error if not a number |
 | `daily.temperature_2m_min[0]` | `Weather.low_f` | same |
-| `current_units.temperature_2m` | checked to be `°F` when present | error |
+| `current_units.temperature_2m` | checked to be `°F` (or `°C` with `units = "celsius"`) when present | error |
 
 `is_day` per the docs: "1 if the current time step has daylight, 0 at night".
+
+## Celsius (confirmed live, 2026-11-19)
+`[weather] units = "celsius"` sends `temperature_unit=celsius`. One request for London
+(51.51, -0.13) answered `current_units.temperature_2m: "°C"` and `°C` for the daily max and
+min; nothing else in the response changed shape.
+
+## Finding a place: the geocoding API (confirmed live, 2026-11-19)
+For an agent setting the project up for someone (`docs/agent-setup.md`), not used by the
+feeder. `GET https://geocoding-api.open-meteo.com/v1/search?name=<town>&count=5&language=en&format=json`,
+no key. Each result has `name`, `admin1` (state or region), `country`, `country_code`,
+`latitude`, `longitude` and `timezone` (an IANA name, which is what `[display] timezone` takes),
+plus `admin2`, `population`, `postcodes` and ids. `name=Portland` gave Oregon, Maine and
+Indiana, each with its own zone, so the right one has to be confirmed with the person. A US ZIP
+code works as the name (`10001` gave New York first) but also matched a place in Spain.
 
 ## Errors (docs)
 A bad request is HTTP 400 with `{"error": true, "reason": "..."}`. The source logs the reason

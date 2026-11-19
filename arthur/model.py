@@ -112,7 +112,9 @@ CUE_KINDS: tuple[str, ...] = ("page", "scene")
 
 @dataclass(frozen=True)
 class Weather:
-    """One weather reading for the idle show's page (D-0019)."""
+    """One weather reading for the idle show's page (D-0019). The temperatures are in the
+    config's ``[weather] units``, Fahrenheit unless it says Celsius; the ``_f`` names are
+    from before that setting."""
 
     temp_f: float
     code: int  # WMO weather code

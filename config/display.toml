@@ -117,6 +117,7 @@ latitude = 42.36              # decimal degrees, north positive
 longitude = -71.06            # decimal degrees, east positive (west is negative)
 refresh_s = 900               # fetch the forecast this often; never under 300
 max_age_s = 2700              # a forecast older than this is not shown; at least refresh_s
+# units = "celsius"           # the temperature's unit: "fahrenheit" (the default) or "celsius"
 
 # Captions are jokes. One is picked per visit (from when the state began), so it stays put for
 # the whole visit and changes between visits. Add your own; a caption too wide for its line

@@ -157,6 +157,12 @@ class WeatherConfig:
     longitude: float
     refresh_s: float = 900
     max_age_s: float = 2700
+    units: str = "fahrenheit"  # or "celsius": what the page's temperature is in
+
+
+#: Values of ``[weather] units``, with the symbol Open-Meteo answers for each.
+WEATHER_UNITS: Mapping[str, str] = MappingProxyType({"fahrenheit": "\N{DEGREE SIGN}F",
+                                                    "celsius": "\N{DEGREE SIGN}C"})
 
 
 #: An empty caption table, for configs without [captions].
@@ -244,7 +250,11 @@ def _weather(data: Mapping[str, Any]) -> WeatherConfig | None:
         raise ConfigError(f"unknown key(s) in [weather]: {', '.join(sorted(unknown))}")
     kwargs = {}
     for key, value in sec.items():
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if key == "units":
+            if not isinstance(value, str) or value not in WEATHER_UNITS:
+                raise ConfigError(f"[weather] units must be \"fahrenheit\" or \"celsius\", "
+                                  f"got {value!r}")
+        elif isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ConfigError(f"[weather] {key} must be a number, got {value!r}")
         kwargs[key] = value
     for key in ("latitude", "longitude"):
