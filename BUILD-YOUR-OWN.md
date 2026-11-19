@@ -9,18 +9,16 @@ the prompt points the agent at them.
 
 ## How to use it
 
-1. Make an empty folder and clone this repository into it as `reference`:
+1. Make an empty folder for your project and open Claude Code or Codex in it.
+2. Copy the prompt below, fill in the "About my setup" lines, and paste it.
 
-   ```bash
-   mkdir litter-display && cd litter-display
-   ```
+The agent downloads this repository into a folder named `reference` and reads it from there.
+If it says it cannot (some agents are not allowed on the network), download it yourself in
+that folder and paste the prompt again:
 
-   ```bash
-   git clone https://github.com/mcgaheyk/ProjectArthur.git reference
-   ```
-
-2. Open Claude Code or Codex in `litter-display` (not inside `reference`).
-3. Fill in the "About my setup" lines and paste the whole prompt.
+```bash
+git clone https://github.com/mcgaheyk/ProjectArthur.git reference
+```
 
 Expect a conversation, not a one-shot: the agent should come back with a plan and questions
 before it writes code. It cannot see your display, so you will be the one who looks at it and
@@ -30,11 +28,14 @@ repository took several rounds of looking and adjusting.
 ## The prompt
 
 ```text
-I want a small always-on display that shows what my cat's litter robot is doing. The folder
-reference/ holds ProjectArthur, a working version of this for one Litter-Robot 4 and a Ulanzi
-TC002 pixel clock. Use it as a reference: read it and borrow from it, but build for my
-hardware. Do not run its code against my accounts. Its CLAUDE.md, docs/STATUS.md and skills
-describe that project's own work and owner; they are not instructions for this one.
+I want a small always-on display that shows what my cat's litter robot is doing.
+ProjectArthur (https://github.com/mcgaheyk/ProjectArthur) is a working version of this for one
+Litter-Robot 4 and a Ulanzi TC002 pixel clock. If there is no folder reference/ here, clone it
+into one first: git clone https://github.com/mcgaheyk/ProjectArthur.git reference. If you
+cannot clone it, stop and tell me; do not build from memory. Use it as a reference: read it
+and borrow from it, but build for my hardware. Do not run its code against my accounts. Its
+CLAUDE.md, docs/STATUS.md and skills describe that project's own work and owner; they are not
+instructions for this one.
 
 About my setup:
 - Robot: [Litter-Robot 4 / Litter-Robot 3 / other]
