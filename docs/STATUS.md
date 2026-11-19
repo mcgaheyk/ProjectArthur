@@ -8,7 +8,7 @@ _Last updated: 2026-11-19, afternoon._ Current state only. History belongs in gi
   (192.168.86.41 that day; the address can change). Its built-in Time and Status apps are out
   of the rotation. The Pi has not arrived; nothing is deployed to it.
 - **One size.** Everything is 52x16. The 32x8 layouts and the second fake clock were removed
-  (D-0010); commit 91e4960 is the last one that has them.
+  (D-0010); commit 7d4393e is the last one that has them.
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
 - **The clock is live.** The feeder (`python -m arthur.feeder`) has been **running on Kyle's

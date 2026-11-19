@@ -283,7 +283,7 @@ Ulanzi's product page. Earlier notes here called NG on the TC002 "a beta from la
   ours. `GET` on that route is 405. Whether the clock keeps this by itself across a reboot is
   still open (#141, #142); see "After a power loss" above.
   The transport now does this itself (see "Rotation" above).
-- **First frames (commit 7f3279a, `scripts/push_test.py`):** the transport's `enlargeApps:
+- **First frames (commit c04b85f, `scripts/push_test.py`):** the transport's `enlargeApps:
   false` and bitmap push were accepted unchanged. Read-back of 12 animated frames matched what
   was sent on all 832 pixels, with `brightness` at 120 and `gamma` 1.9. So
   `GET /api/v1/display/screen` **is row-major from the top left and is before brightness and

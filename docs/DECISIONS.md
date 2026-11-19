@@ -125,7 +125,7 @@ cannot tell pee from poop, so nothing claims either.
 
 **2026-11-16.** Supersedes D-0001. Kyle bought a Ulanzi TC002 and a Raspberry Pi 5. Screens are
 designed at 52x16 only. The 32x8 layouts, icons, golden images and the second fake clock were
-deleted; commit 91e4960 is the last one that has them.
+deleted; commit 7d4393e is the last one that has them.
 
 **Why.** The choice D-0001 was waiting for is made. A second layout family doubles the work of
 every design change, and the 32x8 screens were clearly the weaker ones.
@@ -270,7 +270,7 @@ the box appear on no other screen, so they identify the state by themselves.
 **Not known.** How long a real interruption lasts. One shorter than ten seconds ends before
 the title shows.
 
-**Rejected along the way** (commits eaf7b09, f3990d2 and 4c352a2 have them): a stop-paw pun
+**Rejected along the way** (commits 7f7d2e7, 59871b9 and 7ec6ae5 have them): a stop-paw pun
 ("PAWSED"), the cleaning screen frozen inside a hazard border, a deadpan robot, and single
 screens of the walk or the close-up with a caption.
 
@@ -575,7 +575,7 @@ at them.
 
 **Rejected.** Instructions in the Reddit post itself: they cannot be updated and cannot hold
 code. A prompt instead of the code. Bringing back the 32x8 layouts for TC001 owners: D-0010
-stands, and the prompt points them at commit 91e4960.
+stands, and the prompt points them at commit 7d4393e.
 
 **Not known.** Whether a fresh agent following the prompt reaches a working display; none has
 tried. Whether the systemd unit runs as written; there is no Pi yet. Whether the feeder can

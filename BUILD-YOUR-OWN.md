@@ -58,7 +58,7 @@ Read these first:
    different API.
 These notes were measured on real hardware, so prefer them over what you remember. They cover
 one robot, one clock and one firmware version, so work out what differs for mine. If my display
-is 32x8, the reference's git history has 32x8 layouts (commit 91e4960) from before it went
+is 32x8, the reference's git history has 32x8 layouts (commit 7d4393e) from before it went
 52x16 only.
 
 Then give me a short plan: what you will build, what carries over from the reference and what
