@@ -25,6 +25,11 @@ The rules (measured on the real robot's log, 2026-11-15 to 17):
 - ``last_visit_at`` becomes a visit's start only once the visit qualifies: a weight arrived,
   or it has lasted ``visit_min_s``. Detections of a few seconds with no weight (someone at
   the box, a manual clean) do not count.
+- A gap in watching (the feeder asleep, Whisker or the network down) is treated like a
+  restart (D-0025). The visit under way is kept if it had qualified when watching stopped;
+  everything else only watching can tell (the status and when it began, the status before
+  it, the visit's start, when the cat left) is forgotten, so the next record is a first
+  record. ``last_visit_at`` and the last weight are kept.
 """
 
 from __future__ import annotations
@@ -142,6 +147,13 @@ class TrackerState:
             st = replace(st, weight=weight)
         return st
 
+    def gap(self, watched_until: datetime, visit_min_s: float) -> TrackerState:
+        """The state after a gap in watching that began after ``watched_until``."""
+        last = self.last_visit_at
+        if self.qualifies(watched_until, visit_min_s):
+            last = _later(last, self.visit_started_at)
+        return TrackerState(weight=self.weight, last_visit_at=last)
+
 
 class Tracker:
     """Feed it ``(record, seen_at)`` in order; ask :meth:`observed` at any ``now``."""
@@ -153,6 +165,11 @@ class Tracker:
     def feed(self, record: Mapping[str, Any], seen_at: datetime) -> TrackerState:
         self.state = self.state.feed(record, seen_at, self.visit_min_s)
         return self.state
+
+    def gap(self, watched_until: datetime) -> None:
+        """The feeder was not watching after ``watched_until``: forget what only watching can
+        tell, keeping the last visit (and the visit under way, if it had qualified by then)."""
+        self.state = self.state.gap(watched_until, self.visit_min_s)
 
     def seed(
         self,

@@ -145,6 +145,55 @@ def test_long_visit_without_weight_counts_when_it_ends():
     assert tr.observed(at(300)).last_visit_at == at(100)
 
 
+# --- a gap in watching ---------------------------------------------------------------------
+
+
+def test_gap_keeps_the_last_visit_and_weight_and_forgets_the_rest():
+    tr = run((0, "READY", 9.5), (100, "CAT_DETECTED", 9.5), (160, "CAT_DETECTED", 9.9),
+             (640, "CLEAN_CYCLE", 9.9))
+    tr.gap(at(700))
+    st = tr.state
+    assert (st.status, st.status_since, st.previous_status) == (None, None, None)
+    assert (st.visit_started_at, st.cat_left_at, st.weighed) == (None, None, False)
+    assert (st.last_visit_at, st.weight) == (at(100), 9.9)
+
+
+@pytest.mark.parametrize("steps", [
+    [(100, "CAT_DETECTED", 9.5), (105, "CAT_DETECTED", 9.9)],  # weighed
+    [(100, "CAT_DETECTED", 9.5)],  # lasted 40 s by the time watching stopped
+])
+def test_gap_commits_a_visit_that_had_qualified(steps):
+    tr = run((0, "READY", 9.5), *steps)
+    tr.gap(at(140))
+    tr.feed(rec("READY", 9.9), at(4000))
+    assert tr.observed(at(4001)).last_visit_at == at(100)
+
+
+def test_gap_drops_a_blip_under_way_when_watching_stopped():
+    # 5 s into a detection when the Mac slept: it would qualify by the wake, but not by then.
+    tr = run((0, "READY", 9.5), (100, "CAT_DETECTED", 9.5))
+    tr.gap(at(105))
+    tr.feed(rec("READY", 9.5), at(4000))
+    assert tr.observed(at(4001)).last_visit_at is None
+
+
+def test_after_a_gap_the_next_record_is_a_first_record():
+    tr = run((0, "READY", 9.5), (640, "CLEAN_CYCLE", 9.5))
+    tr.gap(at(700))
+    tr.feed(rec("READY", 9.5), at(4000))
+    o = tr.observed(at(4001))
+    assert (o.status_since, o.previous_status) == (at(4000), None)  # not "just cleaned"
+    # Asleep before a visit, awake in the middle of it: its start is unknown, and a weight
+    # unlike the one before the gap does not say he left.
+    tr = run((0, "READY", 9.5), (60, "CAT_DETECTED", 9.5))
+    tr.gap(at(65))
+    tr.feed(rec("CAT_SENSOR_TIMING", 9.9), at(4000))
+    o = tr.observed(at(4001))
+    assert (o.visit_started_at, o.cat_left_at, o.previous_status) == (None, None, None)
+    tr.feed(rec("CAT_SENSOR_TIMING", 10.1), at(4050))  # a later change still says it
+    assert tr.observed(at(4051)).cat_left_at == at(4050)
+
+
 # --- seeding ------------------------------------------------------------------------------
 
 

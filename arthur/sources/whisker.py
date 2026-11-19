@@ -18,6 +18,11 @@ spike's (:mod:`arthur.spikelog`); what differs is that the feeder never gives up
 - no robot on the account is ``"no_robots"``, retried like ``"api"``;
 - the error clears with the next contact (an update pushed or polled).
 
+What was not watched is filled in from the robot's activity history (D-0018, D-0025): at
+start, after a gap in contact longer than ``no_data_after_s``, after a clean cycle with no
+visit seen, and at the routine read every six hours. A read that is due waits at least
+:data:`arthur.spikelog.MIN_POLL_SECONDS` after the one before it.
+
 pylitterbot is imported only inside :meth:`WhiskerSource._monitor` (and lazily by
 :func:`arthur.spikelog.connect_account`), so importing this module never touches the network.
 """
@@ -115,6 +120,11 @@ def seeds_from_activity(activities: Iterable[Any], *, mid_visit: bool) -> dict[s
     return out
 
 
+def _hhmm(t: datetime) -> str:
+    """Local time as HH:MM, for the console."""
+    return t.astimezone().strftime("%H:%M")
+
+
 # --------------------------------------------------------------------------------------------
 # The source
 # --------------------------------------------------------------------------------------------
@@ -154,6 +164,10 @@ class WhiskerSource:
         self.error: str | None = None
         self._fallback_done_for: datetime | None = None
         self.fallback_fetches = 0
+        self._history_due = False  # a gap or an unexplained clean: read the history soon
+        self._cycle_count: int | None = None  # the last cycle_count a contact carried
+        self._visit_baseline: datetime | None = None  # last visit at the last rise or read
+        self._seeded_once = False
 
     # -- what the feeder asks ----------------------------------------------------------------
 
@@ -187,13 +201,40 @@ class WhiskerSource:
 
     def _on_record(self, record: dict[str, Any], source: str) -> None:
         """Every observed record (SpikeLogger.observe): feed the tracker, note the contact.
-        A heartbeat re-reads the robot's cached data, so it is not a contact."""
+        A heartbeat re-reads the robot's cached data, so it is not a contact.
+
+        A contact long after the one before it ends a gap in watching: the tracker forgets
+        what only watching can tell and the history is read. So is a rise in the robot's
+        cycle count that no watched visit explains."""
         now = self._wall()
         self._record = dict(record)
+        contact = source != "heartbeat"
+        before = self.last_contact_at
+        if (contact and before is not None
+                and (now - before).total_seconds() > self.cfg.timings.no_data_after_s):
+            self.tracker.gap(before)
+            self._history_due = True
+            log.info("Not watching from %s to %s; reading the robot's history",
+                     _hhmm(before), _hhmm(now))
         self.tracker.feed(record, now)
-        if source != "heartbeat":
+        if contact:
             self.last_contact_at = now
             self.error = None
+            self._check_cycle_count(record.get("cycle_count"), now)
+
+    def _check_cycle_count(self, count: Any, now: datetime) -> None:
+        """A clean cycle the robot counted: if the last visit has not moved since the last
+        rise (or the last history read), no watched visit explains it."""
+        if isinstance(count, bool) or not isinstance(count, int):
+            return
+        old, self._cycle_count = self._cycle_count, count
+        if old is None or count <= old:
+            return  # the first record after a connect, or the robot's count was reset
+        last = self.tracker.observed(now).last_visit_at
+        if last == self._visit_baseline and not self._history_due:
+            self._history_due = True
+            log.info("Clean cycle with no visit seen; reading the robot's history")
+        self._visit_baseline = last
 
     def _fail(self, kind: str, where: str, exc: BaseException | str,
               retry_in: float | None) -> None:
@@ -204,14 +245,29 @@ class WhiskerSource:
         log.warning("Whisker %s failed [%s]: %s%s", where, kind, sl.scrub(str(what)), retry)
 
     def _seed(self, activities: Iterable[Any]) -> None:
+        """After every history read: fill in what was not watched. The last visit only ever
+        moves later, and a read with no "Cat Detected" in it changes nothing."""
+        now = self._wall()
         st = self.tracker.state
+        was = self.tracker.observed(now).last_visit_at
         seeds = seeds_from_activity(
             activities, mid_visit=st.in_visit and st.visit_started_at is None
         )
-        if not seeds:
+        if seeds:
+            self.tracker.seed(**seeds)
+        last = self.tracker.observed(now).last_visit_at
+        self._visit_baseline = last
+        startup, self._seeded_once = not self._seeded_once, True
+        if self.tracker.state == st:
             return
-        self.tracker.seed(**seeds)
         self.logger.log_info("seeded", **{k: sl.utc_iso_ms(v) for k, v in seeds.items()})
+        if startup or last == was or last is None:
+            return
+        if was is None:
+            log.info("Last visit set to %s by the robot's history", _hhmm(last))
+        else:
+            log.info("Last visit moved from %s to %s by the robot's history",
+                     _hhmm(was), _hhmm(last))
 
     async def _fallback(self, robot: Any) -> None:
         """Once per visit: no weight long after detection, so look for it in the history."""
@@ -305,6 +361,7 @@ class WhiskerSource:
 
         lg = self.logger
         lg.robot = robot
+        self._cycle_count = None  # the first record after a connect only sets it
         unsubscribe = robot.on(EVENT_UPDATE, lg.on_update)
         lg.log_info("connected", robots=len(account.get_robots(type(robot))))
         lg.observe("start")
@@ -315,14 +372,25 @@ class WhiskerSource:
         activity_backoff = sl.Backoff()
         next_poll = mono() + self.poll_s
         next_heartbeat = mono() + sl.HEARTBEAT_SECONDS
-        next_activity = mono()  # now, then every 6 hours
+        next_activity = mono()  # now, then every 6 hours, or sooner when a read is due
+        activity_tried: float | None = None  # when the last history read was attempted
+        activity_failing = False  # the last read failed: its backoff decides the next
+
+        def due_read_allowed(at: float) -> bool:
+            return self._history_due and not activity_failing and (
+                activity_tried is None or at >= activity_tried + sl.MIN_POLL_SECONDS)
+
         pets_refresh = False  # connect() just loaded the pets
-        seed_pending = True
         try:
             while not stop.is_set():
                 now = mono()
                 lg.flush()
+                if self._history_due and not activity_failing:
+                    earliest = now if activity_tried is None else max(
+                        now, activity_tried + sl.MIN_POLL_SECONDS)
+                    next_activity = min(next_activity, earliest)
                 if now >= next_activity:
+                    activity_tried = now
                     try:
                         first_since = self._wall() - FIRST_ACTIVITY_WINDOW
                         activities = await lg.fetch_activity(
@@ -331,11 +399,12 @@ class WhiskerSource:
                         )
                         pets_refresh = True
                         activity_backoff.reset()
+                        activity_failing = False
                         next_activity = mono() + sl.ACTIVITY_SECONDS
-                        if seed_pending:
-                            seed_pending = False
-                            self._seed(activities)
+                        self._history_due = False
+                        self._seed(activities)
                     except Exception as exc:  # noqa: BLE001
+                        activity_failing = True
                         delay = activity_backoff.next()
                         lg.log_error("activity", exc, retry_in=delay)
                         next_activity = mono() + max(delay, self.poll_s)
@@ -356,6 +425,8 @@ class WhiskerSource:
                 if now >= next_heartbeat:
                     lg.observe("heartbeat")
                     next_heartbeat = mono() + sl.HEARTBEAT_SECONDS
+                if due_read_allowed(mono()):
+                    continue  # read it now, not a tick later; the read clears it or fails
                 if await self._sleep(stop, TICK_S):
                     break
         finally:

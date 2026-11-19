@@ -8,6 +8,7 @@ import json
 import logging
 from datetime import timedelta
 
+import pytest
 from pylitterbot.enums import LitterBoxStatus
 from pylitterbot.exceptions import LitterRobotLoginException
 from robotfakes import T0, Act, FakeAccount, LiveFakeRobot
@@ -46,6 +47,10 @@ class FakeTime:
         self.events.append((t, self._n, fn))
         self.events.sort(key=lambda e: (e[0], e[1]))
 
+    def asleep(self, t: float, seconds: float) -> None:
+        """The machine sleeps at ``t`` for ``seconds``: nothing runs and both clocks jump."""
+        self.at(t, lambda: setattr(self, "t", self.t + seconds))
+
     async def sleep(self, stop: asyncio.Event, seconds: float) -> bool:
         end = self.t + seconds
         while self.events and self.events[0][0] <= end and not stop.is_set():
@@ -53,7 +58,7 @@ class FakeTime:
             self.t = max(self.t, at)
             fn()
         if not stop.is_set():
-            self.t = end
+            self.t = max(self.t, end)
         if self.stop_at is not None and self.t >= self.stop_at:
             stop.set()
         await asyncio.sleep(0)
@@ -299,6 +304,151 @@ async def test_fallback_fetch_finds_nothing_and_is_not_repeated(tmp_path):
     assert seen["b"].kind == "waiting" and seen["b"].deadline is None  # the mapping's fallback
     assert [c for c in robot.activity_calls if c[0] == 20] == [
         (20, clock.wall(100) - timedelta(seconds=30))]
+
+
+# ---- a gap in watching, a clean with no visit seen ----------------------------------------
+
+
+def timed(robot: LiveFakeRobot, clock: FakeTime) -> list[float]:
+    """The fake times of the robot's history calls, from now on."""
+    times, real = [], robot.get_activity_history
+
+    async def get_activity_history(limit=100, start=None):
+        times.append(clock.t)
+        return await real(limit=limit, start=start)
+
+    robot.get_activity_history = get_activity_history
+    return times
+
+
+def add(robot: LiveFakeRobot, *acts: Act):
+    return lambda: robot.activities.extend(acts)
+
+
+async def test_the_night_of_2026_11_18(tmp_path, caplog):
+    """Contact, the Mac asleep for 62 minutes with a visit in them, then a poll showing the
+    clean it caused. The history is read at once and gives the visit."""
+    caplog.set_level(logging.INFO)
+    clock, robot = FakeTime(), LiveFakeRobot()
+    earlier = START - timedelta(hours=5)
+    robot.activities = [Act(earlier, LitterBoxStatus.CAT_DETECTED),
+                        Act(earlier + timedelta(minutes=1), "Pet Weight Recorded: 9.5 lbs"),
+                        Act(T0, LitterBoxStatus.CLEAN_CYCLE_COMPLETE)]  # the newest seen
+    times = timed(robot, clock)
+    source = make_source(tmp_path, clock, connect_to(robot))
+    cd = clock.wall(1500)
+    seen = {}
+    clock.at(650, lambda: seen.__setitem__("before", mapped(source, clock)))
+    clock.asleep(700, 3620)  # the last contact was the poll at 600; the next comes at 4320
+    clock.at(700, add(robot, Act(cd, LitterBoxStatus.CAT_DETECTED),
+                      Act(cd + timedelta(seconds=60), "Pet Weight Recorded: 9.6 lbs"),
+                      Act(cd + timedelta(seconds=480), LitterBoxStatus.CLEAN_CYCLE),
+                      Act(cd + timedelta(seconds=610), LitterBoxStatus.CLEAN_CYCLE_COMPLETE)))
+    clock.at(700, lambda: setattr(robot, "cycle_count", robot.cycle_count + 1))
+    await drive(source, clock, 4330)
+
+    assert seen["before"].last_visit_at == earlier
+    state = mapped(source, clock)
+    assert state.kind == "ready" and state.last_visit_at == cd
+    # One more history read, at the contact that ended the gap, from the newest entry seen.
+    assert times == [0, 4320]
+    assert robot.activity_calls[1] == (100, T0)
+    assert "Not watching from" in caplog.text
+    assert "by the robot's history" in caplog.text
+    seeded = [x for x in state_lines(tmp_path) if x.get("event") == "seeded"]
+    assert [x["last_visit_at"] for x in seeded] == [sl.utc_iso_ms(earlier), sl.utc_iso_ms(cd)]
+
+
+async def test_gap_ending_mid_visit_takes_start_and_cat_left_from_history(tmp_path):
+    clock, robot = FakeTime(), LiveFakeRobot()
+    source = make_source(tmp_path, clock, connect_to(robot))
+    cd, weighed = clock.wall(4250), clock.wall(4290)
+    clock.asleep(700, 3620)
+    clock.at(700, add(robot, Act(cd, LitterBoxStatus.CAT_DETECTED),
+                      Act(weighed, "Pet Weight Recorded: 9.7 lbs")))
+    clock.at(700, lambda: (robot.set_status(LitterBoxStatus.CAT_SENSOR_TIMING,
+                                            "ROBOT_CAT_DETECT_DELAY"),
+                           setattr(robot, "pet_weight", 9.7)))
+    await drive(source, clock, 4330)
+    state = mapped(source, clock)
+    # The weight unlike the one before the gap is not taken as him leaving at 4320 s.
+    assert state.kind == "waiting" and state.since == weighed
+    assert state.deadline == weighed + timedelta(minutes=robot.clean_cycle_wait_time_minutes)
+    assert state.last_visit_at == cd
+
+
+async def test_gap_ending_on_ready_after_a_clean_is_not_just_cleaned(tmp_path):
+    clock, robot = FakeTime(), LiveFakeRobot()
+    source = make_source(tmp_path, clock, connect_to(robot))
+    clock.at(100, push(robot, LitterBoxStatus.CAT_DETECTED, "ROBOT_CAT_DETECT"))
+    clock.at(160, push(robot, LitterBoxStatus.CAT_DETECTED, "ROBOT_CAT_DETECT",
+                       pet_weight=9.7))
+    clock.at(640, push(robot, LitterBoxStatus.CLEAN_CYCLE, "ROBOT_CLEAN",
+                       cycle_count=1235))
+    clock.asleep(700, 3620)
+    clock.at(700, lambda: robot.set_status(LitterBoxStatus.READY, "ROBOT_IDLE"))
+    await drive(source, clock, 4321)
+    state = mapped(source, clock)
+    assert state.kind == "ready" and state.last_visit_at == clock.wall(100)
+
+
+@pytest.mark.parametrize(("entry_s", "expected_s"), [(5000, 5000), (50, 100)])
+async def test_routine_read_moves_last_visit_later_never_earlier(tmp_path, entry_s,
+                                                                 expected_s):
+    clock, robot = FakeTime(), LiveFakeRobot()
+    times = timed(robot, clock)
+    source = make_source(tmp_path, clock, connect_to(robot))
+    visit_script(clock, robot)  # watched: last visit at 100 s
+    clock.at(6000, add(robot, Act(clock.wall(entry_s), LitterBoxStatus.CAT_DETECTED)))
+    await drive(source, clock, sl.ACTIVITY_SECONDS + 5)
+    assert times == [0, sl.ACTIVITY_SECONDS]
+    assert mapped(source, clock).last_visit_at == clock.wall(expected_s)
+
+
+async def test_clean_with_no_visit_seen_reads_the_history_once(tmp_path, caplog):
+    caplog.set_level(logging.INFO)
+    clock, robot = FakeTime(), LiveFakeRobot()
+    times = timed(robot, clock)
+    source = make_source(tmp_path, clock, connect_to(robot))
+    clock.at(1000, push(robot, LitterBoxStatus.CLEAN_CYCLE, "ROBOT_CLEAN", cycle_count=1235))
+    clock.at(1130, push(robot, LitterBoxStatus.READY, "ROBOT_IDLE"))
+    await drive(source, clock, 2000)
+    assert times == [0, 1000]
+    assert caplog.text.count("Clean cycle with no visit seen") == 1
+
+
+async def test_watched_visit_then_its_clean_reads_nothing(tmp_path, caplog):
+    caplog.set_level(logging.INFO)
+    clock, robot = FakeTime(), LiveFakeRobot()
+    times = timed(robot, clock)
+    source = make_source(tmp_path, clock, connect_to(robot))
+    visit_script(clock, robot)
+    clock.at(640, lambda: setattr(robot, "cycle_count", 1235))  # just before the push at 640
+    await drive(source, clock, 2000)
+    assert times == [0]
+    assert "Clean cycle" not in caplog.text and "Not watching" not in caplog.text
+
+
+async def test_due_reads_keep_120_s_apart_and_a_failed_read_backs_off(tmp_path):
+    clock, robot = FakeTime(), LiveFakeRobot()
+    real = robot.get_activity_history
+
+    async def get_activity_history(limit=100, start=None):
+        if len(times) == 4:  # the fourth read
+            raise OSError("timeout")
+        return await real(limit=limit, start=start)
+
+    robot.get_activity_history = get_activity_history
+    times = timed(robot, clock)
+    source = make_source(tmp_path, clock, connect_to(robot))
+    for t, count in [(30, 1235), (150, 1236), (250, 1237)]:
+        clock.at(t, push(robot, LitterBoxStatus.CLEAN_CYCLE, "ROBOT_CLEAN", cycle_count=count))
+    await drive(source, clock, 800)
+    # Due at 30 s: read at 120. Due at 150: read at 240. Due at 250: read at 360, which
+    # fails, so the next waits out its backoff (at least a poll interval): 660 s.
+    assert times == [0, 120, 240, 360, 660]
+    errors = [x for x in state_lines(tmp_path) if x["kind"] == "error"]
+    assert [(e["where"], e["retry_in"]) for e in errors] == [("activity", 30)]
 
 
 # ---- failures ------------------------------------------------------------------------------
