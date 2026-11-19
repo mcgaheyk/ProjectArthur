@@ -82,8 +82,9 @@ skill are defaults the owner may change. The README is the setup guide for them.
 - Changing what a screen looks like: use the `design-screen` skill. Look at the result (preview
   output or the studio in the browser pane) before calling a screen done.
 - Ending a session: use the `wrap-up` skill so STATUS.md and DECISIONS.md stay true.
-- Commits: one per finished step, on `main`. `origin` is the private GitHub repo
-  `mcgaheyk/ProjectArthur`; push only when Kyle asks.
+- Commits: one per finished step, on `main`. `origin` is the **public** GitHub repo
+  `mcgaheyk/ProjectArthur`; push only when Kyle asks. This repo's git config commits with
+  GitHub's no-reply address; never commit with Kyle's personal email.
 - **Model routing. Applies only when this session runs on Fable** (your environment context
   states the model; on any other model this bullet is inert and you work directly). On Fable,
   keep the judgment work in the main loop: planning, design decisions, docs and review.

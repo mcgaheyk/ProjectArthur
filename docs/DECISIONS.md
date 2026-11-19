@@ -580,3 +580,20 @@ stands, and the prompt points them at commit 7d4393e.
 **Not known.** Whether a fresh agent following the prompt reaches a working display; none has
 tried. Whether the systemd unit runs as written; there is no Pi yet. Whether the feeder can
 share a Whisker account with Home Assistant's Litter-Robot integration.
+
+## D-0027 — The public history carries GitHub's no-reply address, not Kyle's Gmail
+
+**2026-11-19.** Before the repo went public, every commit's author and committer email was
+rewritten from Kyle's personal address to GitHub's no-reply address, and this repo's git config
+now commits with it. Rewriting changed every commit ID, so the five IDs the docs cite were
+updated in place to name the same commits (D-0010, D-0012, D-0026, STATUS and the AWTRIX NG
+notes); that is the one edit made to older entries here. The rewritten history went to a fresh
+GitHub repo; the old one, which still has the old commits, was renamed
+`mcgaheyk/ProjectArthur-old` and kept private as a backup until Kyle deletes it.
+
+**Why.** Public commits show their email to anyone, and scrapers collect them. Force-pushing
+over the old repo would have left the old commits reachable by ID on GitHub, and old versions
+of the docs name some of those IDs.
+
+**Rejected.** Publishing with the Gmail. A fresh one-commit copy: it loses the history the
+docs refer to.

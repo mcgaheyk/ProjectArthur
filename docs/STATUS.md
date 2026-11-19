@@ -153,23 +153,24 @@ _Last updated: 2026-11-19, afternoon._ Current state only. History belongs in gi
   last-visit line) and logged no error in its first minute. It has played the idle show
   since 13:53. It has not been watched through a real visit, so a visit cutting into a
   page or scene has only been seen in tests and the studio.
-- **Ready to share, not public yet (D-0026).** People asked Kyle how to make their own, so the
-  repo now has a README written for them (hardware, installing NG, setup, keeping it running,
-  making it their cat), an MIT `LICENSE`, `BUILD-YOUR-OWN.md` (a prompt that has Claude Code or
-  Codex build one for other hardware, reading this repo's docs from a clone named
-  `reference/`), a systemd unit, and a note in CLAUDE.md for other people's copies. **The repo
-  is on GitHub, private,** as `mcgaheyk/ProjectArthur`, pushed on 2026-11-19 with its whole
-  history; the README's links work for Kyle only until it is public. **History checked on 2026-11-19:** no `.env`, token or
-  log was ever committed; `tests/data/real-cycles.jsonl` has no serials or account ids. Kyle's
-  name is the commit author and is on about 100 lines of the docs. **No fresh agent has tried
-  the prompt yet.**
+- **Public since 2026-11-19 (D-0026)** at <https://github.com/mcgaheyk/ProjectArthur>. People
+  asked Kyle how to make their own, so the repo has a README written for them (hardware,
+  installing NG, setup, keeping it running, making it their cat), an MIT `LICENSE`,
+  `BUILD-YOUR-OWN.md` (a prompt that has Claude Code or Codex build one for other hardware; the
+  agent clones this repo into `reference/` and reads the docs there), a systemd unit, and a
+  note in CLAUDE.md for other people's copies. **Checked before it went public:** no `.env`,
+  token or log was ever committed; `tests/data/real-cycles.jsonl` has no serials or account
+  ids. Kyle's name is on the commits and about 100 lines of the docs, but **his Gmail is not**:
+  every commit's email was rewritten to GitHub's no-reply address (all commit IDs changed; the
+  docs cite the new ones) and pushed to a fresh repo. The pre-rewrite copy, Gmail and all, is
+  kept private as `mcgaheyk/ProjectArthur-old`. **No fresh agent has tried the prompt yet.**
 - **Not built:** the Pi deployment (the unit `scripts/arthur-feeder.service` is written but
   has not run on a Pi; log retention), night dimming, food and water. See Later.
 ## Next
 **Sharing (D-0026), Kyle's steps before posting:**
-- Make the repo public when ready (on GitHub: Settings, then Change visibility). Its whole
-  history is there, so Kyle's name goes public with it; a fresh copy with one commit is the
-  alternative. `LICENSE` says "the ProjectArthur contributors"; Kyle may put his name there.
+- Delete `mcgaheyk/ProjectArthur-old` on GitHub once sure nothing is missing from the new
+  repo (its Settings page, at the bottom). It is private and only a backup.
+- `LICENSE` says "the ProjectArthur contributors"; Kyle may put his name there.
 - Record a short clip of the clock for the README's top and the post; better after a real
   visit has been watched on the clock (item 1 below).
 - With Claude, optional: a fresh agent follows `BUILD-YOUR-OWN.md` once, display faked, to see
