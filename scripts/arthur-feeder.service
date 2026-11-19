@@ -1,0 +1,32 @@
+# systemd unit for the feeder on a Raspberry Pi or any Linux machine.
+# Written for the Pi; NOT YET RUN ON ONE. Tell us what you had to change.
+#
+# 1. Replace YOUR_USER (three places) with the account that cloned the repo, and the path if
+#    you cloned it somewhere other than your home folder.
+# 2. Put WHISKER_USERNAME, WHISKER_PASSWORD and CLOCK_URL in the repo's .env (see README).
+# 3. Install and start it:
+#      sudo cp scripts/arthur-feeder.service /etc/systemd/system/
+#      sudo systemctl daemon-reload
+#      sudo systemctl enable --now arthur-feeder
+#    Its messages:  journalctl -u arthur-feeder -f
+#    Stop it:       sudo systemctl stop arthur-feeder
+#
+# Run one copy per Whisker account: stop any other feeder or spike first.
+
+[Unit]
+Description=ProjectArthur feeder (Litter-Robot to pixel clock)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+WorkingDirectory=/home/YOUR_USER/ProjectArthur
+# uv's own installer puts it in ~/.local/bin; change this if `command -v uv` says otherwise.
+ExecStart=/home/YOUR_USER/.local/bin/uv run --env-file .env python -m arthur.feeder
+# The feeder stops cleanly on SIGTERM and retries Whisker by itself; this covers a crash.
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
