@@ -500,3 +500,46 @@ and its own Local Network permission would need checking first.
 
 **Not known.** Whether it holds when Terminal quits (closing the window is fine; the feeder is
 detached). On the Pi none of this applies: Linux has no such check.
+
+## D-0025 — A gap in watching is treated like a restart
+
+**2026-11-19.** At 08:29 the clock said Arthur last went 15 hours ago. The robot's history
+said 22:39 the night before, about 10 hours. The MacBook's lid had been closed at 22:26, on
+battery, so the Mac slept until 23:26 and the feeder with it; the visit fell in that hour. On
+waking, the first poll showed one more clean cycle and a new weight, and nothing was made of
+them: the feeder counted only a visit it watched begin, and read the robot's history into
+"last visit" once, at start (D-0018). The routine read at 01:02 fetched the 22:39 visit, wrote
+it to the log and did nothing else with it. Only a restart would have put it right.
+
+**Decided.** What D-0018 does at start, the feeder now does after any gap:
+
+- **A gap** is more than `no_data_after_s` (600 s) between two contacts with the robot, the
+  same line at which the screen shows NO DATA. Its cause does not matter: the Mac asleep,
+  Whisker down, the network down.
+- **When contact comes back after a gap,** the tracker forgets what only watching can tell
+  (when the status began, the status before it, the visit under way) and keeps the last
+  visit. The history is read at once and fills in the last visit and, if a visit is under
+  way, when it began and whether he has left.
+- **A clean cycle that no watched visit explains** (the robot's cycle count rose and the last
+  visit has not moved since the count last rose) also sends the feeder to the history. This
+  does not depend on noticing the gap. A manual clean costs one request and changes nothing.
+- **Every history read may move the last visit later,** never earlier, so the six-hourly read
+  is a net under the other two.
+- These reads are never closer together than 120 s. Each is one line in
+  `logs/feeder-console.log`.
+
+**Why the history can be trusted for this.** All 27 "Cat Detected" entries in it from
+2026-11-09 to 11-18 are real visits. The short false detections the live status shows (a
+hand at the box, a manual clean) are not in it. One real visit, 14:17 on 11-18, has no weight
+entry, so a weight is not required.
+
+**Rejected.** Reading the history on every poll: twelve times the requests, against an
+unofficial API (D-0005). Keeping the Mac awake with its lid closed: it takes a system power
+setting, and the Pi ends the problem anyway. Showing the last visit as unknown until the
+history has been read: the wait is about a second.
+
+**Not known.** Whether the history ever lists a detection that was not a visit; it now moves
+the last visit whenever it is read, not only at start. How soon after a detection the history
+has it. What the first minutes after a real gap look like on the clock: only the tests have
+seen one. The studio's Replay does not apply the gap rule; its last-visit time was already
+taken from the history.

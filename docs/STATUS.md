@@ -1,6 +1,6 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-18, late evening._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-19, morning._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
 - **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
@@ -12,11 +12,19 @@ _Last updated: 2026-11-18, late evening._ Current state only. History belongs in
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
 - **The clock is live.** The feeder (`python -m arthur.feeder`) has been **running on Kyle's
-  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, at 09:10 on 2026-11-18 after the push bench, at 13:47 that day after Kyle watched in use on the clock, and at 18:04 from Terminal after a 42-minute outage, D-0024), detached under `caffeinate`, against the real robot and
+  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, at 09:10 on 2026-11-18 after the push bench, at 13:47 that day after Kyle watched in use on the clock, at 18:04 from Terminal after a 42-minute outage, D-0024, and at 08:56 on 2026-11-19 for the gap rule, D-0025), detached under `caffeinate`, against the real robot and
   the real clock (D-0018). It logged in, read the robot and showed idle; the clock's screen
   read-back matched our render of the robot's state on all 832 pixels. **No real visit has
   been watched on the clock yet.** It stops on a Mac restart and the clock shows the stale
-  border while the Mac sleeps. **The clock survives a power loss:** on 2026-11-18 its battery
+  border while the Mac sleeps; closing the MacBook's lid puts it to sleep whatever
+  `caffeinate` says. **A visit missed while it was not watching is now counted (D-0025):**
+  on 2026-11-19 the clock said "15H AGO" when the truth was 10, because the 22:39 visit fell
+  in an hour the Mac slept. After more than ten minutes without contact, or a clean cycle
+  with no visit seen, the feeder reads the robot's history again by itself; each time is a
+  line in the console log ("Not watching from … to …", "Clean cycle with no visit seen",
+  "Last visit moved …"). **No real gap has happened since; only the tests have seen one.**
+  After the Mac wakes the first poll can be five minutes away, and NO DATA shows until
+  then. **The clock survives a power loss:** on 2026-11-18 its battery
   ran down at 21:17 and Kyle charged it at about 23:26; it rejoined Wi-Fi, the running feeder
   drew on it again at 23:27 with no restart, and four minutes later only our app was in the
   rotation and double-size drawing was off. Keep it on USB power. Its messages go to `logs/feeder-console.log`. Stop it with
@@ -24,7 +32,7 @@ _Last updated: 2026-11-18, late evening._ Current state only. History belongs in
   **never from a Claude session's shell**: the 13:47 copy lost the clock (not the robot) at
   17:22, when the session that started it closed, and the clock showed the stale border until
   18:04 (D-0024). Never run a second copy, or `scripts/spike_log.py`, on the same account.
-- **Built and tested (3,034 tests):**
+- **Built and tested (3,047 tests):**
   - Feeder: `arthur/feeder.py` (the loop), `arthur/pusher.py` (when to push),
     `arthur/sources/whisker.py` (the one Whisker connection). On a login or API failure it
     shows NO DATA and retries; it reloads `config/display.toml` when the file changes; it
@@ -34,6 +42,9 @@ _Last updated: 2026-11-18, late evening._ Current state only. History belongs in
     from that moment, cleaning is a 130-second estimate. `arthur/sources/tracker.py` keeps
     these observed facts for both the live source and the log reader. Replayed over the log's
     seven real visits, the countdown ended within 4 s of the real clean start every time.
+    What the feeder did not watch comes from the robot's activity history: at start, after
+    a gap, after a clean with no visit seen, and every six hours (D-0018, D-0025). The
+    studio's Replay does not apply the gap rule.
   - Pipeline: `arthur/model.py`, `arthur/mapping.py`, `arthur/render/`, with variants for
     ready, in_use, waiting and cleaning.
   - Screens: second design pass done on 2026-11-16 to Kyle's direction (D-0009): orange
@@ -135,7 +146,9 @@ _Last updated: 2026-11-18, late evening._ Current state only. History belongs in
 - **The running feeder has this code.** It was restarted at 13:47 on 2026-11-18, the first
   run of the 8-a-second loop and the weather source against the real robot and clock, and
   again at 18:04 from Terminal with the same code (D-0024); the clock's read-back then showed
-  no stale border and a changing picture. It
+  no stale border and a changing picture. It was restarted at 08:56 on 2026-11-19 with the
+  gap rule (D-0025): it read the 22:39 visit from the history at start and the clock's
+  read-back showed "10H AGO". The 13:47 copy
   logged in, showed the home page (the clock's read-back showed Arthur, the bars and the
   last-visit line) and logged no error in its first minute. It has played the idle show
   since 13:53. It has not been watched through a real visit, so a visit cutting into a
@@ -170,7 +183,9 @@ _Last updated: 2026-11-18, late evening._ Current state only. History belongs in
 2. Kyle: react to the screens, now on real LEDs: which jokes land, which art does not read,
    colours and dim shades. Any one screen: `scripts/push_test.py` (stop the feeder first).
 3. With Claude, when they happen or can be staged: the cases the feeder has never met. The
-   stale border (stop the feeder for two minutes), an interruption, drawer full, the robot offline. The remaining
+   stale border (stop the feeder for two minutes), an interruption, drawer full, the robot offline,
+   and a real gap (close the MacBook's lid for 15 minutes, open it, and look for "Not
+   watching from" in `logs/feeder-console.log`; the next overnight lid-close will do). The remaining
    guesses about the clock are at the end of `docs/reference/awtrix-ng.md`.
 4. When the Pi arrives: deploy the feeder there (Later, first item) and stop the Mac's copy.
    Give the clock a fixed address in the router first; the feeder is started with its
@@ -243,8 +258,13 @@ _Last updated: 2026-11-18, late evening._ Current state only. History belongs in
 ## Known unknowns
 - How fast Whisker pushes "cat detected" after Arthur steps in. The push trails the robot's
   own timestamp by up to 5 s; the robot's own delay is not known.
-- What the feeder does in the cases it has never met live: a visit with no weight push, an
-  interruption, Whisker's connection dropping, a rejected login (D-0018).
+- What the feeder does in the cases it has never met live: an interruption, Whisker's
+  connection dropping, a rejected login (D-0018), a gap in watching (D-0025). A visit with
+  no weight push has now happened, at 14:17 on 2026-11-18: the log shows waiting began 120 s
+  after detection (the fallback) and the history had no weight for it either. Nobody was
+  watching the clock.
+- Whether the robot's history ever lists a detection that was not a visit. It now moves the
+  last-visit time whenever it is read (D-0025); all 27 entries so far are real visits.
 - How colours and dim shades read on the TC002's LEDs. NG is installed; only idle has been looked at.
 - AWTRIX NG on the TC002: whether re-pushing an app clears the stale mark (inferred, not
   confirmed); what an empty rotation shows after a clock reboot; exactly which pixels the three

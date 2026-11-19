@@ -117,8 +117,11 @@ Badges were removed (D-0012). What they used to mark:
 | Live connection down, polling only | Not shown. A real outage still becomes `no_data`, or the clock's stale border. |
 
 ## Not live data
-- **Last visit and visits today** come from `get_activity_history()` or the pet's
-  `weight_history`. They are fetched on the periodic refresh, not pushed.
+- **Last visit** is the start of the last visit the feeder watched (D-0017), or the newest
+  "Cat Detected" in `get_activity_history()` when that is later. The history is read at
+  start, after a gap in watching, after a clean cycle with no visit seen, and every six
+  hours (D-0018, D-0025). **Visits today** is not built; it would come from the same history
+  or the pet's `weight_history`.
 - **Pet weight** (`pet_weight`, in pounds) updates after a visit.
 
 ## What the robot cannot tell us
