@@ -545,6 +545,7 @@ seen one. The studio's Replay does not apply the gap rule; its last-visit time w
 taken from the history.
 
 ## D-0026 — Shared as code plus a build-your-own prompt
+_→ See D-0028_
 
 **2026-11-19.** People commenting on Kyle's posts want one of their own. The project will be
 shared as a public GitHub repository (Kyle creates it and pushes), and a Reddit post links to
@@ -597,3 +598,38 @@ of the docs name some of those IDs.
 
 **Rejected.** Publishing with the Gmail. A fresh one-commit copy: it loses the history the
 docs refer to.
+
+## D-0028 — Setting up is an interview by an agent, from one short prompt
+
+**2026-11-19.** Supersedes D-0026's prompt with blanks to fill in. Kyle asked for setup to be
+as painless as possible: no editing the prompt, and the agent asks about the cat's colours and
+the place, so the time and weather are right.
+
+- **The copy-paste prompt is four lines** (`BUILD-YOUR-OWN.md`): clone the repo, read
+  `docs/agent-setup.md`, follow it, and say so if the download fails. The instructions live in
+  the repo, so they can be corrected without anyone copying a new prompt.
+- **The agent interviews first,** one question at a time with choices: robot, display,
+  computer, the cat (a photo is welcome), the town and °F or °C, and Home Assistant. The town
+  goes through Open-Meteo's geocoding (no key), which gives the coordinates and the time zone;
+  the agent confirms the match and rounds to two decimals.
+- **Two paths.** A Litter-Robot 4 and a TC002 (or no display yet): the agent sets up this
+  code: config, the studio, the clock's firmware, the push test, the first run, keeping it
+  running. Anything else: it builds one for their hardware, with D-0026's reading list and
+  rules.
+- **What stays with the person:** cables and installer clicks, reading the clock's address
+  from the router, and typing the Whisker login into `.env`, which the agent opens for them
+  and never reads. No password in the chat; a town, never an address.
+- **Celsius:** `[weather] units = "celsius"`. Fahrenheit stays the default, and the key is a
+  comment in Kyle's config so the running feeder is untouched.
+- **`AGENTS.md`** points Codex at the guide and at CLAUDE.md.
+
+**Why.** Blanks ask people to answer in the agent's terms before anything has happened; an
+interview asks in theirs, and can take a photo of the cat. People with the same hardware get
+this code set up for them instead of a rebuild, which is faster and safer.
+
+**Rejected.** Keeping the blanks. Asking for a street address or exact location: a town is
+enough for the weather. Having people paste their login to the agent.
+
+**Not known.** Whether an agent follows the guide end to end; none has tried it. Only the
+config edits it makes were tried, on a copy (Celsius, a dark-grey cat, another time zone).
+Windows has never run the feeder; the Pi unit has never run.

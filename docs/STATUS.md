@@ -1,6 +1,6 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-19, afternoon._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-19, evening._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
 - **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
@@ -32,7 +32,7 @@ _Last updated: 2026-11-19, afternoon._ Current state only. History belongs in gi
   **never from a Claude session's shell**: the 13:47 copy lost the clock (not the robot) at
   17:22, when the session that started it closed, and the clock showed the stale border until
   18:04 (D-0024). Never run a second copy, or `scripts/spike_log.py`, on the same account.
-- **Built and tested (3,047 tests):**
+- **Built and tested (3,056 tests):**
   - Feeder: `arthur/feeder.py` (the loop), `arthur/pusher.py` (when to push),
     `arthur/sources/whisker.py` (the one Whisker connection). On a login or API failure it
     shows NO DATA and retries; it reloads `config/display.toml` when the file changes; it
@@ -155,15 +155,19 @@ _Last updated: 2026-11-19, afternoon._ Current state only. History belongs in gi
   page or scene has only been seen in tests and the studio.
 - **Public since 2026-11-19 (D-0026)** at <https://github.com/mcgaheyk/ProjectArthur>. People
   asked Kyle how to make their own, so the repo has a README written for them (hardware,
-  installing NG, setup, keeping it running, making it their cat), an MIT `LICENSE`,
-  `BUILD-YOUR-OWN.md` (a prompt that has Claude Code or Codex build one for other hardware; the
-  agent clones this repo into `reference/` and reads the docs there), a systemd unit, and a
-  note in CLAUDE.md for other people's copies. **Checked before it went public:** no `.env`,
+  installing NG, setup, keeping it running, making it their cat), an MIT `LICENSE`, a systemd
+  unit, and a note in CLAUDE.md for other people's copies. **Setting up by AI agent
+  (D-0028):** `BUILD-YOUR-OWN.md` is a four-line prompt for Claude Code or Codex; the agent
+  clones the repo and follows `docs/agent-setup.md`, which has it ask about the robot, display,
+  computer, cat (a photo will do) and town, then either set up this code for them (Litter-Robot
+  4 and TC002) or build one for their hardware. `AGENTS.md` points Codex at it. The weather
+  page can show Celsius (`[weather] units`). **Checked before it went public:** no `.env`,
   token or log was ever committed; `tests/data/real-cycles.jsonl` has no serials or account
   ids. Kyle's name is on the commits and about 100 lines of the docs, but **his Gmail is not**:
   every commit's email was rewritten to GitHub's no-reply address (all commit IDs changed; the
   docs cite the new ones) and pushed to a fresh repo. The pre-rewrite copy, Gmail and all, is
-  kept private as `mcgaheyk/ProjectArthur-old`. **No fresh agent has tried the prompt yet.**
+  kept private as `mcgaheyk/ProjectArthur-old`. **No agent has followed the setup guide yet;
+  only its config edits were tried, on a copy.**
 - **Not built:** the Pi deployment (the unit `scripts/arthur-feeder.service` is written but
   has not run on a Pi; log retention), night dimming, food and water. See Later.
 ## Next
@@ -173,8 +177,9 @@ _Last updated: 2026-11-19, afternoon._ Current state only. History belongs in gi
 - `LICENSE` says "the ProjectArthur contributors"; Kyle may put his name there.
 - Record a short clip of the clock for the README's top and the post; better after a real
   visit has been watched on the clock (item 1 below).
-- With Claude, optional: a fresh agent follows `BUILD-YOUR-OWN.md` once, display faked, to see
-  whether it reaches a working screen.
+- With Claude, optional: a fresh agent follows the prompt in `BUILD-YOUR-OWN.md` once, playing
+  a new owner, through path A up to the studio (no clock or login), and once through path B's
+  plan, to see where it stumbles.
 
 
 **In hand, with Claude: the idle show (D-0019), live and waiting for Kyle's reactions.**

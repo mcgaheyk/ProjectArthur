@@ -12,7 +12,8 @@ simulates the clock so screens can be designed without the hardware on the desk.
 and Kyle's cat. In a copy someone cloned to run their own, the clock address, `.env` and
 `config/display.toml` are theirs, STATUS.md's feeder "running on Kyle's Mac" is not on this
 machine (check with `pgrep -fl arthur.feeder`), and Kyle's directions in the `design-screen`
-skill are defaults the owner may change. The README is the setup guide for them.
+skill are defaults the owner may change. The README is the setup guide for them; an agent
+asked to set this up for someone follows `docs/agent-setup.md`.
 
 ## Read before working
 - `docs/STATUS.md` (imported above): what is done and what is next. Current state only.

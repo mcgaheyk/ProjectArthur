@@ -10,11 +10,11 @@ now and then the weather, or a short scene of him chasing a rat or a bird. At ni
 
 ## Two ways to get one
 
-- **You have a Litter-Robot 4 and a Ulanzi TC002:** run this code. Setup is below.
-- **You have something else** (a TC001, another display, a Home Assistant dashboard, a
-  different robot), or you would rather build your own: [BUILD-YOUR-OWN.md](BUILD-YOUR-OWN.md)
-  is a prompt for Claude Code or Codex. It points the agent at what this project learned the
-  hard way and has it build one for your hardware.
+- **The easy way: let an AI agent set it up.** Paste a short prompt into Claude Code or Codex
+  and answer its questions about your robot, your display, your cat and your town. It does the
+  rest. If your hardware is different (a TC001, a Home Assistant dashboard, another robot), it
+  builds one for yours. See [BUILD-YOUR-OWN.md](BUILD-YOUR-OWN.md).
+- **By hand,** with a Litter-Robot 4 and a Ulanzi TC002: the setup below.
 
 ## What it shows
 
@@ -133,7 +133,8 @@ running program picks up changes by itself.
   longer one is skipped, never cut off.
 - **Where and when:** `timezone`, the night hours he sleeps (`quiet_from_h`, `quiet_until_h`) and
   the weather's `latitude` and `longitude` (from [Open-Meteo](https://open-meteo.com/), no key
-  needed). It starts out in Boston.
+  needed). It starts out in Boston. For Celsius, uncomment `units = "celsius"` under
+  `[weather]`.
 - **The idle show:** `page_pct` and `scene_pct` under `[idle]` set how much of the idle time goes
   to the weather and the scenes. Set both to 0 for the home screen only.
 
