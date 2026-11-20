@@ -42,8 +42,12 @@ def test_layout_variants_keep_their_order():
 
 #: Modules the on-clock program will have once the other branches land (D-0029); until then
 #: an import of one is allowed to point at nothing.
-TO_COME = {"arthur.onclock.main", "arthur.onclock.app", "arthur.onclock.clocklog",
-           "arthur.sources.wire_source"}
+TO_COME = {"arthur.onclock.main", "arthur.onclock.app", "arthur.onclock.clocklog"}
+#: CPython-only modules a slot file may import lazily, inside a branch MicroPython never
+#: takes (``wire_source`` builds its Mac defaults, the token file and the daily log files, from
+#: ``spikelog``). The guard itself is not checked here: ``tests/test_wire_source_micropython.py``
+#: imports and runs the module under MicroPython, where an unguarded import would fail.
+CPYTHON_ONLY = ("arthur.spikelog",)
 
 
 def _claude_md_shared() -> tuple[set[str], set[str], str]:
@@ -125,6 +129,8 @@ def test_every_arthur_import_in_a_slot_resolves_inside_the_slot():
                 continue
             parent = mod.rsplit(".", 1)[0].replace(".", "/")
             if f"{parent}.py" in code:  # ``from arthur.x import name``: a name, not a module
+                continue
+            if any(mod == m or mod.startswith(m + ".") for m in CPYTHON_ONLY):
                 continue
             assert mod in TO_COME, f"{f} imports {mod}, which a slot does not carry"
 

@@ -65,7 +65,8 @@ asked to set this up for someone follows `docs/agent-setup.md`.
 - **AWTRIX NG is pinned to 1.2.3** and rejects unknown keys with 422. The simulator does too.
 - **The shared code also runs on MicroPython** (D-0029), unchanged: `arthur/compat.py`,
   `model`, `config`, `timebase`, `schedule`, `mapping`, `zonetable`, `mtrandom`,
-  `sources/tracker` and all of `render/` except `preview.py`. In them: records come from
+  `sources/tracker`, `sources/records`, `sources/spikeformat`, `sources/wire_source` and all
+  of `render/` except `preview.py`. In them: records come from
   `compat.record` / `compat.tuple_record` (not dataclasses or class-form NamedTuple), seeded
   numbers from `compat.Random`, local time through `Config` (no `zoneinfo`, no `tomllib`); no
   star displays, `zip(strict=)`, `str[::-1]`, `removeprefix`, `\N{}`, or run-time type aliases
@@ -73,7 +74,8 @@ asked to set this up for someone follows `docs/agent-setup.md`.
   `OrderedDict`s or sorted, and equal sort keys go through `compat.stable_sorted`. The full
   list and how each was found: `docs/reference/micropython.md`. The check is
   `uv run pytest tests/test_micropython.py` (it needs `micropython` on PATH and says it
-  did not run without it); a change to a shared module is not done until it passes.
+  did not run without it); a change to a shared module is not done until it passes. For the
+  three `sources/` modules the check is `uv run pytest tests/test_wire_source_micropython.py`.
   The on-clock code, `arthur/onclock/` (the update door, `door.py`) and `arthur/wire/`,
   follows the same rules and runs under both too (`tests/test_onclock_door.py`). The lists
   are data in `arthur/tools/onclock_files.py`, which also decides what goes into a code slot
@@ -96,6 +98,10 @@ asked to set this up for someone follows `docs/agent-setup.md`.
   Check for a running one first: `pgrep -fl arthur.feeder`. To leave it running on the Mac,
   start it with `open -a Terminal scripts/start_feeder.command`, never detached from a
   session's shell: macOS cuts it off the clock when that session closes (D-0024)
+- `... python -m arthur.feeder --source wire` (or `ARTHUR_SOURCE=wire`) runs the same feeder on
+  our own Whisker client (`arthur/sources/wire_source.py`, the one the clock is to run)
+  instead of pylitterbot; same log, same token file. Default `pylitterbot`.
+  `WHISKER_SERIAL` picks the robot if the account has two
 - `uv run python scripts/push_test.py --clock http://ADDRESS NAME` shows one screen on a real
   clock; stop the feeder first or the two fight over the screen
 - `uv run python scripts/push_bench.py --clock http://ADDRESS MODE` times frame pushes to a real

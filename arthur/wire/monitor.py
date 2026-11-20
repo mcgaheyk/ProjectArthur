@@ -14,8 +14,14 @@ failure the same way the feeder does:
 It hands on what the feeder's source needs and nothing more: ``on_record(record, source)``
 with source ``start``, ``ws``, ``poll`` or ``heartbeat`` (the same record dicts and sources
 ``arthur.spikelog.SpikeLogger.observe`` produces), ``on_activity(activities)`` after each
-history read, ``on_error(kind, where, message, retry_in)`` and ``on_info(event, text)``. The
-on-clock source wraps it with the tracker as ``WhiskerSource`` wraps pylitterbot.
+history read, ``on_error(kind, where, message, retry_in)`` (the exception itself is
+``last_exc``) and ``on_info(event, text)``. :class:`arthur.sources.wire_source.WireSource`
+wraps it with the tracker as ``WhiskerSource`` wraps pylitterbot, through three more hooks:
+``connect`` (an async callable used instead of ``client.connect``), ``before_tick()`` at the
+top of each turn of the loop, and ``after_history()`` (async) after its history step.
+
+A history read that is due (:meth:`Monitor.want_history`) and allowed is made at once, not a
+tick later, as the feeder's source does.
 """
 
 import asyncio
@@ -71,8 +77,13 @@ def _noop(*args):
 class Monitor:
     def __init__(self, client, on_record, on_error=None, on_info=None, on_activity=None,
                  poll_s=POLL_S, mono=util.mono, now=util.now, sleep=sleep_or_stop,
-                 heartbeat_s=HEARTBEAT_S, activity_s=ACTIVITY_S, history_limit=100):
+                 heartbeat_s=HEARTBEAT_S, activity_s=ACTIVITY_S, history_limit=100,
+                 connect=None, before_tick=None, after_history=None):
         self.client = client
+        self.connect = connect or client.connect
+        self.before_tick = before_tick
+        self.after_history = after_history
+        self.last_exc = None
         self.on_record = on_record
         self.on_error = on_error or _noop
         self.on_info = on_info or _noop
@@ -98,8 +109,21 @@ class Monitor:
         """Ask for a history read soon (a gap in watching, a clean no visit explains)."""
         self._history_due = True
 
+    @property
+    def history_due(self):
+        """A history read has been asked for and not yet made."""
+        return self._history_due
+
+    def saw_activity(self, acts):
+        """Entries read elsewhere (the source's own fallback read): the next routine read
+        starts after the newest of them too."""
+        for a in acts:
+            if self._newest_activity is None or a.ts > self._newest_activity:
+                self._newest_activity = a.ts
+
     def _fail(self, kind, where, exc, retry_in):
         self.error = kind
+        self.last_exc = exc
         self.on_error(kind, where, str(exc), retry_in)
 
     def _contact(self, source):
@@ -114,7 +138,7 @@ class Monitor:
         api_backoff = Backoff(API_BACKOFF_START, API_BACKOFF_MAX)
         while not stop.is_set():
             try:
-                await self.client.connect()
+                await self.connect()
             except Exception as exc:  # noqa: BLE001 - every failure is classified
                 kind = errors.kind_of(exc)
                 delay = auth_backoff.next() if kind == errors.AUTH else api_backoff.next()
@@ -153,6 +177,8 @@ class Monitor:
         activity_failing = False
         while not stop.is_set():
             now = mono()
+            if self.before_tick is not None:
+                self.before_tick()
             if self._history_due and not activity_failing:
                 earliest = now if activity_tried is None else max(now,
                                                                   activity_tried + MIN_POLL_S)
@@ -164,9 +190,7 @@ class Monitor:
                     if start is None:
                         start = self.now() - FIRST_ACTIVITY_WINDOW_S
                     acts = await self.client.history(start=start, limit=self.history_limit)
-                    for a in acts:
-                        if self._newest_activity is None or a.ts > self._newest_activity:
-                            self._newest_activity = a.ts
+                    self.saw_activity(acts)
                     activity_backoff.reset()
                     activity_failing = False
                     self._history_due = False
@@ -175,8 +199,11 @@ class Monitor:
                 except Exception as exc:  # noqa: BLE001
                     activity_failing = True
                     delay = activity_backoff.next()
+                    self.last_exc = exc
                     self.on_error(errors.kind_of(exc), "activity", str(exc), delay)
                     next_activity = mono() + max(delay, self.poll_every)
+            if self.after_history is not None:
+                await self.after_history()
             if now >= next_poll:
                 try:
                     await self.client.refresh_robot()
@@ -194,5 +221,8 @@ class Monitor:
             if now >= next_heartbeat:
                 self._contact("heartbeat")
                 next_heartbeat = mono() + self.heartbeat_s
+            if self._history_due and not activity_failing and (
+                    activity_tried is None or mono() >= activity_tried + MIN_POLL_S):
+                continue  # read it now, not a tick later; the read clears it or fails
             if await self.sleep(stop, TICK_S):
                 return

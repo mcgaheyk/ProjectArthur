@@ -285,9 +285,47 @@ The feeder's live source also needs `cycle_count` (D-0025) and the activities as
   `error` message closes and reopens the socket (pylitterbot logs it and keeps a subscription
   that will never deliver). A refused upgrade or an Unauthorized error forces a token renewal.
 - No pets, no commands, no insight, no firmware queries.
-- A payload missing `robotStatus` or `robotCycleState`: pylitterbot's `_update_data` raises
-  (it reads `status` for `_update_minimum_cycles_left`), so no update event; ours keeps the
-  record with `"<error: KeyError>"` in the three status fields.
+- Robot data with no `robotStatus` or `robotCycleState` at all: pylitterbot's `_update_data`
+  raises (it reads `status` for `_update_minimum_cycles_left`), so no update event; ours
+  keeps the record with `"<error: KeyError>"` in the three status fields. A *partial*
+  message that leaves them out is not that case: both merge it into the data held, which
+  still has them, and both apply it (ran: `partial_update` in `tests/test_wire_source.py`).
+- The activity log's `code`: pylitterbot's source wrote it only for an `Enum` action; the
+  shared line builder (`arthur/sources/spikeformat.py`, `activity_entries`) now writes it
+  from our `Action.value` too, so both sources write the same history lines.
+
+## The live source on our client, against pylitterbot's (ran, against the fake)
+
+`arthur/sources/wire_source.py` (`WireSource`) is the feeder's source on this client; the
+Mac runs it with `python -m arthur.feeder --source wire`. `tests/test_wire_source.py` plays
+20 scripted scenarios through it and through the pylitterbot source (pylitterbot 2025.8.0 and
+pycognito themselves), each against a fresh fake with the same made-up time, and compares
+every `view()` sampled, every log line and every console line. They agree in 18: the real
+visits of `tests/data/real-cycles.jsonl`, a visit with no weight pushed (with and without the
+weight in the history), a missed visit found after a gap, a gap ending mid-visit, a clean with
+no visit seen, two watched visits and the six-hourly read, drawer full, a pinch fault and a
+pause, sleeping, offline and off, a dropped socket, a stale socket, a 500 on a poll, a
+refused renewal (one password login), a refused password (retried after 10 and 20 minutes),
+no robot, a partial message, and an hour of traffic. Allowed everywhere: an error line's
+`error` and `message` and the console text after "failed [kind]:" (the libraries' own
+exceptions), and two console lines only ours writes ("Whisker live updates subscribed",
+"Whisker live connection closed: …").
+
+Where they differ, on purpose:
+
+- **A 401 while polling.** pylitterbot never renews on a 401, so its source drops the token
+  and logs in with the password (an error line, a fresh `connected`, a history read, and its
+  heartbeat restarts). Ours renews the id token from the refresh token and retries once,
+  which succeeds: no error and no password login. The screen is the same.
+- **Two robots on the account.** pylitterbot's source shows the first one listed. Ours shows
+  NO DATA (`no_robots`, the serials' last four digits in the message) until `WHISKER_SERIAL`
+  chooses one; then it agrees with pylitterbot's choice.
+- **After a stale socket** ours waits its back-off (1 s) before reconnecting; pylitterbot
+  reconnects at once. Nothing on the screen or in the log shows it.
+- **Pets**: our client reads none, so the log has no `pet_weight` history lines (the
+  studio's last-visit fallback for a weight with no detection near it).
+- **Stopping**: a login or request still running when the feeder stops gets 5 s to finish
+  before it is cancelled; pylitterbot's source cancels it at once.
 
 ## MicroPython 1.29 notes (ran, on the Mac's Homebrew build and the static ARMv7 build)
 
@@ -346,3 +384,11 @@ that run settled are marked.
 | ~~Chunked or compressed answers~~ | **Not seen** on the robots query; other answers were not inspected |
 | Whether a password login by our SRP is accepted | One login. Only if the refresh token is already dead; it costs a login on the account |
 | Cognito's answer to an SRP login from the clock's slow arithmetic | The challenge's timestamp must be close to Cognito's clock; the clock's time was exact on 2026-11-20 |
+
+If a `data` message leaves fields out, both sources merge it into what they hold, so the old
+values stay. For D-0017 that means: a message without `catWeight` is not a weight reading,
+the visit stays in use, and 120 s after detection (`cat_left_fallback_s`) the source asks
+the history once for the visit's weight (waiting with a countdown if it is there, without
+one if not); a message without the status keeps the old status until one carries it. The
+`--source wire` run on the Mac is where this gets seen: each state line's `changed` and the
+`raw` of a status change show what arrived.

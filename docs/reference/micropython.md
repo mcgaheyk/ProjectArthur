@@ -12,10 +12,14 @@ build is 32-bit ARM with its own libm; the spike's on-clock run is in
 
 ## Which code, and the check
 Shared, so it must run unchanged on both: `arthur/compat.py`, `model`, `config`,
-`timebase`, `schedule`, `mapping`, `zonetable`, `mtrandom`, `sources/tracker` and all of
-`render/` except `preview.py`. Everything else (`feeder`, `pusher`, `transports/`, the
-Whisker and weather sources, `logfile`, `sim/`, `fixtures`, `tools/`, scripts) is CPython
-only and may use anything; a shared module must not import one of those.
+`timebase`, `schedule`, `mapping`, `zonetable`, `mtrandom`, `sources/tracker`,
+`sources/records`, `sources/spikeformat`, `sources/wire_source` (and `arthur/wire/`) and all
+of `render/` except `preview.py`. Everything else (`feeder`, `pusher`, `transports/`, the
+pylitterbot and weather sources, `logfile`, `spikelog`, `sim/`, `fixtures`, `tools/`,
+scripts) is CPython only and may use anything; a shared module must not import one of those
+(`wire_source` imports `spikelog` only inside code that runs on CPython, for the daily log
+files and the token file). `tests/test_wire_source_micropython.py` runs the live source
+under both Pythons against the fake Whisker (below, "The live source").
 
 `uv run pytest tests/test_micropython.py` runs `mpy/guard.py` under `micropython -X
 heapsize=2M` and under CPython over about 240 cases (every golden and scene strip, every
@@ -59,6 +63,19 @@ imports for the rest is in `arthur/compat.py`, which on CPython is CPython's own
   folder is `render/icon_art/`, not `render/icons/`. `tests/test_portable.py` checks.
 - **micropython-lib's `datetime` raises on `dt == None`** (AttributeError; CPython says
   False). Fixed in the stand-in; `compat.record`'s `==` also never compares a field with None.
+- **`re` compiles what it cannot do, and then does not match** [probe]: `\d{1,3}` matches
+  neither `12` nor `1234` (a counted repetition is taken as the literal text `{1,3}`: `a{2}`
+  matches `"a{2}"`), and `\b` never matches. There is no `re.IGNORECASE`. So the log's
+  token scrubbing and redaction (`sources/spikeformat.py`) are hand-written scanners on
+  MicroPython; on CPython the regular expressions stay, and `tests/test_spikeformat.py`
+  checks the two agree over the real logs and 8,000 made-up strings.
+- **String methods are ASCII-only** [probe]: `"é".isalpha()` and `" ".isspace()` are
+  False. The scanners above treat non-ASCII letters and spaces as CPython's `\w` and `\s`
+  would only on CPython; robot data and error texts are ASCII.
+- **`json.dumps` prints floats with MicroPython's `repr`** and a dict in hash order. Log
+  lines go through `spikeformat.dumps`, whose floats are `arthur.wire.util.float_text`; the
+  keys of a line come out in a different order than on CPython (readers parse the JSON, so
+  nothing depends on it).
 
 ## Differences that raise
 - No `dataclasses` and no class-body annotations at run time [spike]: use
@@ -102,6 +119,15 @@ heap with plenty free can fail a request for a few kilobytes in one piece [guard
   heap and fails in 1 MB** (fragmentation after the 54-second bird play), loading the fonts
   first. These are 64-bit numbers; the clock is 32-bit, where pointers and small objects
   are half the size. The spike's slice (no large font) ran there in a 1 MiB heap.
+- **The live source** (`sources/wire_source.py` on `arthur/wire/`), through a scripted hour
+  against the fake Whisker (three visits pushed live with their history entries, a poll
+  every five minutes, the heartbeats; `tests/test_wire_source_micropython.py`, 2026-11-20):
+  213 KB in use after importing it from source (config, model, tracker, client and source
+  together), 277 KB once the source is built and the scenario loaded, 288 KB at the end of
+  the hour after a collection. **The hour runs in a 512 KB heap and fails in 480 KB**, its
+  log printed as it is written. Keeping the log in memory instead (`MemorySink`) adds about
+  60 KB for that hour's 22 state lines and history (a state line is 1.5 to 3 KB of text), so
+  the default ring keeps 100 lines. Not measured with the drawing code loaded beside it.
 
 ## Speed on the Mac
 `micropython -X heapsize=1M mpy/bench.py OUT.json` against `uv run python mpy/bench.py

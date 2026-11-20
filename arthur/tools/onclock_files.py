@@ -39,12 +39,14 @@ SHARED = (
     "arthur/zonetable.py",
     "arthur/mtrandom.py",
     "arthur/sources/tracker.py",
+    "arthur/sources/records.py",
+    "arthur/sources/spikeformat.py",
+    "arthur/sources/wire_source.py",
     "arthur/render/",
 )
 SHARED_EXCLUDE = ("arthur/render/preview.py",)
-#: Code only the clock runs (its tests run it under CPython as well). ``wire_source.py`` is
-#: built on another branch; a file listed here that does not exist yet is skipped.
-ONCLOCK = ("arthur/onclock/", "arthur/wire/", "arthur/sources/wire_source.py")
+#: Code only the clock runs (its tests run it under CPython as well).
+ONCLOCK = ("arthur/onclock/", "arthur/wire/")
 #: Package files the code above imports through.
 PACKAGES = ("arthur/__init__.py", "arthur/sources/__init__.py")
 #: Data files: (folder, suffix).

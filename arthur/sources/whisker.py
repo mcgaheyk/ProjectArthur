@@ -41,7 +41,13 @@ from typing import Any
 from arthur import spikelog as sl
 from arthur.config import Config
 from arthur.model import FeederHealth, RobotSnapshot
-from arthur.sources.logfile import snapshot_from_record
+from arthur.sources.records import (
+    hhmm,
+    latest_weight_since,
+    seeds_from_activity,
+    snapshot_from_record,
+)
+from arthur.sources.spikeformat import action_text  # noqa: F401  (re-exported)
 from arthur.sources.tracker import Tracker
 
 log = logging.getLogger("arthur.whisker")
@@ -64,65 +70,13 @@ ConnectFn = Callable[[str, str, Path], Awaitable[tuple[Any, Any]]]
 SleepFn = Callable[[asyncio.Event, float], Awaitable[bool]]
 
 
-# --------------------------------------------------------------------------------------------
-# Activity history → tracker seeds (pure)
-# --------------------------------------------------------------------------------------------
-
-
-def action_text(action: Any) -> str:
-    """An activity's action as the history shows it ("Cat Detected", "Pet Weight Recorded:
-    9.5 lbs"): a ``LitterBoxStatus``'s text, or the string itself."""
-    return getattr(action, "text", None) or str(action)
-
-
-def _when(activity: Any) -> datetime | None:
-    ts = getattr(activity, "timestamp", None)
-    if isinstance(ts, datetime) and ts.tzinfo is not None:
-        return ts
-    return None
-
-
-def _times(activities: Iterable[Any], prefix: str) -> list[datetime]:
-    return sorted(
-        t for a in activities
-        if (t := _when(a)) is not None and action_text(a.action).startswith(prefix)
-    )
-
-
-def latest_weight_since(activities: Iterable[Any], since: datetime) -> datetime | None:
-    """The newest "Pet Weight Recorded" entry at or after ``since``, or None."""
-    times = [t for t in _times(activities, "Pet Weight Recorded") if t >= since]
-    return times[-1] if times else None
-
-
-def seeds_from_activity(activities: Iterable[Any], *, mid_visit: bool) -> dict[str, datetime]:
-    """What the activity history says about visits, as :meth:`Tracker.seed` keywords.
-
-    ``last_visit_at`` is the newest "Cat Detected" entry. When ``mid_visit`` (the robot is in
-    a visit whose start we did not see), that entry is the visit's start unless a clean cycle
-    came after it (then it belongs to an earlier visit and the current one is not in the
-    history yet), and the newest "Pet Weight Recorded" entry after it, if any, is when the
-    cat left. These are the robot's timestamps, used only because we were not watching.
-    """
-    acts = list(activities)
-    detected = _times(acts, "Cat Detected")
-    if not detected:
-        return {}
-    last = detected[-1]
-    out = {"last_visit_at": last}
-    if mid_visit:
-        cleaned_after = [t for t in _times(acts, "Clean Cycle") if t > last]
-        if not cleaned_after:
-            out["visit_started_at"] = last
-            left = latest_weight_since(acts, last)
-            if left is not None:
-                out["cat_left_at"] = left
-    return out
+# Activity history → tracker seeds: pure, shared with the on-clock source in
+# :mod:`arthur.sources.records` (re-exported here under the names this module always had).
 
 
 def _hhmm(t: datetime) -> str:
     """Local time as HH:MM, for the console."""
-    return t.astimezone().strftime("%H:%M")
+    return hhmm(t)
 
 
 # --------------------------------------------------------------------------------------------
