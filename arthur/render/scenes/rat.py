@@ -27,9 +27,9 @@ the slot (24, 36 and 54 s all work).
 
 from __future__ import annotations
 
-import random
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
+from arthur.compat import zip_strict
 from arthur.render.idle_show import STAGE_W, Beat, SceneContext, mirror, scene
 from arthur.render.scenes._common import (
     FLOOR,
@@ -43,6 +43,11 @@ from arthur.render.scenes._common import (
     walk_sprites,
 )
 from arthur.timebase import SHOW_FPS
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from arthur.compat import Random
 
 # =========================================================================================
 # Art: side view, facing right; mirrored to face left. Feet on the stage's floor row.
@@ -169,7 +174,7 @@ def turned(ctx: SceneContext) -> bool:
 
 
 def _plan_rat(
-    rng: random.Random, squeeze: float, peeks: int, backs: int
+    rng: Random, squeeze: float, peeks: int, backs: int
 ) -> list[Sprite | None]:
     """The rat for each frame of its part of the quiet: peeks, then the creep to END_X."""
     out: list[Sprite | None] = []
@@ -197,9 +202,9 @@ def _plan_rat(
                 out.append(rat_at(RAT_A, x))
 
     # Peeks: slide in, hold, slide back out and stay gone; the last one stays and creeps.
-    xs = [CREEP_X] if peeks == 1 else [FIRST_PEEK_X, *[PEEK_X] * (peeks - 2), CREEP_X]
+    xs = [CREEP_X] if peeks == 1 else [FIRST_PEEK_X] + [PEEK_X] * (peeks - 2) + [CREEP_X]
     for k, px in enumerate(xs):
-        for x in [*range(STAGE_W - PEEK_SPEED, px, -PEEK_SPEED), px]:
+        for x in list(range(STAGE_W - PEEK_SPEED, px, -PEEK_SPEED)) + [px]:
             out.append(rat_at(RAT_A, x))
         frozen(px, hold(PEEK_MIN, PEEK_MAX), actions=px != FIRST_PEEK_X)
         if k < len(xs) - 1:
@@ -238,12 +243,12 @@ def _changes(seq: Sequence[object]) -> set[int]:
     return {i for i in range(1, len(seq)) if seq[i] != seq[i - 1]}
 
 
-def _pick_gesture(rng: random.Random, table) -> tuple[tuple[str, int], ...]:
+def _pick_gesture(rng: Random, table) -> tuple[tuple[str, int], ...]:
     return rng.choices([g for g, _ in table], [w for _, w in table])[0]
 
 
 def _arthur_poses(
-    rng: random.Random, rat: Sequence[Sprite | None], lead: int
+    rng: Random, rat: Sequence[Sprite | None], lead: int
 ) -> list[str]:
     """Arthur's pose for each frame of the quiet part (the rat's frames start at ``lead``)."""
     n = len(rat)
@@ -323,7 +328,7 @@ def quiet_shots(ctx: SceneContext, frames: int) -> list[Shot]:
         rat, lead = rat[-frames:], 0
     full = [None] * lead + rat
     poses = _arthur_poses(ctx.rng("arthur"), full, lead)
-    return [Shot(Seat(pose), r, "quiet") for pose, r in zip(poses, full, strict=True)]
+    return [Shot(Seat(pose), r, "quiet") for pose, r in zip_strict(poses, full)]
 
 
 # =========================================================================================

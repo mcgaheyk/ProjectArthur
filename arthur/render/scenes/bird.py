@@ -35,10 +35,9 @@ shrinks to the slot (24, 36 and 54 s all work).
 
 from __future__ import annotations
 
-import random
-from collections.abc import Sequence
-from typing import NamedTuple
+from typing import TYPE_CHECKING
 
+from arthur.compat import tuple_record, zip_strict
 from arthur.render.idle_show import STAGE_W, Beat, SceneContext, mirror, scene
 from arthur.render.scenes._common import (
     CROUCH_A,
@@ -61,6 +60,11 @@ from arthur.render.scenes._common import (
     walk_sprites,
 )
 from arthur.timebase import SHOW_FPS
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from arthur.compat import Random
 
 # =========================================================================================
 # Art: facing left; mirrored to face right.
@@ -98,7 +102,8 @@ BIRD_W = len(BIRD_A[0])
 FEATHER = ("v",)
 
 
-class Bird(NamedTuple):
+@tuple_record("x y how left")
+class Bird:
     """Where the bird is on one frame: its anchor (the top-left of its three lit rows), whether
     it is flying, sitting on the floor or perched, and which way it faces."""
 
@@ -260,7 +265,7 @@ def _fly(out: list[Bird | None], a: tuple[int, int], b: tuple[int, int], n: int)
     out.extend(Bird(x, y, "fly", left) for x, y in _line(a, b, n))
 
 
-def _plan_bird(rng: random.Random, n: int) -> list[Bird | None]:
+def _plan_bird(rng: Random, n: int) -> list[Bird | None]:
     """The bird for each of the quiet part's ``n`` frames (None while it is not there yet):
     it flutters in, potters, and ends hovering at QUIET_END."""
     out: list[Bird | None] = []
@@ -319,11 +324,11 @@ def _plan_bird(rng: random.Random, n: int) -> list[Bird | None]:
     return out[:n]
 
 
-def _pick_gesture(rng: random.Random, table) -> tuple[tuple[str, int], ...]:
+def _pick_gesture(rng: Random, table) -> tuple[tuple[str, int], ...]:
     return rng.choices([g for g, _ in table], [w for _, w in table])[0]
 
 
-def _arthur_poses(rng: random.Random, n: int, lead: int) -> list[str]:
+def _arthur_poses(rng: Random, n: int, lead: int) -> list[str]:
     """Arthur's pose for each frame of the quiet part: glancing right, with gestures that start
     on even frames and last an even number of frames, none in the last second."""
     poses = ["right"] * n
@@ -348,7 +353,7 @@ def quiet_shots(ctx: SceneContext, frames: int) -> list[Shot]:
     lead = next((i for i, b in enumerate(birds) if b is not None), frames)
     poses = _arthur_poses(ctx.rng("arthur"), frames, lead)
     return [Shot(Seat(pose), bird_sprite(b, t), "quiet")
-            for t, (pose, b) in enumerate(zip(poses, birds, strict=True))]
+            for t, (pose, b) in enumerate(zip_strict(poses, birds))]
 
 
 # =========================================================================================
@@ -379,7 +384,7 @@ def burst_shots(ctx: SceneContext, t0: int) -> list[Shot]:
         xs.append(xs[-1] + s)
         ys.append(ys[-1] + (-1 if ys[-1] > HOVER[1] else 0))
     assert (xs[-1], ys[-1]) == HOVER
-    flee = [Bird(x, y, "fly", False) for x, y in zip(xs[1:], ys[1:], strict=True)]
+    flee = [Bird(x, y, "fly", False) for x, y in zip_strict(xs[1:], ys[1:])]
     n = delay + len(runs)
     for j in range(n):
         if j < len(flee):

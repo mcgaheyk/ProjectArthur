@@ -35,21 +35,28 @@ Canvas rules (docs/states.md, design-screen skill):
 from __future__ import annotations
 
 import math
-import random
 import zlib
-from collections.abc import Callable
-from dataclasses import dataclass
-from datetime import datetime
+from collections import OrderedDict
+from typing import TYPE_CHECKING
 
-from arthur.config import Config, parse_size
-from arthur.model import KINDS, DisplayState
-from arthur.render.font import Font, condensed_small_font, large_font, small_font
+from arthur.compat import Random, record, stable_sorted
+from arthur.config import parse_size
+from arthur.model import KINDS
+from arthur.render.font import condensed_small_font, large_font, small_font
 from arthur.render.frame import Frame
 from arthur.render.icons import draw_art, draw_icon, icon_cells
 from arthur.render.text import check_text, first_fitting, fits, is_strict, put_text, strict_text
 
-Size = tuple[int, int]
-Layout = Callable[[DisplayState, datetime, Config], Frame]
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from datetime import datetime
+
+    from arthur.config import Config
+    from arthur.model import DisplayState
+    from arthur.render.font import Font
+
+    Size = tuple[int, int]
+    Layout = Callable[[DisplayState, datetime, Config], Frame]
 
 #: The one size: the Ulanzi TC002's 52x16 matrix.
 S52: Size = (52, 16)
@@ -64,7 +71,9 @@ L1_Y = 1  # first line: big font rows 1-7, or small font rows 1-5
 L2_Y = 9  # second line: small font rows 9-13
 GAUGE52_Y = 13  # the drawer gauge live screens share: rows 13-14
 
-_REGISTRY: dict[tuple[Size, str], dict[str, Layout]] = {}
+#: (size, kind) -> variant name -> layout, in the order registered (the first is the
+#: default). Ordered dicts: MicroPython's plain dicts do not keep insertion order.
+_REGISTRY: dict[tuple[Size, str], OrderedDict[str, Layout]] = {}
 
 #: (size, kind, variant) of every layout allowed to draw on the outermost rows and columns,
 #: where the clock's stale border goes: see the module docstring. The border test consults it.
@@ -78,7 +87,7 @@ def layout(
     registers it as allowed to draw a ring on the outermost pixels (:data:`EDGE_RING`)."""
 
     def deco(fn: Layout) -> Layout:
-        _REGISTRY.setdefault((size, kind), {})[variant] = fn
+        _REGISTRY.setdefault((size, kind), OrderedDict())[variant] = fn
         if edge_ring:
             EDGE_RING.add((size, kind, variant))
         return fn
@@ -88,7 +97,7 @@ def layout(
 
 def has_edge_ring(kind: str, size: Size, variant: str | None = None) -> bool:
     """Whether the layout ``render`` would pick for these draws on the outermost pixels."""
-    variants = _REGISTRY.get((size, kind), {})
+    variants = _REGISTRY.get((size, kind), OrderedDict())
     if not variants:
         return False
     v = variant if variant in variants else next(iter(variants))
@@ -301,7 +310,7 @@ Z_ART = ("CCC", ".C.", "CCC")
 # =========================================================================================
 
 
-@dataclass(frozen=True)
+@record("icon accent headline role line2 blink_icon")
 class Rare:
     icon: str
     accent: str  # the icon's accent role
@@ -490,7 +499,7 @@ def turn_caption(
         return fallback
     began = state.since or state.last_seen
     seed = zlib.crc32(f"{key}|{math.floor(began.timestamp()) if began else 0}".encode())
-    random.Random(seed).shuffle(options)
+    Random(seed).shuffle(options)
     return options[turn % len(options)]
 
 
@@ -538,8 +547,8 @@ def hourglass(f: Frame, cfg: Config, left: float, now: datetime) -> None:
     draw_icon(f, "hourglass", 0, 0, cfg, size=PIC)
     neck = _NECK
     cells = icon_cells("hourglass", PIC, "%")
-    top = sorted((c for c in cells if c[1] < neck), key=lambda c: -c[1])
-    bottom = sorted((c for c in cells if c[1] > neck), key=lambda c: -c[1])
+    top = stable_sorted([c for c in cells if c[1] < neck], key=lambda c: -c[1])
+    bottom = stable_sorted([c for c in cells if c[1] > neck], key=lambda c: -c[1])
     sand = cfg.rgb("sand")
     for x, y in top[: round(left * len(top))]:
         f.pixel(x, y, sand)
@@ -760,7 +769,7 @@ WALK_A = (
     ".O.O...O.O..",
 )
 #: The other stride.
-WALK_B = (*WALK_A[:5], "..OO...OO...", "..O....O....")
+WALK_B = WALK_A[:5] + ("..OO...OO...", "..O....O....")
 #: Top row of the walking cat: his feet land on row 13.
 WALK_Y = 7
 
@@ -783,26 +792,30 @@ FACE_CENTRE = (
     "OOOOOOCCCNNCCCOOOOOO",
     ".OOOOCCCSCCSCCCOOOO.",
 )
-FACE_LEFT = (*FACE_CENTRE[:8], FACE_CENTRE[8].replace("WE.EW", "W.EEW"), *FACE_CENTRE[9:])
-FACE_RIGHT = (*FACE_CENTRE[:8], FACE_CENTRE[8].replace("WE.EW", "WEE.W"), *FACE_CENTRE[9:])
+FACE_LEFT = FACE_CENTRE[:8] + (FACE_CENTRE[8].replace("WE.EW", "W.EEW"),) + FACE_CENTRE[9:]
+FACE_RIGHT = FACE_CENTRE[:8] + (FACE_CENTRE[8].replace("WE.EW", "WEE.W"),) + FACE_CENTRE[9:]
 FACE_BLINK = (
-    *FACE_CENTRE[:6],
-    "OOOOOOOOOOOOOOOOOOOO",
-    "OOOOOOOOOOOOOOOOOOOO",
-    "OOSSSSSOOOOOOSSSSSOO",
-    "OOOOOOOOOOOOOOOOOOOO",
-    "OOOOOOOOOCCOOOOOOOOO",
-    *FACE_CENTRE[11:],
+    FACE_CENTRE[:6]
+    + (
+        "OOOOOOOOOOOOOOOOOOOO",
+        "OOOOOOOOOOOOOOOOOOOO",
+        "OOSSSSSOOOOOOSSSSSOO",
+        "OOOOOOOOOOOOOOOOOOOO",
+        "OOOOOOOOOCCOOOOOOOOO",
+    )
+    + FACE_CENTRE[11:]
 )
 #: His eyes half open.
 FACE_HALF = (
-    *FACE_CENTRE[:6],
-    "OOOOOOOOOOOOOOOOOOOO",
-    "OOWWWWWOOOOOOWWWWWOO",
-    "OOWE.EWOOOOOOWE.EWOO",
-    "OOWWWWWOOOOOOWWWWWOO",
-    "OOOOOOOOOCCOOOOOOOOO",
-    *FACE_CENTRE[11:],
+    FACE_CENTRE[:6]
+    + (
+        "OOOOOOOOOOOOOOOOOOOO",
+        "OOWWWWWOOOOOOWWWWWOO",
+        "OOWE.EWOOOOOOWE.EWOO",
+        "OOWWWWWOOOOOOWWWWWOO",
+        "OOOOOOOOOCCOOOOOOOOO",
+    )
+    + FACE_CENTRE[11:]
 )
 #: His paws hooked over the bottom edge, 7x4, either side of his face (rows 11-14).
 PAW = (
@@ -824,7 +837,8 @@ PHRASE_FALLBACK = "JUST LOOKING"
 #: ``"paws"`` only the paws, ``"face"`` the paws and the face ``art``, ``"title"`` the paws
 #: and TITLE, ``"words"`` the paws and a second phrase taking turns per episode, ``"rest"``
 #: the empty globe alone.
-Beat = tuple[str, tuple[str, ...] | None, int]
+if TYPE_CHECKING:
+    Beat = tuple[str, tuple[str, ...] | None, int]
 #: He strolls up to the globe and goes in; inside the box he looks in at us, eyes opening,
 #: and looks round. One beat a second.
 STROLL_IN: tuple[Beat, ...] = (
@@ -846,11 +860,11 @@ def interrupted_episode(cfg: Config) -> tuple[Beat, ...]:
     phrase, and ``interrupted_rest_s`` of the empty globe (21 s with the defaults)."""
     t = cfg.timings
     return (
-        *STROLL_IN,
-        *(("title", None, 0),) * max(0, int(t.interrupted_title_s)),
-        *LOOK_ROUND,
-        *(("words", None, 0),) * max(0, int(t.interrupted_phrase_s)),
-        *(("rest", None, 0),) * max(0, int(t.interrupted_rest_s)),
+        STROLL_IN
+        + (("title", None, 0),) * max(0, int(t.interrupted_title_s))
+        + LOOK_ROUND
+        + (("words", None, 0),) * max(0, int(t.interrupted_phrase_s))
+        + (("rest", None, 0),) * max(0, int(t.interrupted_rest_s))
     )
 
 
@@ -997,12 +1011,12 @@ _R, _W = "rest", IDLE_WAG
 #: half-minute (what the studio's All states tile plays) has a blink, a glance, an ear twitch
 #: and a whole wag.
 IDLE_SCRIPT: tuple[str, ...] = (
-    _R, _R, _R, "blink", _R, _R, _R, "left", "right", _R,          # 0-9
-    _R, _R, *_W, _R, _R, _R, "ear",                               # 10-19
-    _R, _R, _R, _R, "blink", _R, _R, _R, _R, _R,                  # 20-29 (26-27: yawn)
-    _R, "squint", "squint", _R, _R, _R, "right", _R, _R, _R,      # 30-39
-    _R, *_W, _R, _R, _R, "blink", _R,                             # 40-49
-    _R, _R, "ear", _R, _R, "left", _R, _R, _R, _R,                # 50-59
+    (_R, _R, _R, "blink", _R, _R, _R, "left", "right", _R)           # 0-9
+    + (_R, _R) + _W + (_R, _R, _R, "ear")                            # 10-19
+    + (_R, _R, _R, _R, "blink", _R, _R, _R, _R, _R)                  # 20-29 (26-27: yawn)
+    + (_R, "squint", "squint", _R, _R, _R, "right", _R, _R, _R)      # 30-39
+    + (_R,) + _W + (_R, _R, _R, "blink", _R)                         # 40-49
+    + (_R, _R, "ear", _R, _R, "left", _R, _R, _R, _R)                # 50-59
 )
 #: The rare yawn: in one minute out of every ``YAWN_EVERY_MIN`` (minute ``YAWN_MINUTE`` of
 #: each cycle), these seconds of the script's resting stretch become a two-second yawn.

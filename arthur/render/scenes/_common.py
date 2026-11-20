@@ -15,12 +15,9 @@ frame (Arthur and the other animal, each a :class:`Seat` or a :class:`Sprite`), 
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import NamedTuple
+from typing import TYPE_CHECKING
 
-from arthur.config import Config
-from arthur.render.frame import Frame
+from arthur.compat import record, tuple_record
 from arthur.render.icons import draw_art, draw_icon
 from arthur.render.idle_show import (
     REST_POSE,
@@ -36,6 +33,12 @@ from arthur.render.idle_show import (
 )
 from arthur.render.screens import PIC, TAIL_HALF, TAIL_LIFT, TAIL_X, TAIL_Y, WALK_A, WALK_B
 from arthur.timebase import SHOW_FPS
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from arthur.config import Config
+    from arthur.render.frame import Frame
 
 #: The stage row his feet stand on: frame row 14, as when he sits.
 FLOOR = STAGE_H - 1
@@ -161,7 +164,8 @@ EXTRA_SEATED: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 
-class Seat(NamedTuple):
+@tuple_record("pose dx")
+class Seat:
     """Arthur seated in ``pose`` (a key of ``screens.IDLE_POSES`` or :data:`EXTRA_SEATED`),
     shifted ``dx`` columns from his spot."""
 
@@ -178,7 +182,8 @@ class Seat(NamedTuple):
             draw_seated(stage, cfg, self.pose, self.dx)
 
 
-class Sprite(NamedTuple):
+@tuple_record("rows x y")
+class Sprite:
     """Text art with its top-left at stage column ``x``, row ``y`` (clipped at the edges)."""
 
     rows: tuple[str, ...]
@@ -189,10 +194,11 @@ class Sprite(NamedTuple):
         draw_art(stage, self.rows, self.x, self.y, cfg)
 
 
-Actor = Seat | Sprite
+if TYPE_CHECKING:
+    Actor = Seat | Sprite
 
 
-@dataclass(frozen=True)
+@record("arthur prey part extra")
 class Shot:
     """One frame of a scene: Arthur (or nobody), the other animal (or nobody), and which part
     of the scene it belongs to (for tests and review; it does not change the picture).

@@ -37,9 +37,9 @@ built as one :class:`Shot` per frame (:func:`shots`), then joined into beats.
 
 from __future__ import annotations
 
-import random
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
+from arthur.compat import Random, zip_strict
 from arthur.render.idle_show import STAGE_W, Beat, SceneContext, mirror, scene
 from arthur.render.scenes._common import (
     FLOOR,
@@ -55,6 +55,9 @@ from arthur.render.scenes._common import (
 from arthur.render.screens import WALK_A
 from arthur.timebase import SHOW_FPS
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
 # =========================================================================================
 # Art: side view, facing right, feet on the bottom row. Same head, stripes and body as the
 # walking cat (``WALK_A``): STAND is him with his legs straight, one column in from the left
@@ -63,7 +66,7 @@ from arthur.timebase import SHOW_FPS
 # =========================================================================================
 
 #: Standing still, facing right (the walking cat with straight legs), 12 wide.
-WALK_STAND = (*WALK_A[:5], ".OO.....OO..", ".OO.....OO..")
+WALK_STAND = WALK_A[:5] + (".OO.....OO..", ".OO.....OO..")
 #: The same in the stretch's columns (hind feet in columns 2-3).
 STAND = tuple("." + r for r in WALK_STAND)
 #: Into the bow, first: the front paws step forward, head and chest dip, rump up a row,
@@ -106,8 +109,8 @@ BOW = (
 #: The bow with his eyes squeezed shut (the held pose).
 BOW_SHUT = tuple(r.replace("OEON", "OSON") for r in BOW)
 #: Held, the tail tip uncurled: the hook opens and droops a row lower.
-BOW_TAIL = ("..O.................", ".O.O................", "S..O................",
-            *BOW_SHUT[3:])
+BOW_TAIL = ("..O.................", ".O.O................",
+            "S..O................") + BOW_SHUT[3:]
 #: Held, the deeper push: the rump a row higher on straighter hind legs, the head and paws
 #: where they were.
 BOW_DEEP = (
@@ -125,8 +128,8 @@ BOW_DEEP = (
 )
 #: Kneading: the near paw lifted and pressed down beside his nose, then the far one pushed
 #: out along the floor.
-KNEAD_A = (*BOW_SHUT[:8], "..OO.....OOOOSON.OC.", "..OO.......OOOOOOC..")
-KNEAD_B = (*BOW_SHUT[:8], "..OO.....OOOOSON....", "..OO.......OOOOOOOOC.")
+KNEAD_A = BOW_SHUT[:8] + ("..OO.....OOOOSON.OC.", "..OO.......OOOOOOC..")
+KNEAD_B = BOW_SHUT[:8] + ("..OO.....OOOOSON....", "..OO.......OOOOOOOOC.")
 #: Rocking forward out of the bow: body low and long, head coming up, front paws drawn
 #: back under him, hind feet still where they were.
 ROCK = (
@@ -260,11 +263,11 @@ def at(art: tuple[str, ...], x: int = STRETCH_X) -> Sprite:
 # =========================================================================================
 
 
-def _pick_gesture(rng: random.Random) -> tuple[tuple[str, int], ...]:
+def _pick_gesture(rng: Random) -> tuple[tuple[str, int], ...]:
     return rng.choices([g for g, _ in GESTURES], [w for _, w in GESTURES])[0]
 
 
-def quiet_poses(rng: random.Random, frames: int) -> list[str]:
+def quiet_poses(rng: Random, frames: int) -> list[str]:
     """Seated poses for ``frames`` frames: still glancing right, then rests and gestures,
     and the yawn with a short rest after it at the end."""
     end = ["yawn"] * YAWN_FRAMES + ["rest"] * AFTER_YAWN
@@ -297,7 +300,7 @@ def quiet_poses(rng: random.Random, frames: int) -> list[str]:
 # =========================================================================================
 
 
-def hold_pictures(rng: random.Random, frames: int) -> list[tuple[str, ...]]:
+def hold_pictures(rng: Random, frames: int) -> list[tuple[str, ...]]:
     """The held bow, ``frames`` frames: eyes open, then shut, with a tail flick or two and
     one deeper push; every picture at least :data:`SEG_MIN` frames."""
     templates = [
@@ -320,7 +323,7 @@ def hold_pictures(rng: random.Random, frames: int) -> list[tuple[str, ...]]:
             continue
         lengths[i] += 1
     art = {"open": BOW, "shut": BOW_SHUT, "tail": BOW_TAIL, "deep": BOW_DEEP}
-    return [art[n] for n, k in zip(names, lengths, strict=True) for _ in range(k)]
+    return [art[n] for n, k in zip_strict(names, lengths) for _ in range(k)]
 
 
 class Plan:
@@ -366,7 +369,7 @@ class Plan:
         add(at(STAND), "stand", STAND_BEAT)
         add(at(DOWN_A), "down", DOWN_FRAMES)
         add(at(DOWN_B), "down", DOWN_FRAMES)
-        for art in hold_pictures(random.Random(self.hold_seed), self.hold):
+        for art in hold_pictures(Random(self.hold_seed), self.hold):
             add(at(art), "bow")
         if self.knead:
             for i in range(self.presses):

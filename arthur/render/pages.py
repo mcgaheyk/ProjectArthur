@@ -16,7 +16,7 @@ With no fresh reading (``state.weather`` is None) both show the date alone, cent
 7-row font: never an old temperature. The date is the month and the day in the config's zone;
 Kyle does not want the day of the week on this page.
 
-Glyphs are text-art icons ``icons/wx_*.16.txt``, inked within columns 1-13 and rows 1-14.
+Glyphs are text-art icons ``icon_art/wx_*.16.txt``, inked within columns 1-13 and rows 1-14.
 Their motion stays in place and changes at most once a second (rain and snow every second,
 the sun's rays and the fog every two).
 """
@@ -24,16 +24,21 @@ the sun's rays and the fog every two).
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
-from datetime import date, datetime
+from collections import OrderedDict
+from typing import TYPE_CHECKING
 
-from arthur.config import Config
-from arthur.model import DisplayState, Weather
 from arthur.render.font import condensed_small_font, large_font, small_font
 from arthur.render.frame import Frame
 from arthur.render.icons import draw_icon
 from arthur.render.idle_show import STAGE_W, STAGE_X, H, W, page
 from arthur.render.text import put_text
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from datetime import date, datetime
+
+    from arthur.config import Config
+    from arthur.model import DisplayState, Weather
 
 MONTHS: tuple[str, ...] = (
     "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
@@ -62,16 +67,17 @@ HILO_GAP = 3
 # WMO weather code -> glyph
 # =========================================================================================
 
-#: Glyph name -> the WMO codes it stands for. Every other code is the plain cloud.
-GLYPH_CODES: dict[str, tuple[int, ...]] = {
-    "clear": (0, 1),
-    "partly": (2,),
-    "cloud": (3,),
-    "fog": (45, 48),
-    "rain": (*range(51, 58), *range(61, 68), *range(80, 83)),
-    "snow": (*range(71, 78), 85, 86),
-    "thunder": (95, 96, 97, 98, 99),
-}
+#: Glyph name -> the WMO codes it stands for. Every other code is the plain cloud. Ordered:
+#: MicroPython's plain dicts do not keep insertion order, and :data:`GLYPHS` follows it.
+GLYPH_CODES: OrderedDict[str, tuple[int, ...]] = OrderedDict((
+    ("clear", (0, 1)),
+    ("partly", (2,)),
+    ("cloud", (3,)),
+    ("fog", (45, 48)),
+    ("rain", tuple(range(51, 58)) + tuple(range(61, 68)) + tuple(range(80, 83))),
+    ("snow", tuple(range(71, 78)) + (85, 86)),
+    ("thunder", (95, 96, 97, 98, 99)),
+))
 FALLBACK_GLYPH = "cloud"
 _CODE_GLYPH = {c: g for g, codes in GLYPH_CODES.items() for c in codes}
 GLYPHS: tuple[str, ...] = tuple(GLYPH_CODES)
@@ -138,7 +144,7 @@ def whole(x: float) -> int:
 
 def temp_text(w: Weather) -> str:
     """``54°``, ``-5°``: the temperature, rounded, with a degree sign and no unit letter."""
-    return f"{whole(w.temp_f)}\N{DEGREE SIGN}"
+    return f"{whole(w.temp_f)}\u00b0"
 
 
 def hilo_text(w: Weather) -> str | None:
@@ -217,7 +223,7 @@ def weather_big_page(state: DisplayState, now: datetime, cfg: Config) -> Frame:
     date_x = TEXT_R - date_w + 1
     digits = str(whole(w.temp_f))
     dw = small.width(digits, 2)
-    deg = "\N{DEGREE SIGN}"
+    deg = "\u00b0"  # the degree sign
     # The degree sign is the 7-row font's small ring at the top of the big digits; it is
     # dropped before anything would crowd the date. The temperature is centred between the
     # glyph and the date.

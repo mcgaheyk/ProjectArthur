@@ -31,8 +31,8 @@ it must end with Arthur seated at rest at his spot on an otherwise empty stage, 
 closing wipe starts from that. If its beats come up short the last frame is held; if they run
 over the body, the extra frames are never shown (the tests forbid it).
 
-Scenes live one file each in :mod:`arthur.render.scenes`, discovered with ``pkgutil``. Which
-scene plays: ``cue.name`` if set, else :func:`pick_scene` (a seeded shuffle bag over the
+Scenes live one file each in :mod:`arthur.render.scenes`, discovered by listing that folder
+(MicroPython has no ``pkgutil``). Which scene plays: ``cue.name`` if set, else :func:`pick_scene` (a seeded shuffle bag over the
 registered scenes, indexed by the round number, no scene twice in a row).
 
 **Transitions** keep exact colours (no fades: a dimmed orange turns red on these LEDs): every
@@ -46,22 +46,28 @@ labels on that frame. A composed frame takes each pixel from one checked frame.
 
 from __future__ import annotations
 
-import importlib
-import pkgutil
-import random
+import os
+import sys
 import zlib
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 from functools import cache
-from typing import NamedTuple
+from typing import TYPE_CHECKING
 
-from arthur.config import Config
-from arthur.model import Cue, DisplayState
+from arthur.compat import Random, record, tuple_record
 from arthur.render import screens
 from arthur.render.frame import Frame
 from arthur.render.text import check_text, is_strict, strict_text
 from arthur.timebase import SHOW_FPS, frames_since
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
+    from datetime import datetime
+
+    from arthur.config import Config
+    from arthur.model import Cue, DisplayState
+
+    Page = Callable[[DisplayState, datetime, Config], Frame]
+    Scene = Callable[["SceneContext"], Sequence["Beat"]]
 
 # =========================================================================================
 # Geometry and timing
@@ -133,7 +139,7 @@ def checked(draw: Callable[[], Frame]) -> Frame:
 @cache
 def _dissolve_order(n_pixels: int) -> tuple[int, ...]:
     order = list(range(n_pixels))
-    random.Random(DISSOLVE_SEED).shuffle(order)
+    Random(DISSOLVE_SEED).shuffle(order)
     return tuple(order)
 
 
@@ -176,7 +182,7 @@ def wipe(
 
 def mirror(rows: Sequence[str]) -> tuple[str, ...]:
     """Text art flipped left to right (a cat facing right faces left)."""
-    return tuple(r[::-1] for r in rows)
+    return tuple("".join(reversed(r)) for r in rows)  # not r[::-1]: not on MicroPython
 
 
 def mirror_frame(f: Frame) -> Frame:
@@ -224,8 +230,6 @@ def seated_stage(cfg: Config, pose: str = REST_POSE) -> Frame:
 # Registries: pages and scenes
 # =========================================================================================
 
-Page = Callable[[DisplayState, datetime, Config], Frame]
-
 #: Page name -> page function.
 PAGES: dict[str, Page] = {}
 
@@ -241,7 +245,8 @@ def page(name: str) -> Callable[[Page], Page]:
     return deco
 
 
-class Beat(NamedTuple):
+@tuple_record("frames draw")
+class Beat:
     """``frames`` frames drawn by ``draw(stage, i)``, ``i`` counting 0 .. frames-1 inside the
     beat. ``draw`` gets an empty stage each frame."""
 
@@ -249,7 +254,7 @@ class Beat(NamedTuple):
     draw: Callable[[Frame, int], None]
 
 
-@dataclass(frozen=True)
+@record("name cfg n frames")
 class SceneContext:
     """What a scene is given: the config, the round number ``n``, how many body ``frames``
     its beats must fill, and helpers seeded by scene name, round and a key of your choosing,
@@ -263,9 +268,9 @@ class SceneContext:
     def seed(self, key: str) -> int:
         return zlib.crc32(f"{self.name}|{self.n}|{key}".encode())
 
-    def rng(self, key: str) -> random.Random:
+    def rng(self, key: str) -> Random:
         """A ``random.Random`` for ``key``, the same for the same scene, round and key."""
-        return random.Random(self.seed(key))
+        return Random(self.seed(key))
 
     def pick(self, key: str, options: int | Sequence[object]) -> int:
         """An index into ``options`` (a sequence, or a count) for ``key``."""
@@ -275,10 +280,7 @@ class SceneContext:
         return self.seed(key) % count
 
 
-Scene = Callable[[SceneContext], Sequence[Beat]]
-
-
-@dataclass(frozen=True)
+@record("fn weight")
 class SceneEntry:
     fn: Scene
     weight: int = 1
@@ -309,8 +311,8 @@ def _bag_items(weights: Mapping[str, int]) -> list[str]:
     return [name for name in sorted(weights) for _ in range(max(1, int(weights[name])))]
 
 
-def _bag_rng(b: int, items: Sequence[str], key: str) -> random.Random:
-    return random.Random(zlib.crc32(f"bag|{key}|{b}|{','.join(items)}".encode()))
+def _bag_rng(b: int, items: Sequence[str], key: str) -> Random:
+    return Random(zlib.crc32(f"bag|{key}|{b}|{','.join(items)}".encode()))
 
 
 def _bag_last(b: int, items: Sequence[str]) -> str:
@@ -319,7 +321,7 @@ def _bag_last(b: int, items: Sequence[str]) -> str:
     return _bag_rng(b, items, "last").choice(list(items))
 
 
-def _arrange(rest: list[str], first_not: str, last: str, rng: random.Random) -> list[str] | None:
+def _arrange(rest: list[str], first_not: str, last: str, rng: Random) -> list[str] | None:
     """``rest`` ordered so that no two neighbours match, the first is not ``first_not`` and
     the one before ``last`` is not ``last``; None if there is no such order."""
     order: list[str] = []
@@ -364,7 +366,7 @@ def _bag(b: int, items: Sequence[str]) -> list[str]:
         shuffled = list(items)
         _bag_rng(b, items, "order").shuffle(shuffled)
         return shuffled
-    return [*order, last]
+    return order + [last]
 
 
 def pick_scene(n: int, weights: Mapping[str, int] | None = None) -> str:
@@ -503,13 +505,28 @@ def play(state: DisplayState, now: datetime, cfg: Config) -> Frame:
 # =========================================================================================
 
 
+def scene_modules() -> list[str]:
+    """The scene modules in :mod:`arthur.render.scenes`, in name order: every ``.py`` (or
+    MicroPython's compiled ``.mpy``) whose name does not start with ``_``. Listed from the
+    folder, as ``pkgutil.iter_modules`` would (MicroPython has no ``pkgutil``)."""
+    __import__("arthur.render.scenes")
+    # From sys.modules: while arthur.render is still importing, MicroPython has not yet set
+    # it as an attribute of arthur, so ``import arthur.render.scenes as pkg`` fails there.
+    path = sys.modules["arthur.render.scenes"].__file__
+    folder = path[: path.rfind("/")] if "/" in path else "."
+    names = set()
+    for f in os.listdir(folder):
+        for suffix in (".py", ".mpy"):
+            if f.endswith(suffix) and not f.startswith("_"):
+                names.add(f[: -len(suffix)])
+    return sorted(names)
+
+
 def load_plugins() -> None:
     """Import the pages module and every module in :mod:`arthur.render.scenes`."""
-    importlib.import_module("arthur.render.pages")
-    pkg = importlib.import_module("arthur.render.scenes")
-    for info in sorted(pkgutil.iter_modules(pkg.__path__), key=lambda m: m.name):
-        if not info.name.startswith("_"):
-            importlib.import_module(f"{pkg.__name__}.{info.name}")
+    __import__("arthur.render.pages")
+    for name in scene_modules():
+        __import__("arthur.render.scenes." + name)
 
 
 load_plugins()
