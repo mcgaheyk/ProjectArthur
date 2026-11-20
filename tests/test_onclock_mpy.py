@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import itertools
 import json
 import os
 import shutil
@@ -38,11 +39,10 @@ from pathlib import Path
 
 import pytest
 from aiohttp import web
-from onclock_source import ReplaySource, at, load_lines, ts_us
+from onclock_source import ReplaySource, at, load_lines
 
 from arthur.config import config_from_json
 from arthur.mapping import to_display_state
-from arthur.model import FeederHealth
 from arthur.render import render
 from arthur.sim.server import CLOCKS, create_app
 from arthur.sources.openmeteo import parse_open_meteo
@@ -292,7 +292,7 @@ async def test_the_program_end_to_end_under_micropython(e2e):
 
     # The heartbeat: a still frame is pushed again every heartbeat_s.
     by_time = sorted(pushes, key=lambda p: p["us"])
-    beats = [(a, b) for a, b in zip(by_time, by_time[1:], strict=False)
+    beats = [(a, b) for a, b in itertools.pairwise(by_time)
              if b["reason"] == "heartbeat"]
     assert len(beats) >= 5
     for a, b in beats:

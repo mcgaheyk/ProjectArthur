@@ -112,14 +112,19 @@ def put_text(
             OVERFLOWS.append((s, need, have))
     scratch = Frame(f.width, f.height)
     font.draw(scratch, x, y, s, (255, 255, 255), scale=scale)
-    ink = set()
-    for i, p in enumerate(scratch.pixels):
-        if p != (0, 0, 0):
-            px, py = i % f.width, i // f.width
-            if px <= right:
-                ink.add((px, py))
-                f.pixel(px, py, color)
     records = _strict.get()
+    ink = set() if records is not None else None  # only the strict check reads it
+    # By index, not enumerate(): on the clock every (i, p) pair is an allocation, 832 a label.
+    pixels = scratch.pixels
+    black = (0, 0, 0)
+    w = f.width
+    for i in range(len(pixels)):
+        if pixels[i] != black:
+            px, py = i % w, i // w
+            if px <= right:
+                if ink is not None:
+                    ink.add((px, py))
+                f.pixel(px, py, color)
     if records is not None:
         records.append(TextRecord(s, x, y, right, frozenset(ink), id(f)))
     return min(need, have)

@@ -28,17 +28,17 @@ if IS_MPY:
 sys.path.insert(0, _here)
 sys.path.insert(0, _root)
 
-import asyncio  # noqa: E402
-import gc  # noqa: E402
-import hashlib  # noqa: E402
-import json  # noqa: E402
-import time  # noqa: E402
-from datetime import timedelta  # noqa: E402
+import asyncio
+import gc
+import hashlib
+import json
+import time
+from datetime import timedelta
 
-from onclock_source import EPOCH, ReplaySource, load_lines  # noqa: E402
+from onclock_source import EPOCH, ReplaySource, load_lines
 
-from arthur.onclock.app import ClockApp  # noqa: E402
-from arthur.render import Frame  # noqa: E402, F401  (imported first: the biggest modules)
+from arthur.onclock.app import ClockApp
+from arthur.render import Frame  # noqa: F401  (imported first: the biggest modules)
 
 ONE_US = timedelta(microseconds=1)
 

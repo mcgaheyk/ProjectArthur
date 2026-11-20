@@ -96,8 +96,11 @@ def draw_art(
     pal = cfg.palette
     char_role = {c: r for r, c in pal.chars.items()}
     off_char = pal.chars.get("off", ".")
-    for iy, row in enumerate(rows):
-        for ix, ch in enumerate(row):
+    # By index, not enumerate(): on the clock every (i, x) pair is an allocation.
+    for iy in range(len(rows)):
+        row = rows[iy]
+        for ix in range(len(row)):
+            ch = row[ix]
             if ch in (".", off_char, "%"):
                 continue
             role = accent if ch == "*" else char_role.get(ch)
@@ -137,8 +140,11 @@ def draw_icon(
         k = max(1, round(min(fill, 1.0) * n))
         lit_fill = set(fill_rows[n - k :])
 
-    for iy, row in enumerate(icon.rows):
-        for ix, ch in enumerate(row):
+    rows = icon.rows
+    for iy in range(len(rows)):  # by index: see draw_art
+        row = rows[iy]
+        for ix in range(len(row)):
+            ch = row[ix]
             if ch == "." or ch == off_char:
                 continue
             if ch == "%":
