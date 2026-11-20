@@ -32,6 +32,7 @@ import os
 import shutil
 import socket
 import ssl
+import subprocess
 import sys
 import time
 from datetime import UTC, datetime, timedelta
@@ -340,3 +341,22 @@ async def test_the_program_end_to_end_under_micropython(e2e):
     st = end["status"]
     assert st["heap_free"] > 0 and st["heap_alloc"] > 0 and st["log_last_seq"] > 10
     assert sys.getsizeof(json.dumps(st)) < 2000
+
+
+@needs_mpy
+def test_twelve_minutes_of_the_show_and_a_visit_in_a_2_mib_heap(tmp_path):
+    """``tests/onclock_bench.py`` on fast-forwarded time under MicroPython with the heap the
+    clock gives it: three scenes, each planned ahead, pages, the first real visit, no error
+    and no memory failure. (The hour, and the smallest heap, are measured by hand: see
+    docs/reference/micropython.md.)"""
+    (tmp_path / "config.json").write_text(json.dumps(export()))
+    run = subprocess.run([MPY, "-X", "heapsize=2M", str(HERE / "onclock_bench.py"),
+                          str(tmp_path), "--minutes", "12"],
+                         capture_output=True, text=True, timeout=300, check=False)
+    assert run.returncode == 0, (run.stdout[-2000:], run.stderr[-2000:])
+    out = json.loads(run.stdout.strip().splitlines()[-1])
+    print(json.dumps(out))
+    assert out["errors"] == [] and out["code"] == 0
+    assert out["beats"]["plan built ahead"]["beats"] == 3  # 2:24, 5:24, 8:24
+    assert {"page", "in_use", "waiting"} <= set(out["beats"])
+    assert out["heap_in_use"] < 1_200_000

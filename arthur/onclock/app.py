@@ -552,15 +552,16 @@ class ClockApp:
             self.stats.add("plan " + planned, since_us(p0))
 
     def _quiet(self):
-        """For the weather: False while a scene slot is on or about to begin."""
+        """For the weather: False while a page or scene is playing or begins within 5 s (their
+        dissolves and wipes run at 8 frames a second; a TLS handshake on the clock takes about
+        0.3 s of arithmetic). Home stretches are 45 s, so a fetch waits at most about a minute.
+        Other screens change at most once a second, where a short stall does not show."""
         st = self.state
         if st is None or st.kind != "ready":
             return True
-        if st.cue is not None and st.cue.kind == "scene":
+        if st.cue is not None:
             return False
-        now = self.clock.wall()
-        nxt = idle_cue(st.since, now + _seconds(5), self.cfg)
-        return nxt is None or nxt.kind != "scene"
+        return idle_cue(st.since, self.clock.wall() + _seconds(5), self.cfg) is None
 
     def _plan_ahead(self, state, now, cfg):
         """Build the coming scene's plan if its slot begins within :data:`PLAN_LEAD_S`, and

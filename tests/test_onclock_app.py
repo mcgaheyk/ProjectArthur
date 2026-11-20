@@ -743,6 +743,25 @@ async def test_the_scene_plan_is_built_on_a_home_beat_before_its_slot(client, cl
         assert frame == render(state, now, cfg)
 
 
+async def test_the_weather_is_told_when_the_screen_is_quiet(client, clock, tmp_path):
+    """Quiet: the home page with no page or scene within 5 s, or any screen but idle."""
+    root = idle_cfg_root(tmp_path)
+    app = make_app(client, clock, FakeSource(READY), root)
+    seen = {}
+
+    def note(c):
+        seen[round(c.t - 1000, 3)] = app._quiet()
+
+    clock.on_tick = note
+    clock.t = 1000.0 + 30
+    await run_for(app, clock, 120)  # home, the page from 45 s, home again from 99 s
+    assert seen[31.0] and seen[39.875]
+    assert not seen[40.0] and not seen[60.0] and not seen[98.875]
+    assert seen[99.125] and seen[138.875] and not seen[139.0]  # (state from the beat before)
+    app.state = replace(app.state, kind="in_use", cue=None)
+    assert app._quiet()
+
+
 async def test_no_plan_is_built_ahead_at_night_or_off_idle(client, clock, tmp_path,
                                                            monkeypatch):
     data = export()
