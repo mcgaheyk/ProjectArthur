@@ -10,18 +10,21 @@ setting off before it pushes (docs/reference/awtrix-ng.md, "Double size on the T
 A fresh install also has two built-in apps, Time and Status, taking turns with ours, so after a
 push the transport takes every other app out of the rotation (docs/reference/awtrix-ng.md,
 "Rotation").
+
+The pure part (the payload, the rotation fix, reading the settings and the apps) is in
+:mod:`arthur.awtrix_api`, shared with the clock's own transport (:mod:`arthur.onclock.awtrix`).
 """
 
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import time
 from collections.abc import Callable
 
 import aiohttp
 
+from arthur import awtrix_api
 from arthur.transports.base import FrameLike, TransportError
 
 
@@ -65,12 +68,7 @@ class AwtrixNgTransport:
     @staticmethod
     def payload(frame: FrameLike, ttl_s: float) -> dict:
         """The JSON body for one frame (exposed for tests and the studio)."""
-        data = base64.b64encode(frame.to_rgb888()).decode("ascii")
-        return {
-            "draw": [["bitmap", 0, 0, frame.width, frame.height, data]],
-            "lifetimeMs": round(ttl_s * 1000),
-            "lifetimeExpiry": "mark",
-        }
+        return awtrix_api.payload(frame.to_rgb888(), frame.width, frame.height, ttl_s)
 
     def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -126,8 +124,8 @@ class AwtrixNgTransport:
             return
         self._settings_ok_at = None
         settings = await self._settings("GET")
-        if settings.get("enlargeApps") is True:
-            updated = await self._settings("PATCH", {"enlargeApps": False})
+        if awtrix_api.needs_native_size(settings):
+            updated = await self._settings("PATCH", dict(awtrix_api.NATIVE_SIZE))
             if updated.get("enlargeApps") is not False:
                 raise TransportError("PATCH /api/v1/settings did not turn enlargeApps off",
                                      None, json.dumps(updated))
@@ -143,43 +141,15 @@ class AwtrixNgTransport:
             data = json.loads(text)
         except ValueError as exc:
             raise TransportError(f"GET {path}: not JSON", None, text) from exc
-        if not (isinstance(data, list)
-                and all(isinstance(a, dict) and isinstance(a.get("name"), str) for a in data)):
+        if not awtrix_api.apps_ok(data):
             raise TransportError(f"GET {path}: not an array of apps with names", None, text)
         return data
 
     def rotation_fix(self, apps: list[dict]) -> dict | None:
         """The ``PUT /api/v1/apps/order`` body that leaves ours the only app in the rotation,
-        or None when it already is (exposed for tests).
-
-        ``apps`` is ``GET /api/v1/apps``. A fix is needed when another app (other than the
-        scripts below) has ``inLoop`` true, or ours is switched off. Because ``disabled`` is the complete list of switched-off apps
-        (every app it leaves out is switched on), it names every other app, including ones
-        already off and names that only hold a place, except two kinds that never take a turn
-        on their own and are left running: background scripts (``headless``) and on-demand
-        scripts (``ondemand``). Background scripts also go into ``order`` after ours, since
-        a background script runs only while ``order`` names it. Modules (no ``enabled``) are not
-        apps and are left out of both lists.
-        """
-        others = [a for a in apps if a["name"] != self.app_name and "enabled" in a]
-        keep = [a for a in others
-                if a.get("enabled") is not False and (a.get("headless") or a.get("ondemand"))]
-        keep_names = {a["name"] for a in keep}
-        ours_off = any(a["name"] == self.app_name and a.get("enabled") is False for a in apps)
-        if not ours_off and not any(
-            a.get("inLoop") is True for a in others if a["name"] not in keep_names
-        ):
-            return None
-        order = [self.app_name]
-        disabled: list[str] = []
-        for a in others:
-            name = a["name"]
-            if name in keep_names:
-                if a.get("headless") and name not in order:
-                    order.append(name)
-            elif name not in disabled:
-                disabled.append(name)
-        return {"order": order, "disabled": disabled}
+        or None when it already is (exposed for tests). The rules are
+        :func:`arthur.awtrix_api.rotation_fix`'s, shared with the clock's own transport."""
+        return awtrix_api.rotation_fix(apps, self.app_name)
 
     async def ensure_only_app(self) -> None:
         """Take every other app out of the rotation if any is in it. Skipped while the last good

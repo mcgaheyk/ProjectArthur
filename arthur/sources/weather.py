@@ -15,123 +15,30 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import math
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
-from typing import Any
 
 import aiohttp
 
 from arthur import spikelog as sl
-from arthur.config import WEATHER_UNITS, Config, WeatherConfig
+from arthur.config import Config, WeatherConfig
 from arthur.model import Weather
+
+# The request and the parsing are shared with the clock's own weather source.
+from arthur.sources.openmeteo import (
+    MIN_INTERVAL_S,
+    OPEN_METEO_URL,
+    RETRY_MAX_S,
+    TIMEOUT_S,
+    USER_AGENT,
+    WeatherError,
+    parse_open_meteo,
+    request_params,
+)
 
 log = logging.getLogger("arthur.weather")
 
-OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
-USER_AGENT = "arthur-clock"
-#: Never ask more often than this, even when retrying.
-MIN_INTERVAL_S = 60.0
-#: Retry after a failure: 60 s, doubling, up to this.
-RETRY_MAX_S = 900.0
-#: Give up on one request after this long.
-TIMEOUT_S = 20.0
-
 SleepFn = Callable[[asyncio.Event, float], Awaitable[bool]]
-
-
-class WeatherError(Exception):
-    """The forecast could not be fetched or did not have the shape we read."""
-
-
-# --------------------------------------------------------------------------------------------
-# The response (pure)
-# --------------------------------------------------------------------------------------------
-
-
-def _number(value: Any) -> float | None:
-    """A finite JSON number as float; None for anything else (bools are not numbers)."""
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    f = float(value)
-    return f if math.isfinite(f) else None
-
-
-def _first_of_day(daily: Any, key: str) -> float | None:
-    """The first value of ``daily[key]``; None when missing, empty or null.
-    A value that is there but not a number is malformed."""
-    if not isinstance(daily, Mapping):
-        return None
-    values = daily.get(key)
-    if values is None:
-        return None
-    if not isinstance(values, list):
-        raise WeatherError(f"daily.{key} is not a list: {values!r}")
-    if not values or values[0] is None:
-        return None
-    v = _number(values[0])
-    if v is None:
-        raise WeatherError(f"daily.{key}[0] is not a number: {values[0]!r}")
-    return v
-
-
-def parse_open_meteo(data: Mapping[str, Any], fetched_at: datetime,
-                     units: str = "fahrenheit") -> Weather:
-    """One :class:`Weather` from a forecast response (the request in :func:`request_params`).
-
-    Needs ``current.temperature_2m`` (in ``units``, as requested), ``current.weather_code`` and
-    ``current.is_day``;
-    the day's high and low are ``None`` when missing. Raises :class:`WeatherError` on an
-    error response or a malformed one. ``fetched_at`` must be aware.
-    """
-    if fetched_at.tzinfo is None:
-        raise ValueError("fetched_at must be an aware datetime")
-    if not isinstance(data, Mapping):
-        raise WeatherError(f"response is not a JSON object: {type(data).__name__}")
-    if data.get("error"):
-        raise WeatherError(f"Open-Meteo error: {data.get('reason', 'no reason given')}")
-    current = data.get("current")
-    if not isinstance(current, Mapping):
-        raise WeatherError("response has no 'current' object")
-    symbol = WEATHER_UNITS[units]
-    answered = data.get("current_units")
-    if isinstance(answered, Mapping) and answered.get("temperature_2m") not in (None, symbol):
-        raise WeatherError(f"temperature is in {answered['temperature_2m']!r}, not {symbol}")
-
-    temp = _number(current.get("temperature_2m"))
-    if temp is None:
-        raise WeatherError(f"current.temperature_2m is not a number: "
-                           f"{current.get('temperature_2m')!r}")
-    code = _number(current.get("weather_code"))
-    if code is None or code != int(code) or code < 0:
-        raise WeatherError(f"current.weather_code is not a WMO code: "
-                           f"{current.get('weather_code')!r}")
-    is_day = current.get("is_day")
-    if isinstance(is_day, bool) or is_day not in (0, 1):
-        raise WeatherError(f"current.is_day is not 0 or 1: {is_day!r}")
-
-    daily = data.get("daily")
-    return Weather(
-        temp_f=temp,
-        code=int(code),
-        is_day=bool(is_day),
-        high_f=_first_of_day(daily, "temperature_2m_max"),
-        low_f=_first_of_day(daily, "temperature_2m_min"),
-        fetched_at=fetched_at.astimezone(UTC),
-    )
-
-
-def request_params(wc: WeatherConfig, tz_name: str) -> dict[str, str]:
-    """The query string for one forecast: current conditions and today's high and low."""
-    return {
-        "latitude": str(wc.latitude),
-        "longitude": str(wc.longitude),
-        "current": "temperature_2m,weather_code,is_day",
-        "daily": "temperature_2m_max,temperature_2m_min",
-        "temperature_unit": wc.units,
-        "timezone": tz_name,
-        "forecast_days": "1",
-    }
 
 
 # --------------------------------------------------------------------------------------------
