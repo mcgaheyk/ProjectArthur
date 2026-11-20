@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import struct
 import zlib
-from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING
 
+from arthur.compat import IS_MICROPYTHON
+
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+
     from arthur.render.font import Font
 
-RGB = tuple[int, int, int]
+#: A colour. CPython code imports it at run time; MicroPython cannot subscript ``tuple``.
+RGB = tuple if IS_MICROPYTHON else tuple[int, int, int]
 BLACK: RGB = (0, 0, 0)
 
 

@@ -15,10 +15,11 @@ Text is positioned by the top row of its capitals.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from arthur.compat import record
 
 if TYPE_CHECKING:
     from arthur.render.frame import RGB, Frame
@@ -26,7 +27,7 @@ if TYPE_CHECKING:
 FONT_DIR = Path(__file__).resolve().parent / "fonts"
 
 
-@dataclass(frozen=True)
+@record("width height xoff yoff advance rows")
 class Glyph:
     width: int  # BBX width
     height: int  # BBX height

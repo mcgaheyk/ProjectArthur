@@ -1,4 +1,4 @@
-"""Text-art icons: ``icons/<name>.<size>.txt``, one character per pixel.
+"""Text-art icons: ``icon_art/<name>.<size>.txt``, one character per pixel.
 
 Characters are palette-role codes from ``[palette_chars]`` in config/display.toml, plus:
 
@@ -12,17 +12,22 @@ Lines starting with ``#`` are comments. Screens draw icons at 16x16; an icon tha
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from arthur.config import Config
-from arthur.render.frame import Frame
+from arthur.compat import record
 
-ICON_DIR = Path(__file__).resolve().parent / "icons"
+if TYPE_CHECKING:
+    from arthur.config import Config
+    from arthur.render.frame import Frame
+
+#: The art. Not ``icons/``: MicroPython would import a directory of that name in place of
+#: this module.
+ICON_DIR = Path(__file__).resolve().parent / "icon_art"
 
 
-@dataclass(frozen=True)
+@record("name size rows")
 class Icon:
     name: str
     size: int

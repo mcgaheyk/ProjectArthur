@@ -16,20 +16,25 @@ Screens pick between wordings with :func:`first_fitting`, never by cutting lette
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
+from arthur.compat import record
 from arthur.render.font import Font, small_font
-from arthur.render.frame import RGB, Frame
+from arthur.render.frame import Frame
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator, Sequence
+
+    from arthur.render.frame import RGB
 
 
 class TextFitError(AssertionError):
     """A label does not fit its box, or something is drawn on or against a label."""
 
 
-@dataclass(frozen=True)
+@record("text x y right ink frame_id")
 class TextRecord:
     text: str
     x: int

@@ -76,7 +76,7 @@ and still readable in one glance from across a room. Clear first, funny second.
 - Dim colours look different on real LEDs. Avoid relying on subtle shades.
 
 ## 3. Loop
-1. Edit the layout, icon (text-art under `arthur/render/icons/`) or config.
+1. Edit the layout, icon (text-art under `arthur/render/icon_art/`) or config.
 2. Print it: `uv run python -m arthur.render.preview --all` (or name one state). For a page
    or scene, name its fixture (`idle_page`, `idle_page_detail`, `idle_rat`, `idle_rat_turned`,
    `idle_bird`, `idle_bird_perched`, `idle_stretch`, `idle_stretch_knead`): `--at SECONDS` picks a moment, `--sheet DIR --frames N --step 0.125` writes a

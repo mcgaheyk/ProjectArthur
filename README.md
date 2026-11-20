@@ -138,7 +138,7 @@ running program picks up changes by itself.
 - **The idle show:** `page_pct` and `scene_pct` under `[idle]` set how much of the idle time goes
   to the weather and the scenes. Set both to 0 for the home screen only.
 
-His poses are text-art files in `arthur/render/icons/`, one character per colour; the scenes
+His poses are text-art files in `arthur/render/icon_art/`, one character per colour; the scenes
 are drawn in `arthur/render/scenes/`. This project was built with
 [Claude Code](https://claude.com/claude-code), and the repository carries its instructions
 (`CLAUDE.md` and a screen-design skill), so you can open it there and ask for "a grey tabby
