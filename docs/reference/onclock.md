@@ -474,14 +474,50 @@ a minute); keep the mapped state between record changes; and only then split the
 client (connection, tracker, log) into a second MicroPython process that hands the record and
 the observed facts to the display process over a local socket, each with its own heap.
 
+## The first install on the real clock (the order; not yet run)
+
+`S` is the clock's adb serial (`adb devices -l`; the cable goes into the clock itself, not
+its charging base). `ADDRESS` is the clock's address on the Wi-Fi.
+
+Checked on 2026-11-20, before any install: `scripts/clock.py build` gives the same file,
+byte for byte, as the MicroPython that ran on the clock in the spike (521,364 bytes), and
+`--serial S status` ran on the real clock from its `/tmp` and reported no autostart, no
+root, no process of ours and 8.0 MB free on `/data` (the install writes about 0.88 MB).
+
+1. **Stop the Mac's feeder first** (`pkill -f arthur.feeder`, then `pgrep -fl arthur.feeder`
+   prints nothing). The program logs in to Whisker as soon as it starts, and two programs
+   pushing to the clock fight over the screen. The screen shows the stale border from 90 s
+   after the last push until the program draws.
+2. `uv run --env-file .env python scripts/clock.py --serial S --dry-run install` and read
+   what it would write.
+3. **Kyle runs** `uv run --env-file .env python scripts/clock.py --serial S install`. It
+   writes the files, starts the autostart and returns.
+4. Expect NO DATA first: the first start has no tokens, so it makes a password login, an
+   estimated 14 to 20 s of arithmetic on the clock, and then reads the robot. This is also
+   the first password login our client has made against the real service.
+5. After about two minutes: `scripts/clock.py --serial S logs`. The boot notes should say
+   `starting slot a, try 1` and, 120 s after the start, `slot a is healthy`; the console
+   `Whisker connected` and `first frame pushed to AWTRIX`.
+6. Over Wi-Fi: `scripts/clock.py --clock ADDRESS status`. Read `beats` (mean and worst
+   milliseconds for each kind of screen), `woke_late`, `worst_late`, `gc` and
+   `heap_after_gc_max`; read them again after a whole idle round with a scene (three
+   minutes). These are the first measurements of the whole program's speed on the clock.
+7. `scripts/clock.py --clock ADDRESS logs follow` in a Terminal window for as long as the
+   program is to be kept: the clock keeps its log in memory only.
+
+**The way back.** With the cable: `scripts/clock.py --serial S remove`, then
+`open -a Terminal scripts/start_feeder.command`. Without it: `--clock ADDRESS pause` stops
+the program pushing and closes its Whisker connection, and the Mac's feeder can be started;
+but a pause does not outlast a restart of the program or the clock, so it is for an hour, not
+for a night.
+
 ## Assumed about the real clock, not checked
 
 - The daemon stops the running autostart (and so our launcher, which stops the program) on
   `ctl restart-autostart`; `remove` kills what is left either way.
 - The daemon starts the autostart with `/bin/sh` from its `#!` line, as the spike's four-line
-  script was; busybox `sh` there has `trap`, `wait` and `$!` (Alpine's busybox does).
-- `os.ilistdir` on JFFS2 and tmpfs reports file types (a type of 0, "unknown", is refused by
-  the door, which would make every transfer fail).
+  script was. (The clock's `sh` has `trap`, `wait`, `$!` and `umask`; see below. A trap on
+  a signal was not tried, only on exit.)
 - `os.rename` over an existing file is atomic on JFFS2, so `state.json`, `config.json` and the
   manifest are always whole.
 - The heap the program needs on the clock is what the emulated ARMv7 build needed: 1.5 MB ran
@@ -492,15 +528,26 @@ the observed facts to the display process over a local socket, each with its own
   about 290 KB at each start) costs on the clock: estimated at tens of milliseconds.
 - `adb push` keeps a mode-600 file's mode in `/tmp`, and `umask` in the clock's `sh` applies
   to `cp`; `secrets.json` is `chmod 600` after the copy either way.
-- The daemon starts the launcher with a clean environment (no `ARTHUR_ONCLOCK_TEST`), and
-  `umask` is a builtin of the clock's `sh`.
+- The daemon starts the launcher with a clean environment (no `ARTHUR_ONCLOCK_TEST`).
 - The system time is set from the network soon after a boot with Wi-Fi; until it is past
   2026-01-01 the program shows NO DATA and does not try Whisker. With no network time at all
   it would wait for ever, saying so once in the console.
-- MicroPython's `os.getenv` and `Stream.readinto` exist in the clock's build (they do in the
-  Mac's 1.29 and in the static ARMv7 build under emulation).
+- MicroPython's `Stream.readinto` exists in the clock's build (it does in the Mac's 1.29 and
+  in the same static ARMv7 file under emulation; `os.getenv` was seen on the clock).
 - Real Whisker and Cognito answer within the client's timeouts and the TLS handshakes cost
   what the fake's 2048-bit RSA chain costs (the real chains are longer: more verification
   work per handshake, not measured).
 - The clock's own speed: every figure for the clock in this note is the Mac's MicroPython
   times 25 to 30 (the spike's ratio), an estimate.
+
+**Checked on the real clock on 2026-11-20** (over USB, read-only, the built MicroPython run
+from `/tmp` and removed afterwards; AWTRIX and the Mac's feeder kept running):
+- `scripts/clock.py --serial S status` works there: the helper and the binary are pushed to
+  `/tmp/arthur-tool`, run and removed. Nothing of ours was installed; 8,007,680 bytes were
+  free on `/data` and 14.3 MiB of memory available.
+- `os.ilistdir` reports file types on both file systems: regular files (32768) in
+  `/data/awtrix-ng/state` (JFFS2), directories (16384) and files in `/tmp` (tmpfs). So the
+  door's refusal of an unknown type will not stop a transfer.
+- `os.getenv` exists, and the system time was right (not checked soon after a boot).
+- The clock's `sh` has `umask` (it reports 000 over adb; the launcher sets 077), `wait $!`
+  and `trap` (tried on exit).

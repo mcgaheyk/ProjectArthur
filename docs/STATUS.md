@@ -1,6 +1,6 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-20, early afternoon._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-20, evening._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
 - **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
@@ -234,8 +234,15 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
     `config.json` the new code rejects stops both code slots, and then only USB reaches
     the clock; (3) the log is kept in memory and is lost at every restart unless the Mac
     is following it.
-    To harden first: the door reads up to 32 KB of a request before it can check the
-    signature; give it one fixed buffer.
+  - **Ready for the first install; nothing of ours is on the clock.** Checked on
+    2026-11-20 evening with the clock on USB and the Mac's feeder still running:
+    `scripts/clock.py build` gives the same file, byte for byte, as the MicroPython that
+    ran on the clock in the spike; `--serial S status` ran on the real clock (no autostart,
+    nothing installed, 8.0 MB free on its storage; the install writes 0.88 MB); and four
+    things the door and the launcher had only assumed about the clock hold there
+    (`docs/reference/onclock.md`, "Checked on the real clock"). **`install` itself has
+    never been run on it**, and the first start there will also be our client's first real
+    password login.
   - **Cloud relay (not chosen):** the feeder's image (`deploy/feeder/Dockerfile`) logged in
     to Whisker from Railway and read the robot for 43 minutes with no error. No visit
     happened, so live events from a data centre are unproven. **A Railway project
