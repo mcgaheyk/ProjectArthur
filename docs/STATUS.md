@@ -12,7 +12,7 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
 - **The clock is live.** The feeder (`python -m arthur.feeder`) has been **running on Kyle's
-  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, at 09:10 on 2026-11-18 after the push bench, at 13:47 that day after Kyle watched in use on the clock, at 18:04 from Terminal after a 42-minute outage, D-0024, at 08:56 on 2026-11-19 for the gap rule, D-0025, at 12:46 on 2026-11-20 after a 58-minute stop for the no-Pi tests, D-0029, at 14:00 that day after a five-minute stop for the first live check of our own Whisker client, at 14:08 for the shared code, D-0029, and at 14:58 for the reorganised log code), detached under `caffeinate`, against the real robot and
+  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, at 09:10 on 2026-11-18 after the push bench, at 13:47 that day after Kyle watched in use on the clock, at 18:04 from Terminal after a 42-minute outage, D-0024, at 08:56 on 2026-11-19 for the gap rule, D-0025, at 12:46 on 2026-11-20 after a 58-minute stop for the no-Pi tests, D-0029, at 14:00 that day after a five-minute stop for the first live check of our own Whisker client, at 14:08 for the shared code, D-0029, at 14:58 for the reorganised log code, and at 15:10 and 15:15 on our own Whisker client, below), detached under `caffeinate`, against the real robot and
   the real clock (D-0018). It logged in, read the robot and showed idle; the clock's screen
   read-back matched our render of the robot's state on all 832 pixels. **No real visit has
   been watched on the clock yet.** It stops on a Mac restart and the clock shows the stale
@@ -36,7 +36,7 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
   **never from a Claude session's shell**: the 13:47 copy lost the clock (not the robot) at
   17:22, when the session that started it closed, and the clock showed the stale border until
   18:04 (D-0024). Never run a second copy, or `scripts/spike_log.py`, on the same account.
-- **Built and tested (3,923 tests):**
+- **Built and tested (4,014 tests):**
   - Feeder: `arthur/feeder.py` (the loop), `arthur/pusher.py` (when to push),
     `arthur/sources/whisker.py` (the one Whisker connection). On a login or API failure it
     shows NO DATA and retries; it reloads `config/display.toml` when the file changes; it
@@ -192,8 +192,16 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
   - **One Whisker source for the Mac and the clock, in `main`:**
     `arthur/sources/wire_source.py` joins our client to the visit rules and runs on both
     Pythons. `python -m arthur.feeder --source wire` (or `ARTHUR_SOURCE=wire` in `.env`)
-    runs the Mac's feeder on it; **the default is still pylitterbot and the wire source has
-    never run against the real robot.** Against a fake Whisker it gives the same views, log
+    runs the Mac's feeder on it. **Kyle's Mac has run it this way since 15:10 on 2026-11-20**
+    (`scripts/start_feeder.local`, not in git, sets `SOURCE=wire`; delete that line and
+    restart to go back to pylitterbot, which is still the default for a fresh copy). Its
+    first minute was clean: connected, the same reading as pylitterbot gave, the history
+    seeded, live updates subscribed, a fresh frame on the clock. **Two real visits came
+    through it that evening with no warning or error:** at 17:18 the robot recorded no
+    weight, the 120-second fallback moved the clock to waiting, and cleaning, just cleaned
+    and ready followed on time; at 17:58 the weight arrived over the live connection 60 s
+    after detection and the clock went to waiting at that moment. Nobody was watching the
+    clock; this is from the logs. Against a fake Whisker it gives the same views, log
     lines and console lines as the pylitterbot source in 18 of 20 scripted cases; the two
     that differ are on purpose (`docs/reference/whisker-wire.md`). The log code it shares
     with the pylitterbot source was reorganised (`arthur/sources/spikeformat.py`,
@@ -204,8 +212,13 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
     script with two code slots that falls back after three failed starts) and the update
     door `arthur/onclock/door.py`. Protocol, layout and threat list:
     `docs/reference/onclock.md`. On an emulated ARM clock: install, a config change in
-    0.3 s, a code change in about 1 s, and a clean removal. **The clock's own program
-    (`arthur/onclock/app.py`) is still being built**, so there is nothing to install yet.
+    0.3 s, a code change in about 1 s, and a clean removal.
+  - **The clock's own program, in `main`, never run on the real clock:**
+    `arthur/onclock/app.py` (the loop, the push to AWTRIX on 127.0.0.1, the weather, each
+    scene's plan built 0.875 s before its slot, a log kept in memory). Under MicroPython on
+    the Mac every frame it pushed matched CPython's, with a scripted source. **The pieces
+    are not joined yet** (branch `onclock/join` is doing it): the boot script cannot build
+    the real source, and nothing starts the door.
     To harden first: the door reads up to 32 KB of a request before it can check the
     signature; give it one fixed buffer.
   - **Cloud relay (not chosen):** the feeder's image (`deploy/feeder/Dockerfile`) logged in
@@ -280,13 +293,13 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
    guesses about the clock are at the end of `docs/reference/awtrix-ng.md`.
 4. **The on-clock build (D-0029), with Claude.** The Mac's feeder stays live until the last
    step passes. In order:
-   - the Mac's feeder run on the wire source (`--source wire`) through real visits: whether
-     each live update carries every field, on which the visit rule (D-0017) depends; and
-     one real password login;
+   - the Mac's feeder kept on the wire source (`--source wire`; two visits seen so far) for
+     some days, to meet a token that will not renew, a dropped connection and an
+     interruption; and one real password login;
    - each scene's plan built ahead of its first frame, in pieces, during the frames before
      it: the rat's is an estimated 150 to 170 ms on the clock in one go;
-   - the clock's program (`arthur/onclock/app.py`, on branch `onclock/app`) joined to the
-     source, the door and the boot script, and the door's buffer hardened;
+   - the clock's program joined to the source, the door and the boot script, the door's
+     buffer hardened, and the whole thing run end to end without hardware (`onclock/join`);
    - trials on the clock: a real visit, a token renewal, a Wi-Fi outage, a cold boot, an
      AWTRIX restart and 48 hours, then the way back to the Mac rehearsed once.
    Kyle: delete the Railway project `ProjectArthur` (it holds the Whisker login) unless the
