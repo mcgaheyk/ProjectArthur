@@ -1,6 +1,6 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-20, just after midnight._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-20, early afternoon._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
 - **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
@@ -12,7 +12,7 @@ _Last updated: 2026-11-20, just after midnight._ Current state only. History bel
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
 - **The clock is live.** The feeder (`python -m arthur.feeder`) has been **running on Kyle's
-  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, at 09:10 on 2026-11-18 after the push bench, at 13:47 that day after Kyle watched in use on the clock, at 18:04 from Terminal after a 42-minute outage, D-0024, and at 08:56 on 2026-11-19 for the gap rule, D-0025), detached under `caffeinate`, against the real robot and
+  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, at 09:10 on 2026-11-18 after the push bench, at 13:47 that day after Kyle watched in use on the clock, at 18:04 from Terminal after a 42-minute outage, D-0024, at 08:56 on 2026-11-19 for the gap rule, D-0025, and at 12:46 on 2026-11-20 after a 58-minute stop for the no-Pi tests, D-0029), detached under `caffeinate`, against the real robot and
   the real clock (D-0018). It logged in, read the robot and showed idle; the clock's screen
   read-back matched our render of the robot's state on all 832 pixels. **No real visit has
   been watched on the clock yet.** It stops on a Mac restart and the clock shows the stale
@@ -157,6 +157,28 @@ _Last updated: 2026-11-20, just after midnight._ Current state only. History bel
   last-visit line) and logged no error in its first minute. It has played the idle show
   since 13:53. It has not been watched through a real visit, so a visit cutting into a
   page or scene has only been seen in tests and the studio.
+- **The clock is to run itself (D-0029), chosen 2026-11-20; not built.** The goal is no Pi
+  and no Mac: a MicroPython program on the TC002, started by AWTRIX NG's autostart slot,
+  that talks to Whisker, draws with the same Python the studio uses and pushes frames to
+  AWTRIX on the clock. Two routes were tested that day
+  (`docs/research/2026-11-20-no-pi-two-tests.md`):
+  - **On the clock (chosen):** a slice of the real drawing code ran on Kyle's clock under
+    MicroPython with pixels identical to the Mac's: 16 ms a frame for the home screen, 11 ms
+    for the bird scene once its plan is built once and kept (93 ms as written), 1.5 MiB of
+    memory, ten minutes at 8 a second with 1 beat missed of 4,800, TLS working, and a cold
+    boot with the cable out. **Only a slice has run there.** There is no Whisker connection
+    for MicroPython yet, the rest of the code has not been ported, and nothing of ours is on
+    the clock now.
+  - **Cloud relay (not chosen):** the feeder's image (`deploy/feeder/Dockerfile`) logged in
+    to Whisker from Railway and read the robot for 43 minutes with no error. No visit
+    happened, so live events from a data centre are unproven. **A Railway project
+    `ProjectArthur` still exists, stopped, holding Kyle's sealed Whisker login.**
+  - The test code is on the local branch `spike/micropython-slice` (kit:
+    `spike/mpy/clock/kit.py`; measurements: `spike/mpy/clock/results/`), not in `main` and
+    not pushed. Its worktrees are under `.claude/worktrees/`.
+  - To reach the clock over USB, plug the cable into the clock itself, not its charging
+    base. What was learned about the clock's insides is in `docs/reference/awtrix-ng.md`,
+    "Running our own program on the TC002".
 - **Public since 2026-11-19 (D-0026)** at <https://github.com/mcgaheyk/ProjectArthur>. People
   asked Kyle how to make their own, so the repo has a README written for them (hardware,
   installing NG, setup, keeping it running, making it their cat), an MIT `LICENSE`, a systemd
@@ -172,8 +194,9 @@ _Last updated: 2026-11-20, just after midnight._ Current state only. History bel
   docs cite the new ones) and pushed to a fresh repo. The pre-rewrite copy, Gmail and all, is
   kept private as `mcgaheyk/ProjectArthur-old`. **No agent has followed the setup guide yet;
   only its config edits were tried, on a copy.**
-- **Not built:** the Pi deployment (the unit `scripts/arthur-feeder.service` is written but
-  has not run on a Pi; log retention), night dimming, food and water. See Later.
+- **Not built:** the on-clock program (D-0029; see Next), night dimming, food and water. The
+  Pi deployment is now only a fallback (the unit `scripts/arthur-feeder.service` is written
+  but has never run). See Later.
 ## Next
 **Sharing (D-0026), Kyle's steps before posting:**
 - Delete `mcgaheyk/ProjectArthur-old` on GitHub once sure nothing is missing from the new
@@ -216,9 +239,20 @@ _Last updated: 2026-11-20, just after midnight._ Current state only. History bel
    stale border (stop the feeder for two minutes), an interruption, drawer full, and the
    robot offline. The remaining
    guesses about the clock are at the end of `docs/reference/awtrix-ng.md`.
-4. When the Pi arrives: deploy the feeder there (Later, first item) and stop the Mac's copy.
-   Give the clock a fixed address in the router first; the feeder is started with its
-   address and the router can change it.
+4. **The on-clock build (D-0029), with Claude.** The Mac's feeder stays live until the last
+   step passes. In order:
+   - a Whisker connection that runs under MicroPython (login, token renewal, the live
+     subscription, the five-minute poll, the history), tested against a fake Whisker and then
+     through one real visit. This is the biggest unknown;
+   - `arthur/` itself made to run on both Pythons, with every golden frame compared under
+     MicroPython in the test suite, the scenes' plans built once per play, a seeded generator
+     of our own, and Boston's clock time without a time-zone library;
+   - the clock's program and its installer: the loop, a launcher that falls back to the last
+     good version, sending changes from the Mac over Wi-Fi, and a way home for the visit log;
+   - trials on the clock: a real visit, a token renewal, a Wi-Fi outage, a cold boot, an
+     AWTRIX restart and 48 hours, then the way back to the Mac rehearsed once.
+   Kyle: delete the Railway project `ProjectArthur` (it holds the Whisker login) unless the
+   cloud relay is wanted as a fallback.
 5. Kyle: leave the PETLIBRO spike running until the Granary has run low and been refilled at
    least once. That is the one thing it has not seen: what `surplusGrain` and
    `warehouseSurplusGrain` read when food is low, and how soon. Then read the log back into
@@ -227,7 +261,7 @@ _Last updated: 2026-11-20, just after midnight._ Current state only. History bel
    share it to the same second account. The running spike picks it up within the hour.
 
 ## Later
-- Pi 5 deployment: Raspberry Pi OS Lite (64-bit), the systemd unit in
+- Pi 5 deployment, only if the on-clock build (D-0029) is abandoned: Raspberry Pi OS Lite (64-bit), the systemd unit in
   `scripts/arthur-feeder.service` (written, never run; the feeder already reconnects with
   backoff and stops cleanly on SIGTERM), and retention for
   `logs/`, which grow by a file a day and are never deleted. The memory check (pylitterbot pulls in boto3/botocore) only matters if it is the
@@ -305,3 +339,9 @@ _Last updated: 2026-11-20, just after midnight._ Current state only. History bel
 - Which Raspberry Pi 5 it is (RAM size).
 - Whether the feeder can share a Whisker account with Home Assistant's Litter-Robot
   integration. People who build their own will ask; the README does not claim either way.
+- For the on-clock build (D-0029): whether a Whisker connection written for MicroPython holds
+  up (the password login is about 20 seconds of arithmetic on the clock by estimate; live
+  events; weeks of uptime); how long Whisker's refresh token lasts; memory with drawing, TLS,
+  the live connection and the weather all running at once (each was measured alone); whether
+  the 87 ms frame that builds a scene's plan shows on the LEDs; whether AWTRIX's autostart
+  survives a firmware update on this clock (the docs say it does; not tried).

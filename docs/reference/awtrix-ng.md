@@ -297,6 +297,66 @@ Ulanzi's product page. Earlier notes here called NG on the TC002 "a beta from la
   battery would not charge past about 80 %.
 - No open report of flicker, crashes or pushed bitmaps misbehaving was found.
 
+## Running our own program on the TC002
+Read 2026-11-20 in the NG repo at `v1.2.3` (`docs/developers/tc002/index.md`,
+`docs/developers/tc002/install-tools.md`, `src/platform/tc002/daemon/Autostart.cpp`,
+`src/platform/linux/LinuxMemory.cpp`) and tried the same day on Kyle's clock. Items marked
+**[clock]** were seen on the hardware; the rest is from the docs or source only. Background:
+D-0029 and `docs/research/2026-11-20-no-pi-two-tests.md`.
+
+- **The autostart slot** (index.md, "Own program at start"). The daemon starts one program of
+  ours: the file `/data/awtrix-ng/state/autostart`. It must be a regular file, owned by root,
+  mode 700. It runs as root when the daemon starts, without waiting for Wi-Fi, with
+  `PATH=/bin:/sbin:/usr/bin:/usr/sbin` and `HOME=/data`. Exit 0 ends it until the next start;
+  any other exit restarts it after 1 s, 5 s, 30 s, then every 60 s, and after 5 failures in a
+  row it stays off. The docs say a crash there "cannot put the clock into rescue". After
+  changing or deleting the file: `/tmp/awtrix-release/bin/awtrix-tc002d ctl restart-autostart`.
+  **[clock]** A four-line `#!/bin/sh` script that `exec`s MicroPython worked, and came up by
+  itself after a cold boot with no cable.
+- **What removes it.** Holding the reset key for 5 s wipes `/data`, our program included. The
+  docs say a web update writes only the release slot and leaves `/data`; not tried. The web
+  UI and the HTTP API cannot write to `state/`.
+- **USB.** **[clock]** `adb` gives a root shell while NG runs. The cable must be in the clock
+  itself, not its charging base. It shows as `Zkswe`, vendor 0x18D1, product 0xD002, model
+  `Zkswe_SSD21X_SPINOR`, serial `0123456789ABCDEF`. ADB over Wi-Fi is switched off by NG.
+- **The shell is nearly empty.** **[clock]** `sh`, `cp`, `rm`, `chmod`, `mkdir`, `ls`, `cat`
+  and `kill` exist; `grep`, `head`, `tr` and `sleep` do not. Do the work in the program.
+- **Copying files.** Push only into `/tmp` and `cp` from there; the docs say a push straight
+  into `/data` (JFFS2) "wedges USB". **[clock]** Programs run from both `/tmp` and `/data`.
+- **Memory.** **[clock]** 33,168 kB in total, about 13 MiB available with NG running, 2 cores
+  (ARMv7, Cortex-A7), Linux 4.9.84. `freeHeapBytes` in `GET /api/v1/device` is the system's
+  `MemAvailable` (source), and NG wants 4 MiB kept free for voice and transfers.
+- **Storage.** **[clock]** `/data` is 8,192 kB of JFFS2 with 7,808 kB free; `/tmp` is a 16 MiB
+  tmpfs, which is RAM. NG refuses its own uploads when `/data` has under 1 MiB free (docs).
+- **Almost no entropy.** **[clock]** `/proc/sys/kernel/random/entropy_avail` read 10 to 57,
+  and on this kernel a read of `/dev/random` then blocks for minutes. A program doing TLS
+  must use `getrandom()` or `/dev/urandom`. MicroPython 1.29 and mbedTLS 3.6.6 both read
+  `/dev/random` unless built with glibc; the fix is in `spike/mpy/build-armv7/Dockerfile` on
+  the branch `spike/micropython-slice`.
+- **The API from the clock itself.** **[clock]** `http://127.0.0.1` answers. A pushed frame
+  took 17 ms on average (worst 79 ms) from a program on the clock, and NG closed the
+  connection 12 times in 1,323 pushes. NG stayed at 42 frames a second while our program drew
+  and pushed 8 times a second.
+- **Certificates and time.** **[clock]** The CA bundle is
+  `/tmp/awtrix-release/share/ca-certificates.crt` (216,590 bytes, the Mozilla store), and the
+  clock's time was exact. A verified TLS handshake to an Amazon host took 0.31 s.
+- **Speed.** **[clock]** Under MicroPython 1.29 the clock is 25 to 30 times slower than Kyle's
+  Mac.
+
+### MQTT (read at `v1.2.3`, never used)
+Looked up for the cloud relay that D-0029 did not choose; from `docs/guides/mqtt.md`,
+`docs/reference/mqtt.md`, `docs/reference/system.md` and `src/platform/linux/LinuxMqttTls.cpp`.
+- The TC002 build has MQTT with TLS. It is switched on with `PUT /api/v1/system`
+  (`mqttEnabled`, `mqttHost`, `mqttPort`, `mqttTls`, `mqttUser`, `mqttPass`, `mqttPrefix`) and a
+  restart, not with `PATCH /api/v1/settings`. `mqttTlsPin` trusts one broker certificate by
+  the SHA-256 of its DER form, 64 lowercase hex digits.
+- `<prefix>/cmd/apps/pushed/<name>` takes the same JSON as the HTTP route, and the clock
+  answers on `<topic>/result` with `{"ok":true}` or an error object. An empty payload deletes.
+- A message may be 8,192 bytes at most, topic included. Over TLS a larger one makes the clock
+  drop the connection (source), which the docs do not say.
+- The clock publishes its settings, the active app's name and `online`/`offline`, but no list
+  of apps.
+
 ## Where our fake clock guesses (`arthur/sim/clock.py`)
 The simulator follows this file, but these points are assumptions about the real firmware.
 Check each one once NG is on the TC002, by comparing `GET /api/v1/display/screen` on both.

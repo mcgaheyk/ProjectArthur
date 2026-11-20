@@ -83,6 +83,8 @@ for library fixes and needs more RAM than the Pi has).
 
 ## D-0006 — The feeder runs on a Raspberry Pi on the LAN
 
+_→ See D-0029_
+
 **2026-11-15.** Local push to the clock, nothing exposed to the internet.
 
 **Rejected.** A cloud host with the clock polling an HTTPS endpoint (a second failure point and
@@ -633,3 +635,47 @@ enough for the weather. Having people paste their login to the agent.
 **Not known.** Whether an agent follows the guide end to end; none has tried it. Only the
 config edits it makes were tried, on a copy (Celsius, a dark-grey cat, another time zone).
 Windows has never run the feeder; the Pi unit has never run.
+
+## D-0029 — The clock is to run itself; the Pi and a cloud relay are not the plan
+
+**2026-11-20.** Supersedes D-0006 as the target. Kyle chose to build toward the TC002 running
+the display with no Pi and no Mac: a MicroPython program on the clock, started by AWTRIX NG's
+autostart slot, that talks to Whisker, draws with the same Python the studio uses, and pushes
+frames to AWTRIX over the clock's own HTTP API. The Mac's feeder stays as it is until the
+on-clock program has passed its trials; nothing is cut over by this entry.
+
+- **One codebase.** `arthur/`'s model, mapping, schedule, tracker and drawing code is made to
+  run on both CPython and MicroPython. The test suite compares every golden frame under both,
+  because MicroPython differs in ways that change pixels without raising an error.
+- **A Whisker connection of our own** for MicroPython. pylitterbot cannot run there: its AWS
+  libraries alone are 27 MB and the clock has 13 MiB of memory free and 8 MiB of storage.
+- **Changes go from the Mac to the clock over Wi-Fi.** Kyle's condition for the whole route:
+  "ideally I'd be able to do it from my computer and it show up on the device without too
+  much work."
+- D-0003 and D-0004 stand. We still draw every pixel, AWTRIX still only shows a bitmap, and
+  it still marks the frame stale by itself if our program stops.
+
+**Why.** No monthly cost, the Whisker login stays in the house, nothing has to be kept
+running anywhere else, and frames never cross the internet. The test on the real clock that
+day removed the doubts about fit and speed
+(`docs/research/2026-11-20-no-pi-two-tests.md`): identical pixels, 16 ms a frame for the home
+screen, 11 ms for the bird scene with its plan built once, 1.5 MiB of memory, TLS working, and
+a cold boot with nothing connected.
+
+**Rejected.**
+- A cloud relay (the feeder on Railway, frames over MQTT). Its first test also passed: Whisker
+  accepted the login from a data centre. It would have been quicker to build. It costs about
+  $5 a month, keeps the login on Railway, and its live events were never seen.
+- A rewrite in a compiled language, as another AI system proposed
+  (`docs/research/ProjectArthur-TC002-Technical-Plan.md`). That report was right that a
+  program can run on the clock, and its test standards were adopted. But it means two
+  codebases while the screens are still changing daily, so every change would be made twice.
+- The Pi (D-0006). It would work with today's code and remains the fallback.
+
+**Risks accepted.** We own the Whisker connection: when Whisker changes its API, pylitterbot's
+maintainer no longer fixes it for us. The autostart slot is a feature of one maintainer's
+firmware, new in 1.2.2, and holding the clock's reset key for five seconds erases our program
+with everything else. The clock is 25 to 30 times slower than the Mac.
+
+**Not known.** Whether a Whisker connection in MicroPython holds up over weeks. Memory with
+everything running at once. Whether the frame that builds a scene's plan (87 ms) shows.
