@@ -11,8 +11,13 @@
 # Your clock's address: change this to yours. (This one is Kyle's clock, the one in
 # docs/STATUS.md; change it here if the router moves it.)
 CLOCK=http://192.168.86.41
+# Where the robot's data comes from: pylitterbot, or wire for our own client (D-0029).
+SOURCE=pylitterbot
 
 cd "${0:A:h}/.." || exit 1
+# Settings for this Mac only, kept out of git: scripts/start_feeder.local may set CLOCK and
+# SOURCE (one NAME=value per line).
+if [[ -f scripts/start_feeder.local ]]; then source scripts/start_feeder.local; fi
 if pgrep -f "python -m arthur.feeder" >/dev/null; then
   echo "A feeder is already running; not starting a second one (pkill -f arthur.feeder stops it)."
   exit 1
@@ -31,7 +36,7 @@ fi
 
 mkdir -p logs
 nohup /usr/bin/caffeinate -i "$UV" run --env-file .env python -m arthur.feeder \
-  --clock "$CLOCK" >> logs/feeder-console.log 2>&1 < /dev/null &
+  --clock "$CLOCK" --source "$SOURCE" >> logs/feeder-console.log 2>&1 < /dev/null &
 disown
-echo "Arthur's feeder started (pid $!) against $CLOCK. Messages go to logs/feeder-console.log."
+echo "Arthur's feeder started (pid $!) against $CLOCK, source $SOURCE. Messages go to logs/feeder-console.log."
 echo "You can close this window; the feeder keeps running."
