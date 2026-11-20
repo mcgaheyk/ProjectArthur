@@ -159,10 +159,11 @@ left out as the machine's, not the program's.
   both fonts; the clock should load `.mpy` files. The CA bundle does not count: MicroPython's
   mbedTLS allocates outside the collected heap here (loading the Mac's 128-certificate bundle
   kept 3 KB of it).
-- **The smallest heap that runs the hour** (64-bit): 1.2 MB. At 1.1 MB it does not fail but
-  thrashes (a collection on nearly every allocation while a plan is built) and the hour ran
-  more than ten times slower; that is a failure for a program on a beat. The target is
-  `-X heapsize=2M`.
+- **The smallest heap that runs the hour** (64-bit): 1.2 MB (the hour took 50 s against 40 s
+  at 2 MB). At 1.15 MB one scene could not be drawn (no room) and the home page showed in its
+  place, as designed. At 1.1 MB it thrashed (a collection on nearly every allocation while a
+  plan was built) and the hour ran more than ten times slower, which is a failure for a
+  program on a beat. The target is `-X heapsize=2M`.
 
 `tests/test_onclock_mpy.py` runs the program end to end under the `micropython` binary
 (against the fake clock and a fake Open-Meteo over verified TLS, on time sped up 20 times)

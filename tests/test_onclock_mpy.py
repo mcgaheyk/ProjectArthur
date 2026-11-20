@@ -300,9 +300,10 @@ async def test_the_program_end_to_end_under_micropython(e2e):
     assert len(beats) >= 5
     for a, b in beats:
         assert a["sha"] == b["sha"]
-        # Times are each beat's start; the pusher counts from the end of the last push, so
-        # a beat's work (sped up 20 times here) can put the stamps a little under.
-        assert HEARTBEAT_S - 0.25 <= (b["us"] - a["us"]) / 1e6 <= HEARTBEAT_S + 1
+        # Counted from the end of the last push to the start of this one (a beat's own
+        # start can be well before its push on a slow binary): due at heartbeat_s, and pushed
+        # on the first beat after that.
+        assert HEARTBEAT_S <= b["tried"] - a["done"] <= HEARTBEAT_S + 2
 
     # The idle show: the weather page and a scene were played, the scene's plan built ahead.
     assert end["stats"].get("plan built ahead", {}).get("beats", 0) >= 1

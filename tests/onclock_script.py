@@ -91,7 +91,8 @@ async def main(job):
         def trace(now, frame, state, reason):
             w = state.weather
             out(ev="push", us=us_of(now), sha=hexdigest(frame.to_rgb888()), kind=state.kind,
-                reason=reason, wx=None if w is None else us_of(w.fetched_at))
+                reason=reason, wx=None if w is None else us_of(w.fetched_at),
+                tried=app.pusher.last_attempt_t, done=app.pusher.last_push_t)
 
         app.trace = trace
 
