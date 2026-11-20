@@ -564,7 +564,9 @@ def scene_modules() -> list[str]:
     # From sys.modules: while arthur.render is still importing, MicroPython has not yet set
     # it as an attribute of arthur, so ``import arthur.render.scenes as pkg`` fails there.
     path = sys.modules["arthur.render.scenes"].__file__
-    folder = path[: path.rfind("/")] if "/" in path else "."
+    # Either separator: on Windows the path uses "\", and MicroPython has no os.path.
+    cut = max(path.rfind("/"), path.rfind("\\"))
+    folder = path[:cut] if cut >= 0 else "."
     names = set()
     for f in os.listdir(folder):
         for suffix in (".py", ".mpy"):
