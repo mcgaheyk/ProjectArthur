@@ -343,6 +343,31 @@ D-0029 and `docs/research/2026-11-20-no-pi-two-tests.md`.
 - **Speed.** **[clock]** Under MicroPython 1.29 the clock is 25 to 30 times slower than Kyle's
   Mac.
 
+### The on-clock transport (`arthur/onclock/awtrix.py`)
+Written 2026-11-20 for the program the clock runs itself (D-0029). **Tested only against the
+fake clock (`arthur/sim`) and a bare HTTP server, under CPython and MicroPython; nothing here
+has run against the real NG yet.** The requests are the Mac transport's, built by
+`arthur/awtrix_api.py`: the pushed body is byte for byte what `AwtrixNgTransport` sends
+(`tests/test_onclock_transport.py` checks it), with `Content-Type: application/json`.
+- **One kept HTTP/1.1 connection** to `http://127.0.0.1`. Our requests carry no
+  `Connection` header (keep-alive is HTTP/1.1's default). It is closed and opened again when
+  an answer says `Connection: close`, when an answer has neither `Content-Length` nor chunked
+  framing, and after any failure. Plain HTTP is refused for any host but this device.
+- **Every new connection after the first re-runs both checks** (`enlargeApps`, the
+  rotation). This is how a restarted NG is noticed: our app is gone from RAM and our
+  connection with it. The cost on a quiet screen: NG drops a connection idle for 5 s (above),
+  so a push after a still spell is three requests, not one. At 8 pushes a second it is two
+  extra requests per hundred pushes.
+- **A request on a kept connection NG had already closed** (it fails before any byte of an
+  answer) is not a failed push: the whole show (checks, then the push) runs once more on a
+  new connection. A second failure is a failed push.
+- **App names are percent-encoded** in the path, as aiohttp does on the Mac. Ours (`litter`)
+  needs none.
+- **Assumed, not seen on the real NG:** that a restarted NG drops the connection rather than
+  answering on it; that keep-alive from `127.0.0.1` behaves as it did from the Mac (one close
+  in about a hundred: the spike's 12 in 1,323 agrees); that NG answers every request with a
+  `Content-Length` (the reader handles chunked and close-delimited bodies too).
+
 ### MQTT (read at `v1.2.3`, never used)
 Looked up for the cloud relay that D-0029 did not choose; from `docs/guides/mqtt.md`,
 `docs/reference/mqtt.md`, `docs/reference/system.md` and `src/platform/linux/LinuxMqttTls.cpp`.

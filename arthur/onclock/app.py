@@ -70,12 +70,18 @@ SOURCE_RESTART_S = 30.0
 SERVICE_STOP_S = 10.0
 #: While AWTRIX does not answer at start: wait 1 s, doubling to this, between tries.
 AWTRIX_WAIT_MAX_S = 10.0
-#: Build a scene's plan on the first beat this long before its slot begins. The home page
-#: changes only on whole seconds and slots begin on whole seconds, so the beats a late build
-#: covers draw the same frame.
-PLAN_LEAD_S = 0.5
-#: Collect once this much has been allocated since the last collection (MicroPython only).
-GC_EVERY_BYTES = 256 * 1024
+#: Build a scene's plan on the first beat this long before its slot begins: the beat after
+#: the last whole second of the home page. The home page changes only on whole seconds and
+#: slots begin on whole seconds, so the beats a long build covers would draw the same frame,
+#: and the build has 7/8 s before the slot's first frame is due. (On the Mac under
+#: MicroPython the build and the collection before it took up to 18 ms; at 25 to 30 times
+#: slower, up to about half a second on the clock.)
+PLAN_LEAD_S = 0.875
+#: Collect once this much has been allocated since the last collection, or a third of what
+#: was free after it if that is less (MicroPython only). A pause costs the same however
+#: much garbage there is (0.5 ms on the Mac at 2 MiB: the live data is what is marked), so
+#: fewer, larger steps cost less; a third of the free heap leaves room for a scene's plan.
+GC_EVERY_BYTES = 512 * 1024
 #: The config file under ``root``.
 CONFIG_NAME = "config.json"
 
@@ -322,7 +328,7 @@ class ClockApp:
             self.console("warning", "could not load the CA certificates: " + _error_text(exc))
         gc.collect()
         if IS_MPY:
-            self._gc_at = gc.mem_alloc() + GC_EVERY_BYTES
+            self._gc_at = gc.mem_alloc() + min(GC_EVERY_BYTES, gc.mem_free() // 3)
         self.console("info", "loaded in " + str(since_us(t0) // 1000) + " ms"
                      + ("" if not IS_MPY else ", heap in use " + str(gc.mem_alloc())))
 
@@ -540,8 +546,10 @@ class ClockApp:
                     self.trace(now, frame, state, result.reason)
         self.stats.add(self._part(state, now), drawn_us)
         p0 = stamp_us()
-        if self._plan_ahead(state, now, cfg):
+        planned = self._plan_ahead(state, now, cfg)
+        if planned is not None:
             self.stats.add("plan built ahead", since_us(p0))
+            self.stats.add("plan " + planned, since_us(p0))
 
     def _quiet(self):
         """For the weather: False while a scene slot is on or about to begin."""
@@ -556,39 +564,46 @@ class ClockApp:
 
     def _plan_ahead(self, state, now, cfg):
         """Build the coming scene's plan if its slot begins within :data:`PLAN_LEAD_S`, and
-        let the last scene's plan go once its slot is over. True if a plan was built."""
+        let the last scene's plan go once its slot is over. The scene's name if a plan was
+        built, else None."""
         in_scene = (state.kind == "ready" and state.cue is not None
                     and state.cue.kind == "scene")
         if self._scene_on and not in_scene:
             show.forget_plan()  # free its memory until the next scene
         self._scene_on = in_scene
         if state.kind != "ready" or in_scene:
-            return False
+            return None
         nxt = idle_cue(state.since, now + _seconds(PLAN_LEAD_S), cfg)
         if nxt is None or nxt.kind != "scene" or not nxt.at > now:
-            return False
+            return None
         key = (nxt.at, nxt.n, cfg)
         if self._prepared is not None and self._prepared[0] == key[0] \
                 and self._prepared[1] == key[1] and self._prepared[2] is cfg:
-            return False
+            return None
         self._prepared = key
         try:
-            return show.prepare_scene(nxt, cfg)
+            # A plan allocates several hundred KB: collect first, so the build finds room in
+            # one piece and no collection lands in the middle of it, or in the scene.
+            self._collect(force=True)
+            if show.prepare_scene(nxt, cfg):
+                return show.scene_name(nxt)
+            return None
         except Exception as exc:  # noqa: BLE001 - the scene's own frame will fall back
             msg = _error_text(exc)
             if msg != self._prepare_error:
                 self._prepare_error = msg
                 self.console("error", "could not plan the coming scene ahead", exc)
-            return False
+            return None
 
-    def _collect(self):
-        """Collect when :data:`GC_EVERY_BYTES` have been allocated since the last time."""
-        if not IS_MPY or gc.mem_alloc() < self._gc_at:
+    def _collect(self, force=False):
+        """Collect when :data:`GC_EVERY_BYTES` have been allocated since the last time (or
+        now, with ``force``). MicroPython only: CPython's collector is left alone."""
+        if not IS_MPY or (not force and gc.mem_alloc() < self._gc_at):
             return
         t0 = stamp_us()
         gc.collect()
         self.gc_pauses.add("collect", since_us(t0))
-        self._gc_at = gc.mem_alloc() + GC_EVERY_BYTES
+        self._gc_at = gc.mem_alloc() + min(GC_EVERY_BYTES, gc.mem_free() // 3)
 
     # -- the service ---------------------------------------------------------------------
 

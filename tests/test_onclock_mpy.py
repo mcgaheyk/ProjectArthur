@@ -50,7 +50,9 @@ from arthur.tools.export_config import export
 
 pytestmark = pytest.mark.usefixtures("loopback_only")
 
-MPY = shutil.which("micropython")
+#: ``ARTHUR_MICROPYTHON`` names another binary (the clock's ARMv7 build under emulation, run
+#: once by hand; see docs/reference/micropython.md).
+MPY = os.environ.get("ARTHUR_MICROPYTHON") or shutil.which("micropython")
 needs_mpy = pytest.mark.skipif(
     MPY is None, reason="micropython is not on PATH: the on-clock program's end-to-end test "
     "did NOT run, so nothing checks that it works under MicroPython (brew install "
@@ -60,8 +62,8 @@ HERE = Path(__file__).resolve().parent
 SCRIPT = HERE / "onclock_script.py"
 LINES = HERE / "data" / "real-cycles.jsonl"
 SAMPLE = json.loads((HERE / "data" / "open-meteo-forecast.json").read_text())
-#: Fake seconds per real second.
-SCALE = 20.0
+#: Fake seconds per real second (``ARTHUR_ONCLOCK_SCALE`` lowers it for a slow binary).
+SCALE = float(os.environ.get("ARTHUR_ONCLOCK_SCALE", "20"))
 #: A round boundary in the daytime in Boston: the idle show plays scenes.
 R0 = datetime(2026, 11, 18, 15, 0, 0, tzinfo=UTC)
 #: The program starts 100 s into the round; offsets below are from there.

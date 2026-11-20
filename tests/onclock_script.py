@@ -22,7 +22,7 @@ import sys
 
 IS_MPY = sys.implementation.name == "micropython"
 _here = __file__[: __file__.rfind("/")] if "/" in __file__ else "."
-_root = _here[: _here.rfind("/")] if "/" in _here else ".."
+_root = (_here[: _here.rfind("/")] or "/") if "/" in _here else (".." if _here == "." else ".")
 if IS_MPY:
     sys.path.insert(0, _root + "/mpy/lib")
 sys.path.insert(0, _here)

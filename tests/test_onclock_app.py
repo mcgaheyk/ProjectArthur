@@ -733,7 +733,7 @@ async def test_the_scene_plan_is_built_on_a_home_beat_before_its_slot(client, cl
     show.forget_plan()
     await run_for(app, clock, 44)  # through the whole scene and back home
     n = int((START - datetime(1970, 1, 1, tzinfo=UTC)).total_seconds()) // 180
-    assert [(t, k) for t, _, k in built] == [(1000.0 + 143.5, n)]
+    assert [(t, k) for t, _, k in built] == [(1000.0 + 144 - appmod.PLAN_LEAD_S, n)]
     assert app.stats.parts["plan built ahead"][0] == 1
     cfg = app.cfg
     scenes = [p for p in pushed if p[2].cue is not None and p[2].cue.kind == "scene"]
@@ -759,3 +759,46 @@ async def test_no_plan_is_built_ahead_at_night_or_off_idle(client, clock, tmp_pa
     app2 = make_app(client, clock, FakeSource(ROBOT_OFF), idle_cfg_root(tmp_path))
     await run_for(app2, clock, 6)
     assert built == []
+
+
+# ---- main(root, source_factory) ------------------------------------------------------------
+
+
+async def test_main_builds_the_app_and_returns_its_exit_code(client, root, monkeypatch):
+    from arthur.onclock import main as mainmod
+
+    made = {}
+
+    class Recording(ClockApp):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.echo = False
+            self.weather = FakeWeather()
+            made["app"] = self
+
+    class StoppingSource(FakeSource):
+        async def run(self, stop):
+            await asyncio.sleep(0.3)
+            made["app"].request_restart()
+            await stop.wait()
+
+    def factory(*, cfg, log, tls):
+        made.update(cfg=cfg, log=log, tls=tls)
+        return StoppingSource(READY)
+
+    monkeypatch.setattr(mainmod, "ClockApp", Recording)
+    rc = await asyncio.wait_for(mainmod.main(root, factory, ca_file="/no/such/ca.pem",
+                                             base_url=base(client)), 10)
+    assert rc == 42
+    app = made["app"]
+    assert made["log"] is app.log and made["tls"] is app.tls  # one CA bundle for both
+    assert made["cfg"] == app.cfg
+    assert "litter" in the_clock(client).apps
+
+
+async def test_main_without_a_config_fails_with_1(tmp_path, capsys):
+    from arthur.onclock.main import main
+
+    rc = await main(str(tmp_path), lambda **kw: FakeSource(READY), ca_file=None)
+    assert rc == 1
+    assert "failed" in capsys.readouterr().err
