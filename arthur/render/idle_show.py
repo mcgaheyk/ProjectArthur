@@ -209,7 +209,12 @@ def stage_frame(stage: Frame) -> Frame:
     if stage.size != (STAGE_W, STAGE_H):
         raise ValueError(f"a stage is {STAGE_W}x{STAGE_H}, not {stage.width}x{stage.height}")
     f = Frame(W, H)
-    f.blit(stage, STAGE_X, STAGE_Y)
+    # Row by row with slices: the same pixels as f.blit(stage, STAGE_X, STAGE_Y), which never
+    # clips here, without a method call per pixel (a sixth of a scene frame on the clock).
+    src, dst = stage.pixels, f.pixels
+    for y in range(STAGE_H):
+        d = (y + STAGE_Y) * W + STAGE_X
+        dst[d : d + STAGE_W] = src[y * STAGE_W : (y + 1) * STAGE_W]
     return f
 
 
@@ -369,17 +374,29 @@ def _bag(b: int, items: Sequence[str]) -> list[str]:
     return order + [last]
 
 
+#: The last :func:`pick_scene` answer, ``((n, weights), name)``: every frame of a scene slot
+#: asks for the same round, and each answer seeds three generators.
+_picked: tuple | None = None
+
+
 def pick_scene(n: int, weights: Mapping[str, int] | None = None) -> str:
     """The scene for round ``n``: position ``n % B`` of bag ``n // B`` (``B`` = total
     weight), each bag a seeded shuffle with no scene twice in a row, also across bags
     (unless the weights make that impossible). ``weights`` defaults to the registry."""
+    global _picked
     if weights is None:
         weights = {name: e.weight for name, e in SCENES.items()}
     if not weights:
         raise LookupError("no scenes are registered")
+    key = (n, tuple(sorted(weights.items())))
+    p = _picked
+    if p is not None and p[0] == key:
+        return p[1]
     items = _bag_items(weights)
     b, pos = divmod(n, len(items))
-    return _bag(b, items)[pos]
+    name = _bag(b, items)[pos]
+    _picked = (key, name)
+    return name
 
 
 # =========================================================================================
@@ -394,6 +411,40 @@ def _home(state: DisplayState, now: datetime, cfg: Config, pose: str | None = No
 def scene_beats(name: str, cfg: Config, n: int, frames: int) -> Sequence[Beat]:
     """The beats scene ``name`` plays in round ``n`` to fill ``frames`` body frames."""
     return SCENES[name].fn(SceneContext(name, cfg, n, frames))
+
+
+#: The last scene plan built, kept for every body frame of one play: ``(entry, name, n,
+#: frames, cfg, beats)``. A plan is a function of exactly what :class:`SceneContext` carries
+#: (the scene's name, the config, the round ``n`` and the body length ``frames``) and of the
+#: scene's function (its registry ``entry``): the scenes plan from those alone, and their
+#: beats draw from the plan with nothing that changes from frame to frame. The config and
+#: the entry are compared by identity, so a reloaded config or a re-registered scene builds a
+#: new plan; the round carries the scene's variations (its ending, the seeded quiet part).
+#: One plan only, so memory stays bounded. Building it is most of a scene frame's cost (82 %
+#: of a bird frame on the clock, 93 ms to 11 ms a frame), so it is built on the play's
+#: first body frame and kept.
+_plan: tuple | None = None
+
+
+def planned_beats(name: str, cfg: Config, n: int, frames: int) -> Sequence[Beat]:
+    """:func:`scene_beats`, built once per scene play and then reused."""
+    global _plan
+    entry = SCENES[name]
+    p = _plan
+    if (p is not None and p[0] is entry and p[1] == name and p[2] == n and p[3] == frames
+            and p[4] is cfg):
+        return p[5]
+    _plan = None  # let the old plan go before the new one is built
+    beats = scene_beats(name, cfg, n, frames)
+    _plan = (entry, name, n, frames, cfg, beats)
+    return beats
+
+
+def forget_plan() -> None:
+    """Drop the kept scene plan and scene pick (the next frame builds them again)."""
+    global _plan, _picked
+    _plan = None
+    _picked = None
 
 
 def beats_length(beats: Sequence[Beat]) -> int:
@@ -482,7 +533,7 @@ def _play_scene(state: DisplayState, cue: Cue, k: int, cfg: Config) -> Frame:
         return wipe(stage_frame(seated_stage(cfg, REST_POSE)), _home(state, ft, cfg, REST_POSE),
                     i, WIPE_FRAMES, x0=WIPE_X0, x1=WIPE_X1, from_left=False)
     body_n = n - SCENE_FRAMES_AROUND
-    beats = scene_beats(name, cfg, cue.n, body_n)
+    beats = planned_beats(name, cfg, cue.n, body_n)
     j = k - GLANCE_FRAMES - WIPE_FRAMES
     return stage_frame(checked(lambda: body_stage(beats, j)))
 
