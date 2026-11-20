@@ -371,11 +371,20 @@ async def _phases(run: Run, inst: Install, fakes: Fakes, base: Path) -> None:
     run.mark("clock_restart")
     off = len(inst.console())
     await fakes.stop_clock()
-    await asyncio.sleep(3)
+    # Down until the program has tried to push and failed (a frame changes, or the 30 s
+    # heartbeat falls due): only then can it say it is reachable again.
+    await inst.wait_console("clock unreachable", 45, after=off)
     await fakes.start_clock()
     await inst.wait_console("clock reachable again", 30, after=off)
     run.mark("clock_back")
     await asyncio.sleep(3)
+
+    if DAY_ONLY:
+        # The memory runs: a whole idle round too, so the weather page and a scene (whose
+        # plan is the program's largest piece of memory) are in the "day".
+        run.mark("idle_round")
+        await asyncio.sleep(200 * (2 if EMULATED else 1))
+        run.mark("idle_round_end")
 
     # -- 12. logs pull, and the last status ------------------------------------------------
     run.data["final_status"] = await _status(run, inst)
@@ -656,7 +665,7 @@ def test_the_fake_clock_restarted(e2e):
     assert len(clocks) == 2
     c = clocks[-1]
     assert "litter" in c["apps"] and not c["enlarge"] and c["rotation"] == ["litter"]
-    assert run.marks["clock_back"] - run.marks["clock_restart"] < 20 * SLOW
+    assert run.marks["clock_back"] - run.marks["clock_restart"] < 60 * SLOW
 
 
 def test_every_frame_has_the_lifetime_and_the_mark(e2e):

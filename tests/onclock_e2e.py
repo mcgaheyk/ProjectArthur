@@ -383,7 +383,8 @@ class EmuInstall(Install):
         env = dict(os.environ, WHISKER_USERNAME=USERNAME, WHISKER_PASSWORD=PASSWORD)
         p = await asyncio.create_subprocess_exec(
             sys.executable, str(REPO / "scripts" / "clock.py"), "--emulate", "--key-file",
-            str(self.key_file), "install", "--config", str(self.config_toml), env=env,
+            str(self.key_file), "install", "--config", str(self.config_toml), "--heap",
+            self.heap, env=env,
             cwd=REPO, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
         out, _ = await p.communicate()
         self.install_out = out.decode(errors="replace")

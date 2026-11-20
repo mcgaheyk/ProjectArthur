@@ -93,7 +93,8 @@ _tls = {}
 
 def tls_for(ca_file):
     """One :class:`arthur.wire.net.Tls` per CA file, shared by every user in the program:
-    loading the clock's bundle takes 0.4 s and 435 KB of heap there."""
+    loading the clock's bundle takes 0.4 s there (mbedTLS keeps it outside the MicroPython
+    heap: a 333 KB bundle took 1.8 KB of the 32-bit build's heap)."""
     t = _tls.get(ca_file)
     if t is None:
         t = Tls(ca_file=ca_file)

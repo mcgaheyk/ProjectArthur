@@ -3,9 +3,11 @@
 How the on-clock program (D-0029) is installed, started, updated and removed. Written
 2026-11-20 with the code: `deploy/clock/` (the build, `boot.py`, `autostart.sh`,
 `clockctl.py`), `arthur/onclock/door.py`, `arthur/tools/onclock_files.py`,
-`arthur/tools/doorclient.py`, `arthur/clocktool.py` (`scripts/clock.py`). **None of it has
-run on the real clock yet**: it was proven against temporary folders, local sockets, the
-Mac's MicroPython and an emulated ARMv7 "clock" in Docker. The clock's own facts are in
+`arthur/tools/doorclient.py`, `arthur/clocktool.py` (`scripts/clock.py`); joined into one
+program the same day (`arthur/onclock/main.py`, `source.py`; "How the pieces join").
+**None of it has run on the real clock yet**: it was proven against temporary folders, local
+sockets, the Mac's MicroPython and an emulated ARMv7 "clock" in Docker, the whole program end
+to end against fakes (`tests/test_onclock_e2e.py`). The clock's own facts are in
 `awtrix-ng.md`, "Running our own program on the TC002"; what this note assumes about the
 clock beyond them is at the end.
 
@@ -177,9 +179,9 @@ arthur/onclock/source.py: def make_source(*, cfg, log, tls, root, **kw) -> Clock
 work took over 125 ms), `woke_late` and `worst_late` (beats that woke over 20 ms after their
 tick, and the eight worst as `[epoch s, ms]`: what blocked the loop).
 
-The program opens the door with `door = await arthur.onclock.door.start(app, root)` (port
-7531 on every interface; raises `DoorError` without a valid key in `secrets.json`, and the
-program should carry on without it) and closes it with `door.close()`. The tests' stub is
+`main` opens the door with `door = await arthur.onclock.door.start(app, root)` (port 7531
+on every interface; it raises `DoorError` without a valid key in `secrets.json`, and `main`
+carries on without it, saying so) and closes it with `door.close()` when `run()` returns. The tests' stub is
 `tests/clockstub.py`. What the door assumes of the rest:
 
 - `log.read(after_seq, max_bytes)` returns the lines numbered above `after_seq` (at least
@@ -340,6 +342,18 @@ from the command to the program answering from the new slot (stub program, emula
 On the real clock the restart will take longer: the real program imports the shared code and
 loads the fonts, about 1.5 s under emulation and an estimated 1 to 2 s on the clock.
 
+**With the real program** (`tests/test_onclock_e2e.py`, 2026-11-20; the Mac's MicroPython,
+then the emulated ARMv7 clock installed by `install --emulate`): `push` of a config change
+0.48 to 0.53 s in all, 0.36 to 0.43 s to the reload, no restart (the door's `run` id is the
+same) and the new colours on the next frame; `push` of a code change 4.2 s on the Mac and
+6.3 s emulated from the command to the program answering from the new slot (most of it the
+Mac building and compiling the slot), and from the old program's last beat to the new one's
+first frame 0.28 s on the Mac and 1.16 s emulated (the clock keeps showing the last frame
+meanwhile); a bundle broken at import fell back after 3.9 s (Mac) and 5.6 s (emulated), one
+that dies 3 s after starting after 13.2 s and 14.7 s, the display back by itself 0.2 to 0.8 s
+later. On the clock `crash_pause` is 5 s, not the test's 1 s: about 15 s more for three
+failed starts. `logs pull` 0.13 to 0.22 s.
+
 ## The build
 
 `deploy/clock/micropython/`: `Dockerfile` (from the spike; static, musl, Cortex-A7, hard
@@ -372,6 +386,94 @@ slower than the Mac in the spike, which puts the imports near 1.5 to 2 s from so
 (a comment-only change gives the same bundle id, so `push` sends nothing). `--source` ships
 source instead.
 
+## The whole program, measured (2026-11-20)
+
+`tests/test_onclock_e2e.py` with `ARTHUR_E2E_DAY=1` runs one program, never restarted,
+through a compressed "day": the first password login, two real visits, a token refused and
+renewed, a renewal refused and a password login again, the live connection silent, an
+outage with a visit found in the history, a config push, a pause with the Mac on the screen
+and a resume, AWTRIX restarted, a whole idle round (the weather page and a scene with its
+plan built ahead: the bird on the Mac, the rat and the stretch emulated) and a log pull: about 6.5 minutes of real time, 3,000 to 4,000 beats.
+`ARTHUR_E2E_HEAP` sets the launcher's heap; `ARTHUR_E2E_EMULATED=1` runs it on the static
+ARMv7 build in the emulated container.
+
+**Memory**, the heap in use just after the program's scheduled collections
+(`heap_after_gc` in `status`):
+
+| | after start-up | largest over the day | smallest heap tried that ran the day |
+|---|---|---|---|
+| Mac, MicroPython 1.29, 64-bit | 878 KB | 1,107 KB | 1.5 MB; at 1.25 MB drawing "just cleaned" failed for want of 6.6 KB in one piece |
+| ARMv7 build (the clock's), 32-bit, emulated | 583 KB | 784 KB | 1.5 MB; at 1 MB the program kept drawing but a config push failed inside the door (MemoryError, answered as an internal error) |
+
+The 32-bit build needs about two thirds of the 64-bit heap, as the drawing alone did. The
+largest pieces at start: the fonts and art (loaded first), the door's request buffer
+(34 KB), the log ring (up to 128 KB of text); the CA bundle is not in the heap (below).
+
+**The launcher's heap stays 3M** (`HEAP=` in `autostart.sh`, `install --heap`). The margin:
+twice the smallest heap that ran the day on the clock's build (1.5 MB), almost four times the
+largest collected heap (784 KB), against what a six-minute day cannot show: fragmentation
+over weeks (MicroPython cannot compact its heap), real Whisker answers, and screens not yet
+written. It costs nothing measurable: the emulated collections took 7.5 ms at 3 MB and 8.1 ms
+at 1.5 MB. The process needs more than its heap: mbedTLS keeps the CA bundle outside it
+(loading a 333 KB bundle took 1.8 KB of the 32-bit heap), and presumably each connection's
+buffers too (not measured), so about 4 MiB of the clock's 13 MiB available, leaving AWTRIX the 4 MiB it wants
+twice over. (The spike's "435 KB of heap" for the bundle was not the MicroPython heap.)
+
+**Time**, MicroPython on this Mac, the one-program day at 1.5 MB (milliseconds of work per
+beat, from the start of the beat to the frame drawn; the push is apart):
+
+| | beats | mean | worst |
+|---|---|---|---|
+| home | 1,641 | 3.2 | 26.6 |
+| weather page | 331 | 4.2 | 7.7 |
+| bird scene | 270 | 2.9 | 5.2 |
+| scene wipe | 18 | 4.1 | 7.1 |
+| in use, waiting, cleaning, just cleaned | 813 | 2.8 to 3.3 | 6.1 |
+| the scene's plan, built ahead on a home beat | 1 | 13.2 | |
+| a push (HTTP to the fake clock, mostly waiting) | 447 | 17.9 | 98.1 |
+| a scheduled collection | 813 | 2.3 | 4.6 |
+
+No beat's work took over 125 ms; one beat woke more than 20 ms after its tick (31 ms). Under
+emulation the worst late wakes came right after the outage ended (155 and 97 ms: the TLS
+handshakes and the history read of the reconnect) and at the no-weight fallback's history
+read (61 ms).
+
+**How long each long job holds the loop** (`tests/test_onclock_blocking.py`: a ticker task
+records the longest gap while each job runs; MicroPython on this Mac):
+
+| Job | longest hold | in all | the clock, est. x25 to x30 |
+|---|---|---|---|
+| password login (SRP, 4-bit slices) | 3.9 ms | 576 ms | slices of 100 to 120 ms, 14 to 17 s in all |
+| renew the token (TLS + JSON) | 4.6 ms | 21 ms | 115 to 140 ms |
+| open the live connection (TLS + upgrade) | 4.6 ms | 20 ms | 115 to 140 ms |
+| one weather fetch (TLS) | 5.3 ms | 23 ms | 130 to 160 ms |
+| read 100 history entries (4 pages) | 5.1 ms | 113 ms | 130 to 155 ms |
+| load the robot | 2.8 ms | 18 ms | 70 to 85 ms |
+| reload the config | 2.7 ms | 2.5 ms | 70 to 80 ms |
+| door: a 24 KB log page | 3.9 ms | 5.9 ms | 100 to 120 ms |
+| door: write and hash a 24 KB chunk | 0.8 ms | 1.5 ms | 20 to 25 ms |
+| door: the tag of a full request | 0.8 ms | 0.3 ms | 20 to 25 ms |
+
+**What that means on the clock (an estimate: the Mac's figures times 25 to 30).** Every
+long job above costs about one beat on the clock. A drawn beat costs 70 to 125 ms by the
+same estimate (home 80 to 95, the bird scene 70 to 85, the page 105 to 125), and a
+collection 60 to 70 ms on top when one falls due, before the push (the slowest push measured
+on the clock was 64 ms, `awtrix-ng.md`). **So by this estimate one process will not hold 8
+frames a second during a scene or a page while anything else runs**: a reconnect (two or
+three TLS handshakes) drops a beat or two each time, a history read another, and a password
+login (14 to 17 s of slices) runs the display at about half rate while it lasts. On the home
+page, which changes about once a second, none of this shows. Against the estimate: the spike
+measured the real clock drawing the home screen at 15.6 ms a frame and the bird scene at
+10.8 ms with its plan kept, which is nearer 20 times the Mac's drawing alone; the rest of a
+beat (the source's view, the mapping, the clock's datetime arithmetic) has not been timed on
+the clock. **Measure it there before splitting anything** (`status` now carries the per-beat
+figures and the late wakes). If the clock confirms the estimate, in this order: let the
+Whisker work wait for a quiet moment as the weather already does (no reconnect, history
+read or login slice during a page, a scene or their transitions; they are rare and can wait
+a minute); keep the mapped state between record changes; and only then split the Whisker
+client (connection, tracker, log) into a second MicroPython process that hands the record and
+the observed facts to the display process over a local socket, each with its own heap.
+
 ## Assumed about the real clock, not checked
 
 - The daemon stops the running autostart (and so our launcher, which stops the program) on
@@ -382,8 +484,9 @@ source instead.
   the door, which would make every transfer fail).
 - `os.rename` over an existing file is atomic on JFFS2, so `state.json`, `config.json` and the
   manifest are always whole.
-- A 3 MiB heap is enough for the real program with TLS and the large font; the spike's slice
-  ran in 1 MiB. `--heap` changes it at install.
+- The heap the program needs on the clock is what the emulated ARMv7 build needed: 1.5 MB ran
+  the measured day, 1 MB did not, and the launcher gives it 3M (see "The whole program,
+  measured"). Weeks of running are not measured. `--heap` changes it at install.
 - The clock's Wi-Fi lets the Mac reach port 7531 (no client isolation on the home network).
 - How long the real program takes to start, and how often boot's manifest check (hashing
   about 290 KB at each start) costs on the clock: estimated at tens of milliseconds.

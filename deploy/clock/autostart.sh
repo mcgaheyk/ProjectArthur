@@ -11,6 +11,8 @@
 # The three settings below are filled in by `scripts/clock.py install`.
 ROOT=/data/awtrix-ng/state/arthur
 TMP=/tmp/arthur
+# 3M: twice the smallest heap that ran the measured day on the clock's build (1.5 MB; 1 MB
+# did not), see docs/reference/onclock.md, "The whole program, measured".
 HEAP=3M
 
 umask 077  # what the program writes (tokens.json, state.json, the slots) is root's alone
