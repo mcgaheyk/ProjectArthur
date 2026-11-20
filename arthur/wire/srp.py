@@ -2,9 +2,12 @@
 ``PASSWORD_VERIFIER`` challenge), as pycognito 2024.5.1 computes it (``pycognito/aws_srp.py``,
 ``AWSSRP``), in pure Python for both Pythons.
 
-The big ``pow()`` calls are the cost: about 0.8 s for a whole login on the Mac under
-MicroPython, estimated 20 s on the clock. :func:`slow_pow` does them in slices of
-``window`` bits with an ``await`` between slices, so the display keeps drawing meanwhile.
+The big ``pow()`` calls are the cost: 0.45 s of arithmetic for a whole login under
+MicroPython on the Mac, so about 11 to 14 s on the clock (25 to 30 times slower).
+:func:`slow_pow` does them in slices of ``window`` exponent bits with an ``await`` between
+slices, so the display keeps drawing meanwhile. Measured on the Mac under MicroPython, the
+longest slice is 2 ms with a window of 4 bits (6 ms with 16), about 60 ms on the clock, inside
+the 125 ms beat; slicing adds about 3% to the total.
 """
 
 import asyncio
@@ -33,6 +36,8 @@ N_HEX = (
     "43DB5BFCE0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF"
 )
 G_HEX = "2"
+#: Exponent bits per slice of :func:`slow_pow` (see above).
+WINDOW = 4
 N = int(N_HEX, 16)
 G = 2
 INFO_BITS = b"Caldera Derived Key"
@@ -86,7 +91,7 @@ def cognito_timestamp(epoch):
     return f"{WEEKDAYS[weekday]} {MONTHS[mo - 1]} {d} {hh:02d}:{mm:02d}:{ss:02d} UTC {y}"
 
 
-async def slow_pow(base, exponent, modulus, window=16):
+async def slow_pow(base, exponent, modulus, window=WINDOW):
     """``pow(base, exponent, modulus)``, a ``window`` of exponent bits at a time, yielding
     between windows. Each window is two C-level ``pow`` calls; nothing blocks for long."""
     if window <= 0 or exponent < (1 << window):
@@ -122,14 +127,14 @@ class SrpClient:
         self.small_a = small_a
         self.big_a = None
 
-    async def start(self, window=16):
+    async def start(self, window=WINDOW):
         """Compute A = g^a mod N. Returns SRP_A as pycognito sends it (no padding)."""
         self.big_a = await slow_pow(G, self.small_a, N, window)
         if self.big_a % N == 0:
             raise ValueError("Safety check for A failed")
         return long_to_hex(self.big_a)
 
-    async def key(self, user_id, password, big_b, salt_hex, window=16):
+    async def key(self, user_id, password, big_b, salt_hex, window=WINDOW):
         """``get_password_authentication_key``: the 16-byte HKDF key."""
         if big_b % N == 0:
             raise ValueError("server B is zero mod N")
@@ -143,7 +148,7 @@ class SrpClient:
         s = await slow_pow(base, self.small_a + u * x, N, window)
         return hkdf(binascii.unhexlify(pad_hex(s)), binascii.unhexlify(pad_hex(long_to_hex(u))))
 
-    async def respond(self, params, username, password, epoch, window=16):
+    async def respond(self, params, username, password, epoch, window=WINDOW):
         """``process_challenge``: the PASSWORD_VERIFIER answer for the challenge parameters."""
         user_id = params["USER_ID_FOR_SRP"]
         timestamp = cognito_timestamp(epoch)

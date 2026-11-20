@@ -10,7 +10,7 @@ import asyncio
 import json
 import os
 
-from arthur.wire import cognito, errors, http, lr4, record, util, ws
+from arthur.wire import cognito, errors, http, lr4, record, srp, util, ws
 from arthur.wire.const import (
     COGNITO_URL,
     LR4_URL,
@@ -51,7 +51,7 @@ class WhiskerClient:
 
     def __init__(self, tls, tokens=None, credentials=None, serial=None, lr4_url=LR4_URL,
                  cognito_url=COGNITO_URL, on_tokens=None, now_fn=util.now,
-                 timeout=REQUEST_TIMEOUT_S, srp_window=16, stale_s=WS_STALE_S,
+                 timeout=REQUEST_TIMEOUT_S, srp_window=srp.WINDOW, stale_s=WS_STALE_S,
                  ws_backoff=(WS_BACKOFF_START, WS_BACKOFF_MAX), sleep_fn=None):
         self.tls = tls
         self.tokens = dict(tokens) if tokens else None

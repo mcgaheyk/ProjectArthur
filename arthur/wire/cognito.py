@@ -76,7 +76,7 @@ async def refresh(refresh_token, tls, url=COGNITO_URL, timeout=REQUEST_TIMEOUT_S
 
 
 async def login(username, password, tls, url=COGNITO_URL, timeout=REQUEST_TIMEOUT_S,
-                now_fn=util.now, window=16, pool_id=USER_POOL_ID):
+                now_fn=util.now, window=srp.WINDOW, pool_id=USER_POOL_ID):
     """``AWSSRP.authenticate_user``: USER_SRP_AUTH, then PASSWORD_VERIFIER. Any further
     challenge (a new password, MFA, a device) is an ``auth`` error: a person has to act."""
     client = srp.SrpClient(pool_id)

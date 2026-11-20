@@ -7,7 +7,8 @@ pointed at the real service.
 Options: ``--plain`` (allow http/ws), ``--ca FILE``, ``--server-name NAME``,
 ``--login USER:PASS`` (no tokens: SRP login), ``--since EPOCH`` (history start),
 ``--hold SECONDS`` (keep the subscription this long after the updates), ``--measure``
-(per-phase heap figures on MicroPython).
+(per-phase allocation with the collector paused, MicroPython), ``--threshold BYTES``
+(collect after every BYTES allocated, so sampled peaks are close to real use).
 
 Phases: ``token`` (renew, or log in), ``load`` (the robot), ``poll`` (one refresh), ``live``
 (subscribe, print ``subscribed``, then each update), ``history``. Lines: ``{"ev": ...}``.
@@ -38,7 +39,7 @@ def out(**kw):
 def parse_args(argv):
     opts = {"url": argv[1], "tokens": argv[2], "updates": int(argv[3]), "plain": False,
             "ca": None, "server_name": None, "login": None, "since": None, "hold": 0.0,
-            "measure": False}
+            "measure": False, "threshold": None}
     i = 4
     while i < len(argv):
         a = argv[i]
@@ -58,6 +59,8 @@ def parse_args(argv):
             opts["since"] = float(value)
         elif a == "--hold":
             opts["hold"] = float(value)
+        elif a == "--threshold":
+            opts["threshold"] = int(value)
         else:
             raise ValueError("unknown option " + a)
     return opts
@@ -111,6 +114,8 @@ def read_tokens(path):
 
 
 async def main(o, tokens):
+    if o["threshold"] and MPY:
+        gc.threshold(o["threshold"])  # collect after this many bytes: peaks become real use
     tls = Tls(ca_file=o["ca"], allow_plain=o["plain"], server_name=o["server_name"])
     client = WhiskerClient(tls, tokens=tokens, credentials=o["login"],
                            lr4_url=o["url"] + "/graphql", cognito_url=o["url"] + "/",
