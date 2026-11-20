@@ -241,10 +241,9 @@ def test_seeds_are_the_same_from_our_activities():
 
 
 def test_record_activity_writes_the_same_lines(tmp_path):
-    """The feeder's activity log (``SpikeLogger.record_activity``) writes the same action
-    text and timestamp from our activities as from pylitterbot's. Its ``code`` key is written
-    only for an ``Enum`` action, so it is missing from ours (``Action.value`` carries it for
-    the on-clock logger to write)."""
+    """The feeder's activity log (``SpikeLogger.record_activity``) writes the same lines
+    from our activities as from pylitterbot's, ``code`` included (pylitterbot's
+    ``LitterBoxStatus.value``, our ``Action.value``)."""
     from pylitterbot.activity import Activity
 
     def lines(acts, sub):
@@ -262,8 +261,8 @@ def test_record_activity_writes_the_same_lines(tmp_path):
     a, b = lines(theirs, "p"), lines(mine, "w")
     assert [x["action"] for x in a] == [x["action"] for x in b]
     assert [x["timestamp"] for x in a] == [x["timestamp"] for x in b]
-    assert not any("code" in x for x in b)
     assert [x.get("code") for x in a] == [m.action.value for m in mine]
+    assert a == b
 
 
 def test_api_timestamp_rounds_up_like_pylitterbot():
