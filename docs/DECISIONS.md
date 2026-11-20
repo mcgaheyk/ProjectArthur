@@ -679,3 +679,26 @@ with everything else. The clock is 25 to 30 times slower than the Mac.
 
 **Not known.** Whether a Whisker connection in MicroPython holds up over weeks. Memory with
 everything running at once. Whether the frame that builds a scene's plan (87 ms) shows.
+
+## D-0030 — The clock keeps the Whisker login
+
+**2026-11-20.** The on-clock program (D-0029) stores Kyle's Whisker email and password on the
+clock, under `/data/awtrix-ng/state/`, which only root over the USB cable can read (AWTRIX's
+web UI and HTTP API cannot). The installer on the Mac copies them from `.env` itself; they
+never pass through a chat or a log.
+
+**Why.** The point of D-0029 is that the Mac can stay shut. The client renews its one-hour
+tokens from a long-lived refresh token, but how long that token lasts is not known (Cognito's
+default is 30 days) and renewal does not replace it. With the login on the clock, the clock
+signs in again by itself when the token dies (an estimated 11 to 14 seconds of arithmetic
+there, done in slices).
+
+**Rejected.** Keeping only the token on the clock: the password would never leave the Mac, but
+the clock would show NO DATA until the Mac came back, at a moment nobody can predict.
+
+**Risk accepted.** Anyone holding the clock and a USB cable can read the login. Holding the
+clock's reset key for five seconds erases it with everything else on `/data`.
+
+**Not known.** Whether our own password login is accepted by the real service; it has only
+run against a fake.
+
