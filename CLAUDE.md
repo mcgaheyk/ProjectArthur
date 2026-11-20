@@ -72,6 +72,14 @@ asked to set this up for someone follows `docs/agent-setup.md`.
   list and how each was found: `docs/reference/micropython.md`. The check is
   `uv run pytest tests/test_micropython.py` (it needs `micropython` on PATH and says it
   did not run without it); a change to a shared module is not done until it passes.
+  The on-clock code, `arthur/onclock/` (the update door, `door.py`) and `arthur/wire/`,
+  follows the same rules and runs under both too (`tests/test_onclock_door.py`). The lists
+  are data in `arthur/tools/onclock_files.py`, which also decides what goes into a code slot
+  on the clock; `tests/test_portable.py` checks that they match this paragraph and that every
+  `arthur` import in a slot resolves inside the slot. `deploy/clock/boot.py` (stage 0 on the
+  clock, never replaced over Wi-Fi) imports only MicroPython's built-in modules and nothing
+  from a slot before it has counted the start; the door is the most security-sensitive code
+  here: read `docs/reference/onclock.md` before changing it.
 
 ## Commands
 - `uv run pytest` and `uv run ruff check`
@@ -90,6 +98,11 @@ asked to set this up for someone follows `docs/agent-setup.md`.
   clock; stop the feeder first or the two fight over the screen
 - `uv run python scripts/push_bench.py --clock http://ADDRESS MODE` times frame pushes to a real
   clock and shows motion test patterns (`--help` lists the modes); stop the feeder first
+- `uv run python scripts/clock.py ...` runs the program on the clock itself (D-0029):
+  `build` (its MicroPython, via Docker), `--serial SERIAL install|status|logs|remove` over USB
+  (install with `uv run --env-file .env`; `--dry-run` shows what would be written), and
+  `--clock HOST push|status|logs pull|logs follow|pause|resume|restart` over Wi-Fi through
+  the door. Only Kyle runs `install` for real. Layout and protocol: `docs/reference/onclock.md`
 - `uv run --env-file .env python scripts/spike_log.py` logs the real robot without a clock.
   Superseded by the feeder; never run both
 - `uv run --env-file .env python scripts/spike_petlibro.py` logs the real PETLIBRO devices,
