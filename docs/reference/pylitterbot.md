@@ -249,3 +249,28 @@ leaves, and a cycle takes 2 to 2.5 minutes. What Kyle's robot did:
   Library fixed within days; Home Assistant users waited three to four weeks.
 - April–June 2026: `catWeight` stopped updating over the WebSocket for about two months.
 - Whisker's terms prohibit automated tools. No reports of bans were found.
+
+## Corrections (2026-11-20, while writing `whisker-wire.md`)
+Re-read in the installed source and, where marked, seen by running pylitterbot against the
+fake Whisker in `tests/test_wire_conformance.py`. The wire-level details are in
+`docs/reference/whisker-wire.md`.
+
+- **"Reconnects on its own: backoff from 1 s doubling to 300 s"** holds only after an
+  exception. After a clean end (the 180 s stale close, or the server closing the socket)
+  `WebSocketMonitor._run` resets the delay and reconnects at once, with no wait.
+- **"Each message carries the full robot model"**: the subscription asks for the full model,
+  but nothing checks that a message has it. `Robot._update_data` merges
+  (`self._data.update(data)`), so a partial message keeps the old values of the missing keys.
+- **"`status` ... raises `KeyError` if a payload ever lacks them"**: more than `status`
+  breaks. `_update_data` reads `status` (for `_update_minimum_cycles_left`) right after the
+  merge, so the update itself raises: no update event, and `refresh()` raises. The merged
+  data is kept.
+- **A saved token "is used as-is with no server check"** only while it is valid. The first
+  renewal in a process goes through `get_user()`, which fetches the pool's JWKS
+  (`https://cognito-idp.us-east-1.amazonaws.com/us-east-1_rjhNnZVAm/.well-known/jwks.json`) to
+  verify the tokens, and renews **twice** when the access token has expired (ran: the fake
+  counted two `REFRESH_TOKEN_AUTH` calls).
+- **The bearer is the id token** (`async_get_id_token`), and pylitterbot never renews on a
+  401: it raises.
+- **No compression is offered on the WebSocket** (no `Sec-WebSocket-Extensions`; ran), but
+  HTTP requests send `Accept-Encoding: gzip, deflate`.
