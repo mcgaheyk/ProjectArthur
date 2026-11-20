@@ -1,6 +1,12 @@
 # Secrets — never commit
 .env
 .whisker-token.json
+# The clock door's key (scripts/clock.py install)
+.clock-door-key
+
+# The clock's MicroPython, built on demand (scripts/clock.py build)
+deploy/clock/micropython/dist/
+deploy/clock/micropython/dist.new/
 
 # Local data
 logs/
