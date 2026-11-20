@@ -25,6 +25,8 @@ asked to set this up for someone follows `docs/agent-setup.md`.
 - `docs/reference/open-meteo.md`: the weather API the idle show's page uses, confirmed live.
 - `docs/reference/micropython.md`: how MicroPython 1.29 differs from CPython, for the shared
   code the clock is to run (D-0029).
+- `docs/reference/onclock.md`: the program on the clock: its layout on the flash, start-up
+  and fall-back, the update door's protocol and threat list, the Mac's `scripts/clock.py`.
 - `docs/research/`: the hardware and firmware comparison behind the decisions, and the LED
   animation and idle cadence research behind the idle show (D-0019).
 - `docs/handoff.md`: the original brief. DECISIONS.md overrides it where they differ.
