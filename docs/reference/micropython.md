@@ -12,10 +12,12 @@ build is 32-bit ARM with its own libm; the spike's on-clock run is in
 
 ## Which code, and the check
 Shared, so it must run unchanged on both: `arthur/compat.py`, `model`, `config`,
-`timebase`, `schedule`, `mapping`, `zonetable`, `mtrandom`, `sources/tracker` and all of
-`render/` except `preview.py`. Everything else (`feeder`, `pusher`, `transports/`, the
-Whisker and weather sources, `logfile`, `sim/`, `fixtures`, `tools/`, scripts) is CPython
-only and may use anything; a shared module must not import one of those.
+`timebase`, `schedule`, `mapping`, `zonetable`, `mtrandom`, `awtrix_api`,
+`sources/tracker`, `sources/openmeteo`, all of `render/` except `preview.py`, and all of
+`onclock/` (the program the clock runs; `arthur/wire/` is written for both too). Everything
+else (`feeder`, `pusher`, `transports/`, the Mac's Whisker and weather sources, `logfile`,
+`sim/`, `fixtures`, `tools/`, scripts) is CPython only and may use anything; a shared module
+must not import one of those (`tests/test_portable.py` checks, from its list).
 
 `uv run pytest tests/test_micropython.py` runs `mpy/guard.py` under `micropython -X
 heapsize=2M` and under CPython over about 240 cases (every golden and scene strip, every
@@ -117,6 +119,68 @@ OUT.json`, ms a frame, 8 frames a second, one play each with the plan kept (2026
 "Worst" excludes the frame that builds the plan (the 14th, the first of the body). The clock
 was 25 to 30 times slower than this Mac under MicroPython in the spike, which would put the
 rat's plan frame near 150 to 170 ms, over the 125 ms beat; not measured on the clock.
+
+## The program on the clock (`arthur/onclock/`)
+Measured 2026-11-20 on Kyle's Mac with MicroPython 1.29.0 (64-bit), with
+`tests/onclock_bench.py`: the real `ClockApp` loop on fast-forwarded time for a simulated
+hour (the real robot's three logged cycles at 10, 30 and 50 minutes, idle with pages and
+scenes in between, AWTRIX left out but each push's request built). Times are ms of work per
+beat (asking the source, mapping, drawing), on the Mac; the clock was 25 to 30 times slower in
+the spike. "Worst" is over the hour; the Mac was shared with other work, so single outliers
+of 20 to 60 ms (seen once or twice an hour, on any kind of beat, never twice in a row) are
+left out as the machine's, not the program's.
+
+| beat | mean | worst | | beat | mean | worst |
+|---|---|---|---|---|---|---|
+| home | 0.93 | 4.0 | | in use | 0.93 | 2.1 |
+| page (with dissolves) | 1.11 | 3.3 | | waiting | 0.98 | 2.8 |
+| scene bird | 0.82 to 0.93 | 2.6 | | cleaning | 0.73 | 1.9 |
+| scene rat | 0.73 to 0.87 | 2.2 | | just cleaned | 0.80 | 1.3 |
+| scene stretch | 0.70 to 0.83 | 4.3 | | building the push | 0.10 | 0.25 |
+| scene wipes and glance | 1.3 to 1.5 | 3.2 | | collection | 0.53 | 1.7 |
+
+- **The plan built ahead** (a forced collection, then the plan): 9 to 10 ms on average, up
+  to 20 ms. By scene: rat 7 to 19 ms depending on the round (its rounds differ more than
+  `mpy/bench.py`'s one round showed), bird 5 to 7, stretch 3 to 5. At 25 to 30 times slower
+  that is up to about 0.6 s on the clock, which is why it is built 7/8 s before the slot,
+  on a beat whose frame is unchanged.
+- **Allocation per frame** under MicroPython: a home frame 28 KB, a scene body frame 35 KB,
+  after `put_text`, `draw_art` and `draw_icon` stopped making an `enumerate()` pair per
+  pixel or character (72 KB and 50 KB before; same pixels). A push allocates only its base64
+  text (4 KB); `Frame.to_rgb888()` would allocate 32 KB, which is why the transport writes
+  the frame into a kept buffer.
+- **Collections:** a pause costs about the same however much garbage there is (0.50 to 0.54 ms
+  with 128, 256 or 512 KB between collections; the live data is what is marked), so the
+  program collects every 512 KB allocated (or a third of the free heap if less): about 2,700
+  to 3,200 collections an hour, 0.75 a second. About 15 ms each on the clock, in the beat's
+  idle time after the push.
+- **Heap:** in use after the hour, after a collection, 880 KB; the most seen after any
+  scheduled collection 868 KB. That includes every module compiled from source at import and
+  both fonts; the clock should load `.mpy` files. The CA bundle does not count: MicroPython's
+  mbedTLS allocates outside the collected heap here (loading the Mac's 128-certificate bundle
+  kept 3 KB of it).
+- **The smallest heap that runs the hour** (64-bit): 1.2 MB. At 1.1 MB it does not fail but
+  thrashes (a collection on nearly every allocation while a plan is built) and the hour ran
+  more than ten times slower; that is a failure for a program on a beat. The target is
+  `-X heapsize=2M`.
+
+`tests/test_onclock_mpy.py` runs the program end to end under the `micropython` binary
+(against the fake clock and a fake Open-Meteo over verified TLS, on time sped up 20 times)
+and twelve simulated minutes of the bench in a 2 MiB heap.
+
+Also found while building it:
+- `asyncio.Task.done()`, `asyncio.wait_for` on a task, `asyncio.Event`, and awaiting a
+  finished task to get its result or its exception all work as on CPython [probe]. A task's
+  exception is not kept for `Task.exception()`: wrap the coroutine and record it.
+- `json.dumps(obj, separators=(",", ":"))` works [probe]; dict order does not hold, so text
+  that must be byte-identical (the pushed body) is written out by hand.
+- `time.time_ns()` exists; `sys.print_exception(exc, io.StringIO())` gives a traceback's
+  text.
+- **Running the ARMv7 build on the Mac:** Docker Desktop's emulation runs the static
+  `micropython-armv7` binary from inside an ordinary arm64 container (binfmt is
+  kernel-wide), so a `python:3.13-slim` container can run the test suite's CPython side and
+  call the ARMv7 binary as `ARTHUR_MICROPYTHON`. A container cannot reach the Mac's
+  127.0.0.1, even with `--network host`, so both sides must be in one container.
 
 ## Not checked
 - The clock's own float and libm results: `sin`, `atan2`, `radians` and float `%` were
