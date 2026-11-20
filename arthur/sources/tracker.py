@@ -35,10 +35,14 @@ The rules (measured on the real robot's log, 2026-11-15 to 17):
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
-from dataclasses import dataclass, replace
-from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING
+
+from arthur.compat import record, replace
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from datetime import datetime
+    from typing import Any
 
 #: Statuses that mean a visit is under way.
 VISIT_STATUSES: frozenset[str] = frozenset({"CAT_DETECTED", "CAT_SENSOR_TIMING"})
@@ -47,7 +51,7 @@ VISIT_STATUSES: frozenset[str] = frozenset({"CAT_DETECTED", "CAT_SENSOR_TIMING"}
 DEFAULT_VISIT_MIN_S: float = 30.0
 
 
-@dataclass(frozen=True)
+@record("status_since previous_status visit_started_at cat_left_at last_visit_at")
 class Observed:
     """The observed facts at one moment, ready to put on a ``RobotSnapshot``."""
 
@@ -73,7 +77,10 @@ def _later(a: datetime | None, b: datetime | None) -> datetime | None:
     return max(a, b)
 
 
-@dataclass(frozen=True)
+@record(
+    "status status_since previous_status weight visit_started_at cat_left_at weighed"
+    " last_visit_at"
+)
 class TrackerState:
     """Everything a :class:`Tracker` holds after some records. Immutable, so a source can keep
     one per record and answer "what was observed at time t" without replaying."""

@@ -20,19 +20,26 @@ instants mapping carries on ``DisplayState`` so the renderer can time Arthur's s
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
-from fractions import Fraction
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
-from arthur.config import Config
+from arthur.compat import decimal_ratio
 from arthur.model import Cue
+
+if TYPE_CHECKING:
+    from datetime import date
+
+    from arthur.config import Config
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _ONE_S = timedelta(seconds=1)
 
 
 def _share(length: int, pct: float) -> int:
-    """``floor(length * pct / 100)``, exact for a decimal ``pct`` like 33.3."""
-    return int(Fraction(str(pct)) * length / 100)
+    """``floor(length * pct / 100)``, exact for a decimal ``pct`` like 33.3: ``pct`` is read
+    as the decimal it prints as (``int(Fraction(str(pct)) * length / 100)``, in integers)."""
+    num, den = decimal_ratio(pct)
+    return (num * length) // (den * 100)
 
 
 def slots(cfg: Config) -> tuple[int, list[tuple[str, int, int]]]:

@@ -6,12 +6,19 @@ live, idle).
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from arthur.compat import field_default
-from arthur.config import Config, WeatherConfig
-from arthur.model import Cue, DisplayState, FeederHealth, RobotSnapshot, Weather
+from arthur.config import WeatherConfig
+from arthur.model import DisplayState
 from arthur.schedule import asleep_since, idle_cue, woke_at
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from arthur.config import Config
+    from arthur.model import Cue, FeederHealth, RobotSnapshot, Weather
 
 #: Our own fault set: pylitterbot has no fault classifier. Status name → short code.
 #: ``UNKNOWN`` shows the raw ``status_code``.

@@ -9,8 +9,12 @@ All datetimes should be timezone-aware UTC.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
+from typing import TYPE_CHECKING
+
+from arthur.compat import record
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 #: Every display-state id, in layer order (see docs/states.md). ``stale`` is not one: the clock
 #: draws it.
@@ -36,11 +40,12 @@ KINDS: tuple[str, ...] = (
     "ready",
 )
 
-LAYERS: dict[str, int] = {
-    **dict.fromkeys(("no_data", "robot_offline", "robot_off"), 1),
-    **dict.fromkeys(("drawer_full", "fault", "bonnet_removed"), 2),
-    **dict.fromkeys(
-        (
+LAYERS: dict[str, int] = dict(
+    [(k, 1) for k in ("no_data", "robot_offline", "robot_off")]
+    + [(k, 2) for k in ("drawer_full", "fault", "bonnet_removed")]
+    + [
+        (k, 3)
+        for k in (
             "in_use",
             "waiting",
             "cleaning",
@@ -49,17 +54,20 @@ LAYERS: dict[str, int] = {
             "emptying",
             "powering",
             "just_cleaned",
-        ),
-        3,
-    ),
-    "ready": 4,
-}
+        )
+    ]
+    + [("ready", 4)]
+)
 
 #: Values of ``FeederHealth.error``.
 HEALTH_ERRORS: tuple[str, ...] = ("auth", "api", "no_robots")
 
 
-@dataclass(frozen=True)
+@record(
+    "status status_code is_online is_on waste_drawer_level litter_level litter_level_state"
+    " is_sleeping is_laser_dirty power_type wait_time_minutes last_seen pet_weight_lbs"
+    " status_since previous_status last_visit_at visits_today visit_started_at cat_left_at"
+)
 class RobotSnapshot:
     """Library-agnostic facts about the robot at one moment.
 
@@ -97,7 +105,7 @@ class RobotSnapshot:
     cat_left_at: datetime | None = None
 
 
-@dataclass(frozen=True)
+@record("last_contact_at ws_connected error")
 class FeederHealth:
     """The feeder's own view of its connection to Whisker."""
 
@@ -110,7 +118,7 @@ class FeederHealth:
 CUE_KINDS: tuple[str, ...] = ("page", "scene")
 
 
-@dataclass(frozen=True)
+@record("temp_f code is_day high_f low_f fetched_at")
 class Weather:
     """One weather reading for the idle show's page (D-0019). The temperatures are in the
     config's ``[weather] units``, Fahrenheit unless it says Celsius; the ``_f`` names are
@@ -124,7 +132,7 @@ class Weather:
     fetched_at: datetime  # aware UTC
 
 
-@dataclass(frozen=True)
+@record("kind at length_s n name")
 class Cue:
     """A cutaway from the idle home page that the renderer should play (D-0019).
 
@@ -144,7 +152,11 @@ class Cue:
             raise ValueError(f"unknown cue kind {self.kind!r}")
 
 
-@dataclass(frozen=True)
+@record(
+    "kind drawer_pct litter_pct litter_state since deadline cycle_start cycle_end fault_code"
+    " detail last_seen last_visit_at visits_today pet_weight_lbs sleeping laser_dirty weather"
+    " cue asleep_since woke_at"
+)
 class DisplayState:
     """What to show. Pure data: time-dependent text is computed by the renderer from ``now``.
 
