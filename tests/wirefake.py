@@ -282,7 +282,7 @@ class FakeWhisker:
 
     # -- server --------------------------------------------------------------------------
 
-    async def start(self, ssl_context=None) -> str:
+    async def start(self, ssl_context=None, host="127.0.0.1", port=0) -> str:
         app = web.Application(client_max_size=1024 * 1024)
         app.router.add_post("/", self._cognito)
         app.router.add_get("/" + USER_POOL_ID + "/.well-known/jwks.json", self._jwks)
@@ -290,7 +290,7 @@ class FakeWhisker:
         app.router.add_get("/graphql/realtime", self._realtime)
         self._runner = web.AppRunner(app, access_log=None)
         await self._runner.setup()
-        site = web.TCPSite(self._runner, "127.0.0.1", 0, ssl_context=ssl_context)
+        site = web.TCPSite(self._runner, host, port, ssl_context=ssl_context)
         await site.start()
         port = site._server.sockets[0].getsockname()[1]
         self.url = ("https" if ssl_context else "http") + f"://127.0.0.1:{port}"
