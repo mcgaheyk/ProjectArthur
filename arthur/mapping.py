@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+from arthur.compat import field_default
 from arthur.config import Config, WeatherConfig
 from arthur.model import Cue, DisplayState, FeederHealth, RobotSnapshot, Weather
 from arthur.schedule import asleep_since, idle_cue, woke_at
@@ -126,7 +127,7 @@ def _kind_and_fields(
 
 
 #: How old a weather reading may be when there is no ``[weather]`` table.
-_DEFAULT_WEATHER_MAX_AGE_S: float = WeatherConfig.__dataclass_fields__["max_age_s"].default
+_DEFAULT_WEATHER_MAX_AGE_S: float = field_default(WeatherConfig, "max_age_s")
 
 
 def _fresh_weather(weather: Weather | None, now: datetime, cfg: Config) -> Weather | None:

@@ -2,21 +2,29 @@
 
 Everything that is a colour, threshold, timing or caption lives in that one file. Screens and icons
 refer to palette *roles* (``"ok"``, ``"alert"``, ...), never to hex values.
+
+Shared with MicroPython (D-0029), which has no TOML reader and no ``zoneinfo``: there the
+config comes from the JSON that ``python -m arthur.tools.export_config`` writes from the same
+TOML (:func:`config_from_json`), with the time zone as a table of its offset changes
+(:mod:`arthur.zonetable`). On CPython ``tz`` is a ``ZoneInfo``.
 """
 
 from __future__ import annotations
 
-import tomllib
-from collections.abc import Mapping
-from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from typing import TYPE_CHECKING
 
-RGB = tuple[int, int, int]
+from arthur.compat import IS_MICROPYTHON, field, field_names, record
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from datetime import tzinfo
+    from typing import Any
+
+    RGB = tuple[int, int, int]
 
 DEFAULT_PATH = Path(__file__).resolve().parent.parent / "config" / "display.toml"
 
@@ -57,7 +65,8 @@ class ConfigError(ValueError):
 def parse_hex(value: str) -> RGB:
     """``"#RRGGBB"`` → ``(r, g, b)``."""
     s = value.strip()
-    s = s.removeprefix("#")
+    if s.startswith("#"):  # noqa: FURB188 (MicroPython has no str.removeprefix)
+        s = s[1:]
     if len(s) != 6:
         raise ConfigError(f"colour must be #RRGGBB, got {value!r}")
     try:
@@ -86,7 +95,7 @@ def format_sizes() -> str:
     return ", ".join(format_size(s) for s in SIZES)
 
 
-@dataclass(frozen=True)
+@record("colors chars")
 class Palette:
     """Role name → RGB, plus the one-character code for each role."""
 
@@ -110,13 +119,17 @@ class Palette:
         return tuple(self.colors)
 
 
-@dataclass(frozen=True)
+@record("drawer_warn_pct litter_empty_pct")
 class Thresholds:
     drawer_warn_pct: float = 80
     litter_empty_pct: float = 60
 
 
-@dataclass(frozen=True)
+@record(
+    "heartbeat_s ttl_s just_cleaned_s clean_cycle_estimate_s no_data_after_s"
+    " cat_left_fallback_s visit_min_s poll_s in_use_joke_s in_use_cat_s interrupted_title_s"
+    " interrupted_phrase_s interrupted_rest_s"
+)
 class Timings:
     heartbeat_s: float = 30
     ttl_s: float = 90
@@ -133,7 +146,7 @@ class Timings:
     interrupted_rest_s: float = 2
 
 
-@dataclass(frozen=True)
+@record("round_s page_pct scene_pct settle_s quiet_from_h quiet_until_h")
 class Idle:
     """The idle show (D-0019): rounds of home page, information page and scene."""
 
@@ -149,7 +162,7 @@ class Idle:
     quiet_until_h: int = 7
 
 
-@dataclass(frozen=True)
+@record("latitude longitude refresh_s max_age_s units")
 class WeatherConfig:
     """Where the weather page's forecast is for, and how often it is fetched."""
 
@@ -161,15 +174,26 @@ class WeatherConfig:
 
 
 #: Values of ``[weather] units``, with the symbol Open-Meteo answers for each.
-WEATHER_UNITS: Mapping[str, str] = MappingProxyType({"fahrenheit": "\N{DEGREE SIGN}F",
-                                                    "celsius": "\N{DEGREE SIGN}C"})
+WEATHER_UNITS: Mapping[str, str] = MappingProxyType({"fahrenheit": "\u00b0F",
+                                                    "celsius": "\u00b0C"})
 
 
 #: An empty caption table, for configs without [captions].
 NO_CAPTIONS: Mapping[str, tuple[str, ...]] = MappingProxyType({})
 
 
-@dataclass(frozen=True)
+def utc_zone() -> tzinfo:
+    """UTC as ``Config.tz`` holds a zone: ``ZoneInfo("UTC")``, or a table on MicroPython."""
+    if IS_MICROPYTHON:
+        from arthur.zonetable import TableZone
+
+        return TableZone("UTC", 0, [])
+    from zoneinfo import ZoneInfo
+
+    return ZoneInfo("UTC")
+
+
+@record("size palette thresholds timings source captions tz idle weather")
 class Config:
     size: tuple[int, int]
     palette: Palette
@@ -179,8 +203,9 @@ class Config:
     #: Caption key → the jokes to pick from. Screens fall back to a plain word when a key is
     #: missing or none of its captions fits.
     captions: Mapping[str, tuple[str, ...]] = NO_CAPTIONS
-    #: The local time zone (``[display] timezone``); UTC when the key is absent.
-    tz: ZoneInfo = field(default_factory=lambda: ZoneInfo("UTC"))
+    #: The local time zone (``[display] timezone``); UTC when the key is absent. A
+    #: ``ZoneInfo`` on CPython, an ``arthur.zonetable.TableZone`` on MicroPython.
+    tz: tzinfo = field(default_factory=utc_zone)
     idle: Idle = field(default_factory=Idle)
     #: ``None`` when there is no ``[weather]`` table.
     weather: WeatherConfig | None = None
@@ -207,7 +232,7 @@ def _section(data: Mapping[str, Any], name: str) -> Mapping[str, Any]:
 
 
 def _numbers(sec: Mapping[str, Any], cls: type, name: str) -> Any:
-    fields = cls.__dataclass_fields__
+    fields = field_names(cls)
     unknown = set(sec) - set(fields)
     if unknown:
         raise ConfigError(f"unknown key(s) in [{name}]: {', '.join(sorted(unknown))}")
@@ -221,10 +246,28 @@ def _numbers(sec: Mapping[str, Any], cls: type, name: str) -> Any:
     return cls(**kwargs)
 
 
-def _timezone(display: Mapping[str, Any]) -> ZoneInfo:
+#: The top-level key of the exported JSON that holds the time zone's table (MicroPython).
+ZONE_KEY = "_zone"
+#: The top-level key of the exported JSON that holds the TOML file's path.
+SOURCE_KEY = "_source"
+
+
+def _timezone(display: Mapping[str, Any], table: Mapping[str, Any] | None = None) -> tzinfo:
     name = display.get("timezone", "UTC")
     if not isinstance(name, str) or not name.strip():
         raise ConfigError(f"[display] timezone must be a zone name, got {name!r}")
+    if IS_MICROPYTHON:
+        from arthur.zonetable import from_table
+
+        if table is None:
+            if name.strip() == "UTC":
+                return utc_zone()
+            raise ConfigError(f"[display] timezone {name!r} needs the exported zone table")
+        if table.get("key") != name.strip():
+            raise ConfigError(f"the zone table is for {table.get('key')!r}, not {name!r}")
+        return from_table(table)
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
     try:
         return ZoneInfo(name.strip())
     except (ZoneInfoNotFoundError, ValueError) as exc:
@@ -251,7 +294,7 @@ def _weather(data: Mapping[str, Any]) -> WeatherConfig | None:
     if "weather" not in data:
         return None
     sec = _section(data, "weather")
-    unknown = set(sec) - set(WeatherConfig.__dataclass_fields__)
+    unknown = set(sec) - set(field_names(WeatherConfig))
     if unknown:
         raise ConfigError(f"unknown key(s) in [weather]: {', '.join(sorted(unknown))}")
     kwargs = {}
@@ -293,7 +336,8 @@ def _captions(sec: Mapping[str, Any]) -> Mapping[str, tuple[str, ...]]:
 
 
 def config_from_dict(data: Mapping[str, Any], source: str = "<dict>") -> Config:
-    """Build a :class:`Config` from already-parsed TOML data."""
+    """Build a :class:`Config` from already-parsed TOML data (or the exported JSON, whose
+    zone table only MicroPython reads)."""
     display = _section(data, "display")
     size = parse_size(str(display.get("size", "52x16")))
 
@@ -322,18 +366,35 @@ def config_from_dict(data: Mapping[str, Any], source: str = "<dict>") -> Config:
         timings=_numbers(_section(data, "timings"), Timings, "timings"),
         source=source,
         captions=_captions(_section(data, "captions")),
-        tz=_timezone(display),
+        tz=_timezone(display, data.get(ZONE_KEY)),
         idle=_idle(_section(data, "idle")),
         weather=_weather(data),
     )
 
 
 def load_config(path: str | Path | None = None) -> Config:
-    """Read ``config/display.toml`` (or ``path``) into a :class:`Config`."""
+    """Read ``config/display.toml`` (or ``path``) into a :class:`Config`. CPython only."""
+    import tomllib
+
     p = Path(path) if path is not None else DEFAULT_PATH
     with p.open("rb") as fh:
         data = tomllib.load(fh)
     return config_from_dict(data, source=str(p))
+
+
+def config_from_json(data: Mapping[str, Any]) -> Config:
+    """The :class:`Config` from the exported JSON (``arthur.tools.export_config``), already
+    parsed: the same as from the TOML it was exported from, on either Python."""
+    return config_from_dict(data, source=str(data.get(SOURCE_KEY, "<json>")))
+
+
+def load_config_json(path: str) -> Config:
+    """Read the exported JSON at ``path`` into a :class:`Config` (both Pythons)."""
+    import json
+
+    with open(path) as fh:
+        data = json.load(fh)
+    return config_from_json(data)
 
 
 @lru_cache(maxsize=1)
