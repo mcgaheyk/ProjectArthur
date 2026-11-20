@@ -69,10 +69,10 @@ WAKE_S = 4
 
 
 def _at_local_hour(day: date, hour: int, cfg: Config) -> datetime:
-    """``hour``:00 on the local ``day``, as an aware UTC instant. Built in the local zone, so
-    it is right across a clock change; an hour the change skips is read with the offset in
-    force before it (zoneinfo's ``fold=0``)."""
-    return datetime(day.year, day.month, day.day, hour, tzinfo=cfg.tz).astimezone(UTC)
+    """``hour``:00 on the local ``day``, as an aware UTC instant (``Config.at_local_hour``):
+    right across a clock change; an hour the change skips is read with the offset in force
+    before it (zoneinfo's ``fold=0``)."""
+    return cfg.at_local_hour(day, hour)
 
 
 def quiet_window(now: datetime, cfg: Config) -> tuple[datetime, datetime] | None:

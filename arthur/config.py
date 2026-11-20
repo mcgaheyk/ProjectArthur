@@ -9,7 +9,7 @@ from __future__ import annotations
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, date, datetime
 from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
@@ -191,6 +191,12 @@ class Config:
     def local(self, now: datetime) -> datetime:
         """The aware ``now`` as wall-clock time in :attr:`tz`."""
         return now.astimezone(self.tz)
+
+    def at_local_hour(self, day: date, hour: int) -> datetime:
+        """``hour``:00 on the local ``day``, as an aware UTC instant. Built in the local zone,
+        so it is right across a clock change; an hour the change skips or repeats is read
+        with the offset in force before it (zoneinfo's ``fold=0``)."""
+        return datetime(day.year, day.month, day.day, hour, tzinfo=self.tz).astimezone(UTC)
 
 
 def _section(data: Mapping[str, Any], name: str) -> Mapping[str, Any]:
