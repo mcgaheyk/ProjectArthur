@@ -23,6 +23,8 @@ asked to set this up for someone follows `docs/agent-setup.md`.
 - `docs/reference/petlibro.md`: PETLIBRO cloud API notes (food and water). Read from a
   third-party integration's source, not yet confirmed live.
 - `docs/reference/open-meteo.md`: the weather API the idle show's page uses, confirmed live.
+- `docs/reference/micropython.md`: how MicroPython 1.29 differs from CPython, for the shared
+  code the clock is to run (D-0029).
 - `docs/research/`: the hardware and firmware comparison behind the decisions, and the LED
   animation and idle cadence research behind the idle show (D-0019).
 - `docs/handoff.md`: the original brief. DECISIONS.md overrides it where they differ.
@@ -59,12 +61,26 @@ asked to set this up for someone follows `docs/agent-setup.md`.
   (`.venv/lib/python3.13/site-packages/pylitterbot/`) or the official docs, then add it to the
   reference file with where you found it. Say so when the docs or the handoff were wrong.
 - **AWTRIX NG is pinned to 1.2.3** and rejects unknown keys with 422. The simulator does too.
+- **The shared code also runs on MicroPython** (D-0029), unchanged: `arthur/compat.py`,
+  `model`, `config`, `timebase`, `schedule`, `mapping`, `zonetable`, `mtrandom`,
+  `sources/tracker` and all of `render/` except `preview.py`. In them: records come from
+  `compat.record` / `compat.tuple_record` (not dataclasses or class-form NamedTuple), seeded
+  numbers from `compat.Random`, local time through `Config` (no `zoneinfo`, no `tomllib`); no
+  star displays, `zip(strict=)`, `str[::-1]`, `removeprefix`, `\N{}`, or run-time type aliases
+  and `collections.abc` outside `TYPE_CHECKING`; dicts and sets that must keep an order are
+  `OrderedDict`s or sorted, and equal sort keys go through `compat.stable_sorted`. The full
+  list and how each was found: `docs/reference/micropython.md`. The check is
+  `uv run pytest tests/test_micropython.py` (it needs `micropython` on PATH and says it
+  did not run without it); a change to a shared module is not done until it passes.
 
 ## Commands
 - `uv run pytest` and `uv run ruff check`
 - `uv run python -m arthur.sim` starts the studio (also the "studio" entry in `.claude/launch.json`).
   Its Robot log source follows or replays the spike's `logs/spike-*.jsonl`
 - `uv run python -m arthur.render.preview --all` prints every screen as text
+- `uv run python -m arthur.tools.export_config OUT.json` writes the config as JSON with the
+  time zone's offset table, for MicroPython; `micropython mpy/bench.py OUT.json` times the
+  drawing there (the same script runs under `uv run python`)
 - `uv run --env-file .env python -m arthur.feeder --clock http://ADDRESS` runs the feeder
   against the real robot and clock (needs Kyle's `.env`). It writes the same log the spike did.
   Check for a running one first: `pgrep -fl arthur.feeder`. To leave it running on the Mac,
