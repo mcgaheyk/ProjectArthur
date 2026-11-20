@@ -22,3 +22,6 @@ __pycache__/
 .DS_Store
 .claude/settings.local.json
 .claude/worktrees/
+
+# This Mac's own feeder settings (scripts/start_feeder.command reads it)
+scripts/start_feeder.local
