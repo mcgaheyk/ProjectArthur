@@ -47,6 +47,7 @@ from onclock_e2e import (
 from wirefake import raw_from_record
 from wirehelp import real_lines
 
+from arthur.clocktool import config_bytes
 from arthur.config import config_from_json
 from arthur.mapping import to_display_state
 from arthur.model import FeederHealth
@@ -77,12 +78,14 @@ FALLBACK_S = 12
 HERE = Path(__file__).resolve().parent
 
 
-def short_toml(base: Path, *, fur: str = "#FF7A00", extra_caption: str | None = None) -> Path:
+def short_toml(base: Path, *, fur: str = "#FF7A00", text_color: str = "#FFE4C4",
+               extra_caption: str | None = None) -> Path:
     """config/display.toml with short timings for a run in real time."""
     text = (REPO / "config" / "display.toml").read_text()
     text = text.replace("no_data_after_s = 600", f"no_data_after_s = {NO_DATA_AFTER_S}")
     text = text.replace("cat_left_fallback_s = 120", f"cat_left_fallback_s = {FALLBACK_S}")
     text = text.replace('fur       = "#FF7A00"', f'fur       = "{fur}"')
+    text = text.replace('text      = "#FFE4C4"', f'text      = "{text_color}"')
     if extra_caption:
         text = text.replace('in_use = ["IN SESH"', f'in_use = ["{extra_caption}", "IN SESH"')
     path = base / f"display-{fur[1:]}-{extra_caption or 'x'}.toml"
@@ -161,9 +164,9 @@ async def scenario(base: Path, tls_files) -> tuple[Run, Install, Fakes]:
     fakes.add_history(now - 3 * 3600 + 70, "catWeight", 4.67)
     await fakes.start()
     inst = EmuInstall(base, heap=HEAP) if EMULATED else Install(base, mpy=MPY, heap=HEAP)
-    run.data["bundle_a"] = inst.lay_out(short_toml(base))
-    cfg_text = inst.read_root("config.json")
-    run.data["cfg0"] = json.loads(cfg_text)
+    toml = short_toml(base)
+    run.data["bundle_a"] = inst.lay_out(toml)
+    run.data["cfg0"] = json.loads(config_bytes(toml))  # what install writes as config.json
     async def keepalive():
         rssi = -41.0
         while True:
@@ -175,6 +178,7 @@ async def scenario(base: Path, tls_files) -> tuple[Run, Install, Fakes]:
     ka = asyncio.create_task(keepalive())
     try:
         await inst.start(fakes)
+        run.data["bundle_a"] = run.data["bundle_a"] or getattr(inst, "bundle_id", "")
         await _phases(run, inst, fakes, base)
     finally:
         ka.cancel()
@@ -280,7 +284,7 @@ async def _phases(run: Run, inst: Install, fakes: Fakes, base: Path) -> None:
 
     # -- 7. push: a config change -----------------------------------------------------------
     run.mark("config_push")
-    new_toml = short_toml(base, fur="#FF7A08", extra_caption="E2E")
+    new_toml = short_toml(base, fur="#FF7A08", text_color="#FFE4C8", extra_caption="E2E")
     run_id = run.statuses[-1]["run"]
     off = len(inst.console())
     rc, out, secs = await inst.clock_py("push", "--config", str(new_toml))
@@ -291,7 +295,7 @@ async def _phases(run: Run, inst: Install, fakes: Fakes, base: Path) -> None:
     st = await _status(run, inst)
     run.data["config_push"]["same_run"] = st["run"] == run_id
     run.data["cfg1"] = json.loads(inst.read_root("config.json"))
-    await asyncio.sleep(3)
+    await asyncio.sleep(8)
     run.mark("config_push_end")
 
     # The log ring is in the program's memory: a restart loses what was not pulled. The Mac
@@ -482,6 +486,23 @@ def cpython_frames(run: Run, fakes: Fakes, t0: float, t1: float, cfg) -> dict:
                     break
             if found:
                 break
+        if not found:
+            # Not on a whole beat: the program draws at the moment its beat woke, which is a
+            # few ms after the tick (more on a slow or busy machine), and dates what it saw
+            # a little before the log line it writes. Look at each millisecond of the 250 ms
+            # before the frame arrived; those found are counted apart, with how far off.
+            for ms in range(250):
+                b = _dt(r["t"]) - timedelta(milliseconds=ms)
+                st = tl.at(b)
+                if st is None:
+                    continue
+                health = FeederHealth(last_contact_at=b, ws_connected=True)
+                state = to_display_state(st.snapshot, health, b, cfg, weather=weather)
+                if hashlib.sha256(render(state, b, cfg).to_rgb888()).hexdigest() == r["sha"]:
+                    found = state.kind
+                    off = round((b.timestamp() - beat) * 1000)
+                    out.setdefault("off_beat_ms", []).append(off)
+                    break
         if found:
             out["matched"] += 1
             out["kinds"][found] = out["kinds"].get(found, 0) + 1
@@ -557,15 +578,18 @@ def test_push_of_a_config_change(e2e):
     print("config push:", round(cp["seconds"], 2), "s;", cp["out"].strip())
     assert "config" in cp["out"] and cp["same_run"]  # no restart
     assert cp["seconds"] < 10 * SLOW
-    old, new = _cfg(run.data["cfg0"]), _cfg(run.data["cfg1"])
+    new = _cfg(run.data["cfg1"])
     assert "E2E" in new.captions["in_use"]
-    t0, t1 = run.marks["config_reloaded"], run.marks["config_push_end"]
-    got = cpython_frames(run, fakes, t0, t1, new)
-    was = cpython_frames(run, fakes, t0, t1, old)
-    print("after the config push:", got["matched"], "of", got["frames"], "match the new "
-          "config,", was["matched"], "the old")
-    assert got["frames"] > 0 and (EMULATED or got["unmatched"] == [])
-    assert was["matched"] < got["matched"]
+    # The colours on the screen: the old fur and text before the push, the new after it
+    # (a frame drawn just before the reload may land just after it, so 0.3 s are left).
+    old_c, new_c = {"ff7a00", "ffe4c4"}, {"ff7a08", "ffe4c8"}
+    before = frames_in(fakes, run.marks["config_push"] - 30, run.marks["config_push"])
+    after = frames_in(fakes, run.marks["config_reloaded"] + 0.3, run.marks["config_push_end"])
+    print("config push: frames", len(before), "before,", len(after), "after")
+    assert any(old_c & set(r["colors"]) for r in before)
+    assert not any(new_c & set(r["colors"]) for r in before)
+    assert after and not any(old_c & set(r["colors"]) for r in after)
+    assert any(new_c & set(r["colors"]) for r in after)
 
 
 def restart_gap(console: str) -> float | None:

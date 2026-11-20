@@ -90,7 +90,9 @@ class Fakes:
                 "/api/v1/apps/pushed/") and resp.status == 200:
             body = json.loads(await request.read())
             rgb = base64.b64decode(body["draw"][0][5])
+            colors = sorted({rgb[i:i + 3].hex() for i in range(0, len(rgb), 3)})
             self.received.append({"t": time.time(), "sha": hashlib.sha256(rgb).hexdigest(),
+                                  "colors": colors,
                                   "lifetime": body.get("lifetimeMs"),
                                   "expiry": body.get("lifetimeExpiry"),
                                   "ua": request.headers.get("User-Agent", "")})
@@ -308,6 +310,7 @@ def visit_records(first: int, last: int, *, drop_weight: bool = False) -> list[t
 EMU = "arthur-clock-emu"
 EMU_ROOT = "/data/awtrix-ng/state/arthur"
 EMU_RAM = "/tmp/arthur"
+RELAY_PORT = 18080
 
 
 def _sh(cmd: str) -> str:
@@ -331,6 +334,7 @@ class EmuInstall(Install):
         self.config_toml: Path | None = None
         self.install_out = ""
         self.remove_out = ""
+        self.snapped = False  # after the run: read the copies, the clock is wiped
 
     def lay_out(self, config_toml: Path) -> str:
         self.config_toml = config_toml
@@ -342,7 +346,7 @@ class EmuInstall(Install):
         def there(url: str) -> str:
             return url.replace("127.0.0.1", "host.docker.internal")
 
-        s = {"awtrix": f"http://host.docker.internal:{fakes.clock_port}",
+        s = {"awtrix": f"http://127.0.0.1:{RELAY_PORT}",  # tests/tcprelay.py, to the Mac
              "server_name": "localhost", "weather_url": there(fakes.weather_url),
              "lr4_url": there(fakes.whisker.url) + "/graphql",
              "cognito_url": there(fakes.whisker.url) + "/", "healthy_after": 20,
@@ -352,7 +356,19 @@ class EmuInstall(Install):
         return s
 
     def prepare(self, fakes: Fakes) -> None:
-        """The throwaway CA where the clock keeps its bundle, and the test settings."""
+        """The throwaway CA where the clock keeps its bundle, the test settings, and a relay
+        from the container's 127.0.0.1 to the fake clock (the transport talks to this device
+        only)."""
+        from arthur.clocktool import BINARY
+
+        subprocess.run(["docker", "exec", EMU, "mkdir", "-p", "/tmp/relay"], check=True)
+        subprocess.run(["docker", "cp", str(BINARY), EMU + ":/tmp/relay/micropython"],
+                       check=True)
+        subprocess.run(["docker", "cp", str(Path(__file__).with_name("tcprelay.py")),
+                        EMU + ":/tmp/relay/tcprelay.py"], check=True)
+        subprocess.run(["docker", "exec", "-d", EMU, "/tmp/relay/micropython",
+                        "/tmp/relay/tcprelay.py", str(RELAY_PORT), "host.docker.internal",
+                        str(fakes.clock_port)], check=True)
         subprocess.run(["docker", "exec", EMU, "mkdir", "-p", "/tmp/awtrix-release/share"],
                        check=True)
         subprocess.run(["docker", "cp", str(fakes.tls_files["ca"]),
@@ -373,6 +389,10 @@ class EmuInstall(Install):
         self.install_out = out.decode(errors="replace")
         if p.returncode != 0:
             raise AssertionError("install failed:\n" + self.install_out)
+        import re
+
+        m = re.search(r"bundle ([0-9a-f]{16})", self.install_out)
+        self.bundle_id = m.group(1) if m else ""
 
     async def stop(self) -> int | None:
         self.snapshot()
@@ -384,9 +404,13 @@ class EmuInstall(Install):
         return p.returncode
 
     def console(self) -> str:
+        if self.snapped:
+            return Install.console(self)
         return _sh(f"cat {EMU_RAM}/console.log 2>/dev/null")
 
     def boot_notes(self) -> str:
+        if self.snapped:
+            return Install.boot_notes(self)
         return _sh(f"cat {EMU_RAM}/boot.txt 2>/dev/null")
 
     def read_root(self, rel: str) -> str:
@@ -416,3 +440,4 @@ class EmuInstall(Install):
             p = self.root / name
             if p.exists():
                 p.unlink()
+        self.snapped = True
