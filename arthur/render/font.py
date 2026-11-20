@@ -15,20 +15,26 @@ Text is positioned by the top row of its capitals.
 
 from __future__ import annotations
 
+import gc
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from arthur.compat import record
+from arthur.compat import IS_MICROPYTHON, tuple_record
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from arthur.render.frame import RGB, Frame
 
 FONT_DIR = Path(__file__).resolve().parent / "fonts"
 
 
-@record("width height xoff yoff advance rows")
+@tuple_record("width height xoff yoff advance rows")
 class Glyph:
+    """One glyph's bitmap. A NamedTuple, not a dataclass: on MicroPython a tuple is a third
+    of the memory of an instance, and the large font has 731 of them."""
+
     width: int  # BBX width
     height: int  # BBX height
     xoff: int
@@ -97,9 +103,17 @@ class Font:
 
 
 def parse_bdf(text: str, name: str = "bdf") -> Font:
-    glyphs: dict[int, Glyph] = {}
+    return parse_bdf_lines(iter(text.splitlines()), name)
+
+
+def parse_bdf_lines(
+    lines: Iterator[str], name: str = "bdf", encodings: list[int] | None = None
+) -> Font:
+    """:func:`parse_bdf` over lines as they come from the file. ``encodings``, if known, are
+    the glyphs' codes in file order: the table is made that size before parsing, not grown
+    while thousands of small objects are made (see :func:`load_bdf`)."""
+    glyphs: dict[int, Glyph] = dict.fromkeys(encodings) if encodings else {}
     ascent = descent = 0
-    lines = iter(text.splitlines())
     for line in lines:
         parts = line.split()
         if not parts:
@@ -135,14 +149,29 @@ def parse_bdf(text: str, name: str = "bdf") -> Font:
                     break
             if enc >= 0:
                 glyphs[enc] = Glyph(bbx[0], bbx[1], bbx[2], bbx[3], adv, tuple(rows))
+                if IS_MICROPYTHON and enc % 32 == 0:
+                    # Collect as we go: MicroPython collects only when its heap is full, by
+                    # which time the glyphs are strewn over all of it between the parse's
+                    # garbage, and no frame-sized block is left in one piece.
+                    gc.collect()
     if not glyphs:
         raise ValueError(f"no glyphs in {name}")
     return Font(name, glyphs, ascent, descent)
 
 
 def load_bdf(path: str | Path) -> Font:
+    """Read a BDF font, a line at a time, in two passes: the glyphs' codes, then the glyphs.
+
+    For MicroPython on the clock, whose heap cannot move objects: read whole, the large font
+    and the list of its 9,000 lines need 75 KB and 128 KB in one piece each, and a glyph
+    table grown while the glyphs are made needs 11 KB in one piece on a heap the parsing has
+    already cut into small holes. Loading it took a 2 MB heap; this way it takes far less.
+    The font is the same either way."""
     p = Path(path)
-    return parse_bdf(p.read_text(encoding="ascii", errors="replace"), name=p.stem)
+    with p.open(encoding="ascii", errors="replace") as fh:
+        codes = [int(ln.split()[1]) for ln in fh if ln.startswith("ENCODING")]
+    with p.open(encoding="ascii", errors="replace") as fh:
+        return parse_bdf_lines(iter(fh), name=p.stem, encodings=[c for c in codes if c >= 0])
 
 
 @cache

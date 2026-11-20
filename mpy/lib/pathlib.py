@@ -71,7 +71,7 @@ class Path:
         with open(self._s, encoding="utf-8") as f:
             return f.read()
 
-    def open(self, mode="r", encoding=None):
+    def open(self, mode="r", encoding=None, errors=None):
         return open(self._s, mode) if "b" in mode else open(self._s, mode, encoding="utf-8")
 
     def glob(self, pattern):
