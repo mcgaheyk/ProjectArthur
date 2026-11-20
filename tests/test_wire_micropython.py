@@ -178,3 +178,24 @@ def test_micropython_prints_floats_like_cpython():
     got = json.loads(done.stdout)
     assert [t for _, t in got] == [repr(float(v)) for v in values]
     assert [r for r, _ in got][:3] != [repr(float(v)) for v in values][:3]  # repr really differs
+
+
+@needs_mpy
+async def test_micropython_runs_the_monitor(tmp_path):
+    """The connection policy under MicroPython: connect, the start record, the history read
+    at start (from 72 hours back), the real visit pushed live, a clean stop."""
+    fake = await start_fake()
+    try:
+        argv = [MPY, "-X", "heapsize=2M", str(SCRIPT), fake.url, tokens_file(fake, tmp_path),
+                str(len(real_lines())), "--plain", "--monitor"]
+        lines, code, err = await run_script(argv, fake, timeout=60)
+    finally:
+        await fake.stop()
+    assert code == 0, (lines[-3:], err[-2000:])
+    records = [(x["src"], x["record"]) for x in lines if x["ev"] == "record"]
+    assert records[0][0] == "start"
+    assert [r for s, r in records if s == "ws"] == [x["record"] for x in real_lines()]
+    assert len(next(x["acts"] for x in lines if x["ev"] == "history")) == 80
+    done = lines[-1]
+    assert done["ev"] == "done" and done["error"] is None
+    assert not [x for x in lines if x["ev"] == "monitor_error"]

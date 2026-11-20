@@ -8,7 +8,8 @@ Options: ``--plain`` (allow http/ws), ``--ca FILE``, ``--server-name NAME``,
 ``--login USER:PASS`` (no tokens: SRP login), ``--since EPOCH`` (history start),
 ``--hold SECONDS`` (keep the subscription this long after the updates), ``--measure``
 (per-phase allocation with the collector paused, MicroPython), ``--threshold BYTES``
-(collect after every BYTES allocated, so sampled peaks are close to real use).
+(collect after every BYTES allocated, so sampled peaks are close to real use), ``--monitor``
+(instead of the phases: run :class:`arthur.wire.monitor.Monitor` until UPDATES pushes).
 
 Phases: ``token`` (renew, or log in), ``load`` (the robot), ``poll`` (one refresh), ``live``
 (subscribe, print ``subscribed``, then each update), ``history``. Lines: ``{"ev": ...}``.
@@ -39,11 +40,11 @@ def out(**kw):
 def parse_args(argv):
     opts = {"url": argv[1], "tokens": argv[2], "updates": int(argv[3]), "plain": False,
             "ca": None, "server_name": None, "login": None, "since": None, "hold": 0.0,
-            "measure": False, "threshold": None}
+            "measure": False, "threshold": None, "monitor": False}
     i = 4
     while i < len(argv):
         a = argv[i]
-        if a in ("--plain", "--measure"):
+        if a in ("--plain", "--measure", "--monitor"):
             opts[a[2:]] = True
             i += 1
             continue
@@ -178,5 +179,38 @@ async def main(o, tokens):
         sys.exit(3)
 
 
+async def monitor_main(o, tokens):
+    """The connection policy itself: connect, the start record, the history read at start,
+    the pushes, then stop."""
+    from arthur.wire.monitor import Monitor
+
+    tls = Tls(ca_file=o["ca"], allow_plain=o["plain"], server_name=o["server_name"])
+    client = WhiskerClient(tls, tokens=tokens, credentials=o["login"],
+                           lr4_url=o["url"] + "/graphql", cognito_url=o["url"] + "/",
+                           ws_backoff=(0.05, 0.2), timeout=60.0)
+    stop = asyncio.Event()
+    pushed = []
+
+    def on_record(record, source):
+        out(ev="record", src=source, record=record)
+        if source == "ws":
+            pushed.append(1)
+            if len(pushed) >= o["updates"]:
+                stop.set()
+
+    def on_info(kind, text):
+        if kind == "ws_start_ack":
+            out(ev="subscribed")
+
+    mon = Monitor(client, on_record,
+                  on_error=lambda k, w, m, r: out(ev="monitor_error", kind=k, where=w,
+                                                  retry_in=r),
+                  on_info=on_info,
+                  on_activity=lambda acts: out(ev="history", acts=[
+                      [a.iso, a.action.text, a.action.value] for a in acts]))
+    await asyncio.wait_for(mon.run(stop), 60)
+    out(ev="done", counts=client.counts, error=mon.error)
+
+
 opts = parse_args(sys.argv)
-asyncio.run(main(opts, read_tokens(opts["tokens"])))
+asyncio.run((monitor_main if opts["monitor"] else main)(opts, read_tokens(opts["tokens"])))
