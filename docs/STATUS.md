@@ -196,8 +196,12 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
     (`scripts/start_feeder.local`, not in git, sets `SOURCE=wire`; delete that line and
     restart to go back to pylitterbot, which is still the default for a fresh copy). Its
     first minute was clean: connected, the same reading as pylitterbot gave, the history
-    seeded, live updates subscribed, a fresh frame on the clock. **No real visit has come
-    through it yet.** Against a fake Whisker it gives the same views, log
+    seeded, live updates subscribed, a fresh frame on the clock. **Two real visits came
+    through it that evening with no warning or error:** at 17:18 the robot recorded no
+    weight, the 120-second fallback moved the clock to waiting, and cleaning, just cleaned
+    and ready followed on time; at 17:58 the weight arrived over the live connection 60 s
+    after detection and the clock went to waiting at that moment. Nobody was watching the
+    clock; this is from the logs. Against a fake Whisker it gives the same views, log
     lines and console lines as the pylitterbot source in 18 of 20 scripted cases; the two
     that differ are on purpose (`docs/reference/whisker-wire.md`). The log code it shares
     with the pylitterbot source was reorganised (`arthur/sources/spikeformat.py`,
@@ -289,9 +293,9 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
    guesses about the clock are at the end of `docs/reference/awtrix-ng.md`.
 4. **The on-clock build (D-0029), with Claude.** The Mac's feeder stays live until the last
    step passes. In order:
-   - the Mac's feeder run on the wire source (`--source wire`) through real visits: whether
-     each live update carries every field, on which the visit rule (D-0017) depends; and
-     one real password login;
+   - the Mac's feeder kept on the wire source (`--source wire`; two visits seen so far) for
+     some days, to meet a token that will not renew, a dropped connection and an
+     interruption; and one real password login;
    - each scene's plan built ahead of its first frame, in pieces, during the frames before
      it: the rat's is an estimated 150 to 170 ms on the clock in one go;
    - the clock's program joined to the source, the door and the boot script, the door's

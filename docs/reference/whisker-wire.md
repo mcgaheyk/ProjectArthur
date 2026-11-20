@@ -364,6 +364,25 @@ CPython, from the saved token. No password login was tried and nothing was writt
   every 60 s (gaps of 60.1, 59.9 and 60.0 s). It sent **no `connection_ack`**. The robot was
   idle for the five minutes, so no `data` message was seen.
 
+### Live updates, through the Mac's feeder on `WireSource` (2026-11-20, from 15:10)
+
+The feeder ran with `--source wire` against the real robot. From `logs/spike-20261120.jsonl`
+and `logs/feeder-console.log`; nobody watched the clock.
+
+- **`data` messages arrive and are applied.** A visit at 17:18 came through as live updates:
+  the display code, then `CAT_DETECTED` 3 s later, then the clean cycle 8 min 24 s after
+  detection with the cycle count, the drawer level, the litter level and `READY` 130 s after
+  that. The robot's own history has no weight for this visit, so the 120-second fallback fired
+  (D-0017), as it has for some visits under pylitterbot.
+- **The weight arrives over the live connection.** At the 17:58 visit `pet_weight` changed
+  (4.49 to 4.43) in a live update 60 s after detection, inside the 48 to 111 s seen under
+  pylitterbot, and the feeder went from in use to waiting at that moment.
+- Three hours with no warning or error: polls, heartbeats every 15 minutes, and the hourly
+  token renewals passed silently.
+- **Still not known:** whether a message carries every field or only the changed ones (the log
+  records what changed in the record, not the message's keys; either way the merge gave the
+  right states).
+
 ## Unknown until the supervised live step
 
 Each with the smallest check that settles it (with the Mac's feeder stopped).
@@ -378,7 +397,7 @@ that run settled are marked.
 | The refresh token's lifetime | Renewal returns no new refresh token (settled). The lifetime is a pool setting we cannot read; it shows only when a renewal fails (Cognito's default is 30 days) |
 | ~~The id token's lifetime~~ | **Settled: 3,600 s** |
 | ~~Whether the server sends `connection_ack`, and `ka`'s interval~~ | **Settled: no `connection_ack`; `ka` every 60 s** |
-| Whether every `data` message carries every field | Through one visit, compare each message's keys with the model |
+| Whether every `data` message carries every field | Two visits came through correctly either way (above). To settle it, log each message's key count |
 | What an expired token looks like on GraphQL and on the open socket | Keep a socket open past the id token's expiry; make one query with an expired token |
 | Whether `endTimestamp` is honoured | Order and format are settled (above). Compare the entries returned with and without the bound |
 | ~~Chunked or compressed answers~~ | **Not seen** on the robots query; other answers were not inspected |
