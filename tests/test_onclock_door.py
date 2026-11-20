@@ -563,3 +563,165 @@ def test_the_door_under_micropython(tmp_path):
     for p, data in files_v2().items():
         assert (root / "slots" / "b" / p).read_bytes() == data
     assert sys.implementation.name == "cpython"
+
+
+# -- the door's memory: nothing unauthenticated allocates more than a few bytes -------------
+
+
+def test_a_bad_tag_on_a_full_body_gets_the_refusal(door):
+    s, line = raw_connect(door.port)
+    nonce = bytes.fromhex(line[len(d.GREETING):-1].decode())
+    s.sendall(signed(nonce, {"verb": "status"}, os.urandom(d.MAX_BODY), key=WRONG_KEY))
+    assert read_all(s) == d.REFUSAL
+    s.close()
+    with client(door) as c:
+        assert c.status()["ok"]
+
+
+def test_a_request_in_tiny_pieces_still_works(door):
+    s, line = raw_connect(door.port)
+    nonce = bytes.fromhex(line[len(d.GREETING):-1].decode())
+    data = signed(nonce, {"verb": "config-put"}, b'{"idle": {"page_pct": 5}}')
+    for i in range(len(data)):
+        s.sendall(data[i:i + 1])
+    f = s.makefile("rb")
+    (n,) = struct.unpack(">I", f.read(4))
+    assert json.loads(f.read(n))["ok"] is True
+    s.close()
+
+
+def test_one_request_at_a_time_and_a_slow_one_is_cut_off(door, monkeypatch):
+    """A request whose header has come in holds the one buffer until it is whole; one that
+    dawdles is cut off after the request deadline, and the others carry on."""
+    monkeypatch.setattr(d, "REQUEST_DEADLINE_S", 1.0)
+    slow, _ = raw_connect(door.port)
+    slow.sendall(struct.pack(">HI", 20, 1000) + b"x" * 10)  # then nothing
+    time.sleep(0.2)
+    t0 = time.monotonic()
+    with client(door) as c:
+        assert c.status()["ok"]
+    waited = time.monotonic() - t0
+    assert 0.5 < waited < 5, waited  # it waited for the slow one's deadline, no longer
+    assert read_all(slow) in (b"", d.REFUSAL)
+    slow.close()
+    assert wait_for(lambda: door.door.conns == 0)
+
+
+def test_the_request_buffer_is_made_once(root):
+    t = DoorThread(root)
+    try:
+        buf = t.door._buf
+        assert len(buf) == d.MAX_HEAD + d.MAX_BODY
+        with client(t) as c:
+            for _ in range(3):
+                c.status()
+        s, line = raw_connect(t.port)
+        nonce = bytes.fromhex(line[len(d.GREETING):-1].decode())
+        s.sendall(signed(nonce, {"verb": "status"}, b"y" * 1000, key=WRONG_KEY))
+        assert read_all(s) == d.REFUSAL
+        s.close()
+        assert t.door._buf is buf
+    finally:
+        t.stop()
+
+
+HEAP_DRIVER = """
+import sys
+sys.path.insert(0, {repo!r})
+sys.path.insert(0, {tests!r})
+import asyncio, gc
+import clockstub
+from arthur.onclock import door as d
+
+
+class App(clockstub.StubApp):
+    def status(self):
+        gc.collect()
+        return {{"heap": gc.mem_alloc(), "free": gc.mem_free()}}
+
+
+async def run():
+    app = App({root!r})
+    door = await d.start(app, {root!r}, "127.0.0.1", {port}, validate_config=lambda x: None)
+    door.bad_tag_delay = 0
+    print("door up", gc.mem_alloc())
+    return await app.run()
+
+sys.exit(asyncio.run(run()))
+"""
+
+
+def _barrage(port: int, kind: int) -> None:
+    """One unauthenticated request of one of four kinds, then the connection is closed."""
+    try:
+        s = socket.create_connection(("127.0.0.1", port), timeout=10)
+    except OSError:
+        return
+    try:
+        f = s.makefile("rb")
+        line = f.readline()
+        if not line.startswith(d.GREETING):
+            return  # over the connection limit: closed with no greeting
+        nonce = bytes.fromhex(line[len(d.GREETING):-1].decode())
+        if kind == 0:  # a full-size body under the wrong key
+            s.sendall(signed(nonce, {"verb": "status"}, os.urandom(d.MAX_BODY), key=WRONG_KEY))
+        elif kind == 1:  # announced larger than allowed
+            s.sendall(struct.pack(">HI", 65535, 0xFFFFFFFF))
+        elif kind == 2:  # garbage
+            s.sendall(os.urandom(200))
+        else:  # cut off half way through a big body
+            s.sendall(struct.pack(">HI", 20, d.MAX_BODY) + os.urandom(d.MAX_BODY // 2))
+        if kind in (2, 3):
+            s.shutdown(socket.SHUT_WR)  # the sender goes away mid-request
+        read_all(s)
+    except OSError:
+        pass
+    finally:
+        s.close()
+
+
+@pytest.mark.skipif(MPY is None, reason="micropython is not installed (brew install "
+                    "micropython): the door's memory was NOT tested as the clock runs it")
+def test_bad_requests_leave_the_heap_where_it_was_under_micropython(tmp_path):
+    """Four hundred unauthenticated requests (full-size bodies under the wrong key, oversize
+    announcements, garbage, bodies cut off half way), three connections at a time, against
+    the door under MicroPython in a 256 KiB heap: every one is refused, the door still
+    answers, and the heap after a collection is where it was before."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    root = make_root(tmp_path)
+    port = free_port()
+    drv = tmp_path / "heap_driver.py"
+    drv.write_text(HEAP_DRIVER.format(repo=str(REPO), tests=str(REPO / "tests"),
+                                      root=str(root), port=port))
+    proc = subprocess.Popen([MPY, "-X", "heapsize=256K", str(drv)], stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, cwd=tmp_path)
+    try:
+        c = None
+        end = time.monotonic() + 20
+        while c is None and time.monotonic() < end:
+            try:
+                c = DoorClient("127.0.0.1", port, KEY, timeout=20)
+            except OSError:
+                time.sleep(0.1)
+        assert c is not None, "the door under MicroPython never answered"
+        with c:
+            for _ in range(3):  # settle: the first answers allocate their own small things
+                c.status()
+            before = c.status()["app"]["heap"]
+        with ThreadPoolExecutor(3) as pool:
+            list(pool.map(lambda i: _barrage(port, i % 4), range(400)))
+        with DoorClient("127.0.0.1", port, KEY, timeout=20) as c:
+            for _ in range(3):
+                c.status()
+            after = c.status()["app"]["heap"]
+            c.restart()
+        assert proc.wait(20) == 42
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        out = proc.stdout.read().decode(errors="replace")
+    assert "Traceback" not in out and "MemoryError" not in out, out
+    print(f"door heap after a collection: {before} bytes before, {after} after 400 bad "
+          "requests")
+    assert abs(after - before) <= 256, (before, after)

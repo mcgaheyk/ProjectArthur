@@ -10,6 +10,13 @@ holds the Whisker login, so it is kept small and strict:
   fails gets one fixed refusal line and the connection is closed. Responses carry a tag too,
   so the Mac knows it talks to its clock.
 - Hard size limits on every part of a request; one that breaks them is refused and closed.
+- **Nothing unauthenticated costs memory.** A request is read into one buffer made when the
+  door starts (:data:`MAX_HEAD` + :data:`MAX_BODY` bytes), one request at a time across all
+  connections, and its tag is computed over that buffer as it stands; only after the tag has
+  passed are the head and the body copied out. Before that a request allocates nothing
+  larger than a few dozen bytes (its 6-byte header, small objects of the event loop), so
+  nobody on the Wi-Fi can fragment the program's heap, which MicroPython cannot compact.
+  The whole request must arrive within :data:`REQUEST_DEADLINE_S` once its header is in.
 - No verb runs a command or evaluates text. Writes go only to the inactive code slot
   (``<root>/slots/a|b/``), ``<root>/config.json`` and ``<root>/state.json``, through checked
   relative paths that never follow a symbolic link.
@@ -57,6 +64,9 @@ MAX_DEPTH = 6  # folders deep
 MAX_CONNECTIONS = 3  # at once; more are closed at once
 MAX_REQUESTS = 2000  # on one connection
 IO_TIMEOUT_S = 20  # for any one read
+REQUEST_DEADLINE_S = 30  # for the rest of a request once its 6-byte header has arrived
+READ_CHUNK = 512  # CPython reads a request in pieces this big (MicroPython reads in place)
+BAD_TAG_DELAY_S = 1.0  # after a bad tag, before the connection closes
 SESSION_IDLE_S = 120  # an unfinished transfer can be taken over after this
 FLASH_RESERVE = 2097152  # bytes a transfer must leave free on the clock's flash
 
@@ -72,6 +82,17 @@ class DoorError(Exception):
 
 
 # -- small helpers both Pythons can run ------------------------------------------------------
+
+
+def errors_kind(exc):
+    """None for the ways a connection normally ends (a timeout, a cut, garbage), else the
+    class name: those are logged."""
+    if isinstance(exc, (OSError, EOFError, ValueError)):
+        return None
+    name = type(exc).__name__
+    if name in ("TimeoutError", "CancelledError", "IncompleteReadError"):
+        return None
+    return name
 
 
 def hexstr(data):
@@ -315,6 +336,18 @@ class Door:
         self.app = app
         self.root = root
         self._key = key
+        # HMAC-SHA256's two padded keys, computed once (the tag is then computed in place).
+        k = bytes(key) + bytes(32)
+        self._ipad = bytes(b ^ 0x36 for b in k)
+        self._opad = bytes(b ^ 0x5C for b in k)
+        # The one request buffer, the tag's and the header's, made once: nothing a request
+        # sends before its tag has passed is held anywhere else.
+        self._buf = bytearray(MAX_HEAD + MAX_BODY)
+        self._mv = memoryview(self._buf)
+        self._tagbuf = bytearray(32)
+        self._tagmv = memoryview(self._tagbuf)
+        self._lock = asyncio.Lock()
+        self.bad_tag_delay = BAD_TAG_DELAY_S
         self._validate = validate_config
         self.reserve = reserve
         self.run_id = hexstr(os.urandom(8))
@@ -352,6 +385,38 @@ class Door:
     async def _read(self, reader, n):
         return await asyncio.wait_for(reader.readexactly(n), IO_TIMEOUT_S)
 
+    async def _fill(self, reader, mv, n):
+        """Read exactly ``n`` bytes into ``mv[:n]`` (a view of a fixed buffer). MicroPython
+        reads straight into the buffer; CPython (the tests) reads small pieces and copies."""
+        got = 0
+        while got < n:
+            if IS_MPY:
+                k = await asyncio.wait_for(reader.readinto(mv[got:n]), IO_TIMEOUT_S)
+            else:
+                piece = await asyncio.wait_for(reader.read(min(n - got, READ_CHUNK)),
+                                               IO_TIMEOUT_S)
+                k = len(piece)
+                mv[got:got + k] = piece
+                piece = None
+            if not k:
+                raise EOFError("connection closed in a request")
+            got += k
+
+    async def _request(self, reader, nonce, hdr, hlen, blen):
+        """The rest of one request (head, body, tag) into the fixed buffers; True if its tag
+        is right. Holds the door's lock (one request at a time)."""
+        n = hlen + blen
+        await self._fill(reader, self._mv, n)
+        await self._fill(reader, self._tagmv, 32)
+        inner = hashlib.sha256(self._ipad)
+        inner.update(REQ_TAG)
+        inner.update(nonce)
+        inner.update(hdr)
+        inner.update(self._mv[:n])
+        outer = hashlib.sha256(self._opad)
+        outer.update(inner.digest())
+        return ct_equal(self._tagbuf, outer.digest())
+
     async def _serve(self, reader, writer):
         if self.conns >= MAX_CONNECTIONS:
             await self._close(writer)
@@ -370,10 +435,13 @@ class Door:
                 if hlen == 0 or hlen > MAX_HEAD or blen > MAX_BODY:
                     await self._refuse(writer, False)
                     break
-                head = await self._read(reader, hlen)
-                body = await self._read(reader, blen) if blen else b""
-                tag = await self._read(reader, 32)
-                if not ct_equal(tag, hmac_sha256(self._key, REQ_TAG + nonce + hdr + head + body)):
+                async with self._lock:
+                    ok = await asyncio.wait_for(
+                        self._request(reader, nonce, hdr, hlen, blen), REQUEST_DEADLINE_S)
+                    if ok:  # authenticated: copy out before the next request reuses it
+                        head = bytes(self._mv[:hlen])
+                        body = bytes(self._mv[hlen:hlen + blen]) if blen else b""
+                if not ok:
                     await self._refuse(writer, True)
                     break
                 # Authenticated from here on.
@@ -390,6 +458,7 @@ class Door:
                 except Exception as exc:  # noqa: BLE001 - report, never crash the program
                     res = {"ok": False, "error": "internal error: " + type(exc).__name__}
                     self._log("ERROR", "door: " + type(exc).__name__ + " " + str(exc)[:200])
+                head = body = None
                 new = os.urandom(16)
                 res["nonce"] = hexstr(new)
                 out = json.dumps(res).encode()
@@ -402,8 +471,9 @@ class Door:
                 nonce = new
                 if after is not None:
                     after()
-        except (TimeoutError, OSError, EOFError, ValueError):
-            pass
+        except Exception as exc:  # noqa: BLE001 - a timeout, a cut, garbage: close quietly
+            if errors_kind(exc) is not None:
+                self._log("ERROR", "door connection: " + type(exc).__name__)
         finally:
             self.conns -= 1
             await self._close(writer)
@@ -413,8 +483,8 @@ class Door:
         try:
             writer.write(REFUSAL)
             await writer.drain()
-            if bad_tag:
-                await asyncio.sleep(1)  # slows guessing; the key is 256 bits anyway
+            if bad_tag and self.bad_tag_delay:
+                await asyncio.sleep(self.bad_tag_delay)  # slows guessing; the key is 256 bits
         except OSError:
             pass
 
@@ -473,7 +543,8 @@ class Door:
             free = None
         return {"ok": True, "door": VERSION, "run": self.run_id, "app": self.app.status(),
                 "running": self.running, "active": st["active"], "tries": st["tries"],
-                "halted": st.get("halted"), "restart_pending": self.restart_pending,
+                "halted": st.get("halted"), "errors": st.get("errors") or {},
+                "restart_pending": self.restart_pending,
                 "slots": {s: slot_id(self.root, s) for s in SLOTS}, "config": cfg,
                 "free": free, "transfer": self.session.id if self.session else None}
 
