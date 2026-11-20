@@ -12,7 +12,7 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
 - **The clock is live.** The feeder (`python -m arthur.feeder`) has been **running on Kyle's
-  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, at 09:10 on 2026-11-18 after the push bench, at 13:47 that day after Kyle watched in use on the clock, at 18:04 from Terminal after a 42-minute outage, D-0024, at 08:56 on 2026-11-19 for the gap rule, D-0025, at 12:46 on 2026-11-20 after a 58-minute stop for the no-Pi tests, D-0029, at 14:00 that day after a five-minute stop for the first live check of our own Whisker client, at 14:08 for the shared code, D-0029, at 14:58 for the reorganised log code, and at 15:10 and 15:15 on our own Whisker client, below), detached under `caffeinate`, against the real robot and
+  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, at 09:10 on 2026-11-18 after the push bench, at 13:47 that day after Kyle watched in use on the clock, at 18:04 from Terminal after a 42-minute outage, D-0024, at 08:56 on 2026-11-19 for the gap rule, D-0025, at 12:46 on 2026-11-20 after a 58-minute stop for the no-Pi tests, D-0029, at 14:00 that day after a five-minute stop for the first live check of our own Whisker client, at 14:08 for the shared code, D-0029, at 14:58 for the reorganised log code, and at 15:10, 15:15 and 18:26 on our own Whisker client, below), detached under `caffeinate`, against the real robot and
   the real clock (D-0018). It logged in, read the robot and showed idle; the clock's screen
   read-back matched our render of the robot's state on all 832 pixels. **No real visit has
   been watched on the clock yet.** It stops on a Mac restart and the clock shows the stale
@@ -36,7 +36,7 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
   **never from a Claude session's shell**: the 13:47 copy lost the clock (not the robot) at
   17:22, when the session that started it closed, and the clock showed the stale border until
   18:04 (D-0024). Never run a second copy, or `scripts/spike_log.py`, on the same account.
-- **Built and tested (4,014 tests):**
+- **Built and tested (4,049 tests):**
   - Feeder: `arthur/feeder.py` (the loop), `arthur/pusher.py` (when to push),
     `arthur/sources/whisker.py` (the one Whisker connection). On a login or API failure it
     shows NO DATA and retries; it reloads `config/display.toml` when the file changes; it
@@ -216,9 +216,24 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
   - **The clock's own program, in `main`, never run on the real clock:**
     `arthur/onclock/app.py` (the loop, the push to AWTRIX on 127.0.0.1, the weather, each
     scene's plan built 0.875 s before its slot, a log kept in memory). Under MicroPython on
-    the Mac every frame it pushed matched CPython's, with a scripted source. **The pieces
-    are not joined yet** (branch `onclock/join` is doing it): the boot script cannot build
-    the real source, and nothing starts the door.
+    the Mac every frame it pushed matched CPython's, with a scripted source.
+  - **The pieces are joined into one program, in `main`, never run on the real clock.** The
+    launcher, the boot script, the program, the Whisker source (login from
+    `secrets.json` on the clock, D-0030) and the update door start as one. Run as installed
+    under MicroPython on the Mac and on an emulated ARM clock, against a fake Whisker, a
+    fake AWTRIX and a fake weather service: a real visit drawn frame for frame as CPython
+    draws it, a colour change pushed from the Mac showing in about half a second with no
+    restart, a code change taking over in a few seconds, a broken update falling back to
+    the previous copy by itself, pause and resume, and the log pulled back and replayed by
+    the studio's reader. No secret appears in any log, status or door answer. The door now
+    reads every request into one buffer made at start. The launcher gives MicroPython a
+    3 MB heap; the largest heap in use over a compressed day was 1.1 MB.
+    **Known weak points:** (1) speed is only estimated: if the clock is 25 to 30 times
+    slower than the Mac for the whole beat, a scene will drop frames while the source
+    reconnects or logs in (`status` reports the beat times once it runs there); (2) a
+    `config.json` the new code rejects stops both code slots, and then only USB reaches
+    the clock; (3) the log is kept in memory and is lost at every restart unless the Mac
+    is following it.
     To harden first: the door reads up to 32 KB of a request before it can check the
     signature; give it one fixed buffer.
   - **Cloud relay (not chosen):** the feeder's image (`deploy/feeder/Dockerfile`) logged in
@@ -298,8 +313,11 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
      interruption; and one real password login;
    - each scene's plan built ahead of its first frame, in pieces, during the frames before
      it: the rat's is an estimated 150 to 170 ms on the clock in one go;
-   - the clock's program joined to the source, the door and the boot script, the door's
-     buffer hardened, and the whole thing run end to end without hardware (`onclock/join`);
+   - **the first install on the real clock** (`scripts/clock.py`, order in
+     `docs/reference/onclock.md`): stop the Mac's feeder first, since the program connects
+     to Whisker as soon as it starts; then read the beat times from `status`;
+   - after that: keep the last good `config.json` so a bad one cannot stop both slots; keep
+     the log across restarts; make Whisker work wait for a quiet screen if beats run late;
    - trials on the clock: a real visit, a token renewal, a Wi-Fi outage, a cold boot, an
      AWTRIX restart and 48 hours, then the way back to the Mac rehearsed once.
    Kyle: delete the Railway project `ProjectArthur` (it holds the Whisker login) unless the
