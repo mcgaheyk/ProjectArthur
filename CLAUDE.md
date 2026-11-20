@@ -77,10 +77,11 @@ asked to set this up for someone follows `docs/agent-setup.md`.
   `uv run pytest tests/test_micropython.py` (it needs `micropython` on PATH and says it
   did not run without it); a change to a shared module is not done until it passes. For the
   three `sources/` modules the check is `uv run pytest tests/test_wire_source_micropython.py`.
-  The on-clock code, `arthur/onclock/` (the program, `app.py`, and the update door,
-  `door.py`) and `arthur/wire/`, follows the same rules and runs under both too
-  (`tests/test_onclock_door.py`; the program end to end under MicroPython:
-  `tests/test_onclock_mpy.py`). The lists
+  The on-clock code, `arthur/onclock/` (the program, `app.py`, its robot source,
+  `source.py`, and the update door, `door.py`) and `arthur/wire/`, follows the same rules
+  and runs under both too (`tests/test_onclock_door.py`; the program end to end under
+  MicroPython: `tests/test_onclock_mpy.py`, and as installed, launcher, boot, real source and
+  door against the fakes: `tests/test_onclock_e2e.py`). The lists
   are data in `arthur/tools/onclock_files.py`, which also decides what goes into a code slot
   on the clock; `tests/test_portable.py` checks that they match this paragraph and that every
   `arthur` import in a slot resolves inside the slot. `deploy/clock/boot.py` (stage 0 on the

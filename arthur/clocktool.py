@@ -578,7 +578,8 @@ class LogSink:
         if kind == "console":
             when = _local_dt(line.get("ts"))
             text = (f"{when:%Y-%m-%d %H:%M:%S},{when.microsecond // 1000:03d} "
-                    f"{line.get('level', 'INFO')} {line.get('name', 'arthur.clock')}: "
+                    f"{str(line.get('level', 'INFO')).upper()} "
+                    f"{line.get('name', 'arthur.clock')}: "
                     f"{line.get('msg', '')}")
         else:
             when = datetime.now().astimezone()
@@ -695,8 +696,10 @@ PIDF=/tmp/awtrix-release/autostart.pid
 [ "$1 $2" = "ctl restart-autostart" ] || { echo "stub: only 'ctl restart-autostart'"; exit 2; }
 if [ -f $PIDF ]; then kill "$(cat $PIDF)" 2>/dev/null; rm -f $PIDF; fi
 A=/data/awtrix-ng/state/autostart
+# Tests only: the end-to-end run points the program at its fakes through this file.
+T=$(cat /tmp/awtrix-release/arthur-test.json 2>/dev/null)
 if [ -f "$A" ] && [ ! -L "$A" ] && [ "$(stat -c %a "$A")" = 700 ]; then
-  env -i PATH=/bin:/sbin:/usr/bin:/usr/sbin HOME=/data "$A" >>$LOG 2>&1 &
+  env -i PATH=/bin:/sbin:/usr/bin:/usr/sbin HOME=/data ARTHUR_ONCLOCK_TEST="$T" "$A" >>$LOG 2>&1 &
   echo $! >$PIDF
   echo "stub daemon: autostart started, pid $!" >>$LOG
 else

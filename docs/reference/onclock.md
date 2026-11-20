@@ -24,7 +24,7 @@ folder.
 | `ROOT/state.json` | active slot, failed starts, errors, halted | boot.py, the door |
 | `ROOT/config.json` | the exported config (`arthur.tools.export_config`), outside the slots so a colour or caption needs no new slot | `install`, the door |
 | `ROOT/secrets.json` | mode 600: `whisker_username`, `whisker_password` (D-0030), `door_key` (64 hex digits) | `install` only |
-| `ROOT/tokens.json` | Whisker's tokens | the program (the wire source) |
+| `ROOT/tokens.json` | Whisker's tokens (`access_token`, `id_token`, `refresh_token`), written whole (temporary file and rename) and **only when the refresh token changes**, i.e. after a password login; an hourly renewal never writes the flash | the program (`arthur/onclock/source.py`) |
 | `/tmp/arthur/` | RAM: `boot.txt` (boot's notes), `console.log` and `console.prev.log` (the program's stdout and stderr, from the launcher), `booted` (the power-on marker) | the launcher, boot.py |
 
 A slot's `manifest.json` is canonical JSON, `{"v": 1, "files": {path: [sha256, size]}}`,
@@ -40,7 +40,8 @@ door refuses a transfer on the same rule.
 
 ## Starting up
 
-**The launcher** (`autostart.sh`, shell builtins plus `mkdir` and `cp`): makes `/tmp/arthur`,
+**The launcher** (`autostart.sh`, shell builtins plus `mkdir` and `cp`): sets `umask 077`
+(what the program writes, `tokens.json` above all, is root's alone), makes `/tmp/arthur`,
 keeps the last console as `console.prev.log`, and runs
 `ROOT/micropython -X heapsize=3M ROOT/boot.py ROOT /tmp/arthur` in a loop. Exit 42 starts it
 again at once; any other code is the launcher's own exit code, for the daemon (0: stay off
@@ -56,19 +57,28 @@ row). SIGTERM, SIGINT or SIGHUP to the launcher stops the program too. `install`
    is whole (the fall-back makes it the active one). Neither: writes `halted` and exits 3.
 3. Counts the start in `state.json` **before** importing anything from the slot.
 4. Puts `slot/` and `slot/lib/` first on `sys.path`, imports `arthur.onclock.main` and runs
-   `asyncio.run(main(ROOT, source_factory))`.
-5. **Health:** after 120 s, and then every 15 s until it works, it connects to the door on
-   127.0.0.1 and reads its greeting. The first time it does, the slot's count goes back to 0
-   and its error is cleared. Why the door and not a call the program makes: it needs nothing
-   in the contract, it checks the event loop is turning, and it checks the one thing a
-   fall-back is for: a program whose door answers can be fixed from the Mac, so it is not
-   "failed" even if something else is wrong; a program whose door never opens can only be
-   fixed by the cable, so it is left counted. A program is never killed for being unhealthy.
+   `asyncio.run(main(ROOT, source_factory))`. `source_factory` imports
+   `arthur.onclock.source` from the slot and calls its `make_source(**kwargs)`; only that
+   name is fixed in boot.py.
+5. **Health:** after 120 s, and then every 15 s until it is, it asks two things: does the
+   door answer on 127.0.0.1 with its greeting, and does the program say it is drawing
+   (`healthy()` in the slot's `arthur.onclock.main`: not paused, and a frame reached AWTRIX
+   within the last 60 s). Both yes: the slot's count goes back to 0 and its error is cleared.
+   A door that answers while nothing is drawn is noted once in `boot.txt`. Why both: the door
+   answering means the program can be fixed from the Mac; drawing means it is doing its job.
+   A program that can be fixed but cannot draw (a transport broken by new code, say) must
+   not wipe its count, or a fall-back could never happen. A program without `healthy()` (an
+   older slot, the tests' stub) is judged by its door alone. A program is never killed for
+   being unhealthy: it stays counted, so its next start (a crash, a restart, a power cycle)
+   brings the fall-back closer. Paused from the Mac counts as not drawing, so a slot is not
+   called healthy while paused; the probe carries on and passes after `resume`.
 6. `main` returns 0 (stop: exit 0) or 42 (exit 42: the launcher starts it again). An import
-   error or an exception from `main` is written to `state.json` (`errors.<slot>`, 200
-   characters at most), and after 5 s boot exits 42, so the launcher (not the daemon) starts
-   it again and the count decides. A crash that kills the process (a signal) reaches the
-   daemon; the count still works across those starts.
+   error, an exception from `main`, **or any other exit code** (`main` itself catches what
+   fails inside it, prints the traceback to the console and returns 1) is written to
+   `state.json` (`errors.<slot>`, 200 characters at most: `import: ...`, `run: ...` or
+   `run: exited with 1 (see console.log)`), and after 5 s boot exits 42, so the launcher
+   (not the daemon) starts it again and the count decides. A crash that kills the process (a
+   signal) reaches the daemon; the count still works across those starts.
 7. **Both slots spent:** `halted` is written once and boot exits 3 at every start after that
    without writing again, so the daemon's back-off ends it. The first start after a power-on
    (no `/tmp/arthur/booted`) clears `halted` and gives both slots one more round, in case the
@@ -83,9 +93,63 @@ them over the cable.
 **Writes to the flash:** one small `state.json` per start, one when healthy, one per recorded
 error; none while halted. A restart from the Mac or a new bundle adds one (the door).
 
-**The integration point:** `boot.source_factory(*args, **kwargs)` imports
-`arthur.sources.wire_source` from the slot and calls its `make_source(...)`. The names are a
-placeholder until that module lands (marked in boot.py).
+**Tests only:** boot.py and `main` read `ARTHUR_ONCLOCK_TEST` (a JSON object) from the
+environment, which points the program at fakes and shortens boot's waits (`door_port`,
+`healthy_after`, `probe_every`, `crash_pause`; for `main` also `awtrix`, `ca_file`,
+`server_name`, `weather_url`, `lr4_url`, `cognito_url`, `door_host`, `client`). The daemon
+starts the launcher with a clean environment (assumed; the emulated daemon does, and passes
+the variable only from a test file), so on the clock it is always empty.
+
+## How the pieces join
+
+In the order they happen at each start:
+
+1. **The launcher** (`autostart.sh`) runs `micropython -X heapsize=$HEAP boot.py ROOT TMP`.
+2. **boot.py** picks and counts the slot, imports `arthur.onclock.main` from it and starts the
+   health watch beside `main`.
+3. **`main(root, source_factory)`** (`arthur/onclock/main.py`), in order: the log ring
+   (`ClockLog`, 128 KB of JSON text); `ROOT/config.json` (a file that does not load ends the
+   start with exit 1, a counted failure); one `Tls` for the CA bundle, shared by Whisker and
+   the weather; the robot source, `source_factory(cfg=, log=, tls=, root=)` (boot hands
+   `arthur.onclock.source.make_source` through); the `ClockApp`, whose version is the slot's
+   **bundle id** (read from the `manifest.json` next to the `arthur` package it was imported
+   from; `0.1-dev` outside a slot); the door (`door.start(app, root)`: without a valid key in
+   `secrets.json` it logs "the update door stays closed" and the program runs without it; a
+   port already taken is logged the same way); then `app.run()`.
+4. **`ClockApp.run`**: loads the fonts, the art and the CA bundle while the heap is in one
+   piece; waits for AWTRIX's API; starts the source and the weather as tasks; then the beat.
+5. **The source** (`ClockSource` in `arthur/onclock/source.py`), on its first run: waits
+   until the system time is past 2026-01-01 (a clock booted without Wi-Fi may think it is
+   1970; TLS would refuse every certificate as not yet valid and each try would count as a
+   failed login), checking every 2 s and saying so once; reads the login from
+   `secrets.json` (missing, unreadable or without both values: NO DATA with the `auth`
+   reason, an `error` line at `login`, and the file read again after 600 s, doubling to an
+   hour); builds the `WireSource` with the token file, the log ring as its sink and the
+   console lines into the ring; then the wire source's connection (token, else a password
+   login in 4-bit slices; the live subscription; polls; the history at start).
+6. **Pause and resume** (the door): `pause()` stops pushing and stops the source task, which
+   closes the live connection (the Mac's feeder may then take the screen and the account).
+   `resume()` starts the task again; a second run calls `WireSource.forget_contact()`: the
+   last record is dropped (NO DATA until the first contact, never the old state as if
+   current) and the first contact is the end of a gap in watching (D-0025) however short, so
+   the history is read and the last visit can move. The tracker keeps the last visit. A
+   source task that died of a bug and is restarted takes the same path.
+
+**The log line shapes**, as they come out of the door and as `scripts/clock.py logs pull`
+writes them on the Mac (checked by `tests/test_onclock_e2e.py`, which replays the pulled
+files through the studio's reader):
+
+| From | `kind` | Shape | On the Mac |
+|---|---|---|---|
+| the wire source | `state`, `info`, `error` | the spike's lines (`arthur.sources.spikeformat`) | `logs/spike-YYYYMMDD.jsonl` |
+| the wire source | `activity` | `{"fetched", "kind", "timestamp", "action", "code"?}` | `logs/spike-activity-YYYYMMDD.jsonl` |
+| the clock source, no login | `error` | `where: "login"`, `retry_in`, a message naming the file, never a value from it | `logs/spike-*.jsonl` |
+| the app | `console` | `ts` (`...mmmZ`), `level` (lower case), `msg`, `trace`? (no `name`) | `feeder-console.log`, as `arthur.clock`, level upper-cased |
+| the source | `console` | the same with `name: "arthur.whisker"` | `feeder-console.log` |
+| the door | `console` | the same with `name: "arthur.door"`, level upper case | `feeder-console.log` |
+
+Everything printed (the app's and the source's lines, boot's notes, tracebacks) also goes to
+`/tmp/arthur/console.log`.
 
 ## The program's side (the contract)
 
@@ -98,9 +162,20 @@ class ClockApp:
     def reload_config(self) -> None     # read <root>/config.json again
     def request_restart(self) -> None   # run() returns 42 at the next beat
     def request_stop(self) -> None
+    def drawing(self, within_s) -> bool  # not paused, a frame pushed within within_s
     log: ClockLog                       # .append(line) -> seq ; .read(after_seq, max_bytes)
-arthur/onclock/main.py:  async def main(root, source_factory) -> int
+arthur/onclock/main.py:  async def main(root, source_factory, *, ca_file=None,
+                             base_url=None, log_bytes=..., door_port=None,
+                             settings=None) -> int
+                         def healthy() -> bool   # for boot.py's health probe
+arthur/onclock/source.py: def make_source(*, cfg, log, tls, root, **kw) -> ClockSource
 ```
+
+`status()` also carries, for the Mac: `version` (the bundle id), `heap_after_gc` and
+`heap_after_gc_max` (the heap in use just after the scheduled collections), `beats` and `gc`
+(milliseconds of work per beat by what was drawn, mean and worst), `late_beats` (beats whose
+work took over 125 ms), `woke_late` and `worst_late` (beats that woke over 20 ms after their
+tick, and the eight worst as `[epoch s, ms]`: what blocked the loop).
 
 The program opens the door with `door = await arthur.onclock.door.start(app, root)` (port
 7531 on every interface; raises `DoorError` without a valid key in `secrets.json`, and the
@@ -119,8 +194,11 @@ program should carry on without it) and closes it with `door.close()`. The tests
   `logs/feeder-console.log` as the feeder's logging writes them; anything else goes there as
   JSON.
 - A config the door has installed has passed `arthur.config.config_from_json` (or, with a
-  bundle, came from the Mac's export with the same code); the program should still survive a
-  bad one, since both slots read the same `config.json`.
+  bundle, came from the Mac's export with the same code). **The program does not survive a
+  bad one at start**: `main` returns 1, a counted failure, and both slots read the same
+  `config.json`, so a bad file would halt both. A `config-put` of a bad file is refused; a
+  reload of one keeps the last good config. Only a bundle's config is not checked by the
+  code that will read it (see Not done).
 
 ## The update door
 
@@ -138,12 +216,34 @@ door → Mac   struct ">I" (length) + answer (JSON, with "ok" and the next chall
 
 The tag is checked (in constant time) before the head is parsed. A bad tag, or lengths over
 the limits, get exactly `b"ARTHUR-DOOR/1 NO\n"` and the connection closes (after 1 s for a
-bad tag). Every read times out after 20 s; at most 3 connections at once (more are closed
-with no greeting) and 2,000 requests each. The Mac checks the answer's tag.
+bad tag). Every read times out after 20 s, and once a request's 6-byte header is in, the
+rest of it must arrive within 30 s; at most 3 connections at once (more are closed with no
+greeting) and 2,000 requests each. The Mac checks the answer's tag.
+
+**The door's buffers: nothing unauthenticated costs memory.** MicroPython's heap cannot be
+compacted and the program has a few MiB, so a request is never read into memory of its own
+before it is known to be the Mac's. The door makes, once, when it opens: one request buffer
+of 34,816 bytes (`MAX_HEAD` + `MAX_BODY`), a 32-byte tag buffer, and the HMAC key's two
+padded blocks. For each request it reads the 6-byte header (the one allocation before the
+tag, beside the event loop's own small objects), checks the lengths, then takes the door's
+one lock: **one request at a time across all connections**. The head, body and tag are read
+straight into the fixed buffers (`readinto` on MicroPython; CPython, in the tests, reads
+512-byte pieces and copies them in), and the tag is computed over the buffer as it stands
+(SHA-256 updated over a view of it, inside the precomputed HMAC blocks). Only after the tag
+has passed are the head and the body copied out, and the lock let go. A connection that
+sends a header and then dawdles holds the lock until its 30 s deadline, then is closed; the
+others wait for it, no longer. Proven under MicroPython (`tests/test_onclock_door.py`,
+`test_bad_requests_leave_the_heap_where_it_was_under_micropython`): 400 unauthenticated
+requests, three connections at a time, in a 256 KiB heap (full 32 KB bodies under the wrong
+key, oversize announcements, garbage, bodies cut off half way) left the heap after a
+collection at 86,784 bytes before and 86,848 after (one small object the first answers
+create), with every request refused and the door still answering. Before this change each
+request's body was read into a new 32 KB string and copied once more into the tag's input.
+The cost: the program's heap is 34 KB larger from the start.
 
 | Verb | Body | Does |
 |---|---|---|
-| `status` | | the app's `status()`, the running and active slot, both bundle ids, the config id, tries, halted, free flash |
+| `status` | | the app's `status()`, the running and active slot, both bundle ids, the config id, tries, each slot's last error (`errors`), halted, free flash |
 | `config-put` | the config JSON | checks it with `config_from_json`, replaces `config.json` (temporary file and rename), calls `reload_config()` |
 | `bundle-begin` | the manifest | checks it (paths, sizes, at most 256 files, 256 KiB a file, 2 MiB a slot, 2 MiB left free), deletes the inactive slot's manifest (the slot is unusable from here), answers which files the inactive slot lacks by hash |
 | `bundle-file` | a chunk (`path`, `offset`) | appends to `<file>.part` in order; when whole and its hash matches, renames it into place |
@@ -180,8 +280,9 @@ trip per connection, which the greeting already is. The random bits come from `g
 Someone on the home Wi-Fi **without the key** can:
 - see that port 7531 is open and read the greeting (a protocol name and a random challenge);
 - tie up the door: hold the 3 connections (each read times out after 20 s, but they can
-  reconnect), so the Mac cannot get in for as long as they keep at it. The display itself
-  keeps running;
+  reconnect), or send a header and dawdle so the one request buffer stays theirs for up to
+  30 s at a time, so the Mac cannot get in for as long as they keep at it. The display
+  itself keeps running, and the door's memory does not grow;
 - send garbage: it gets the fixed refusal and a closed connection; nothing is parsed.
 
 They cannot: run any verb, read the status, logs or anything else, change a slot or the
@@ -288,3 +389,15 @@ source instead.
   about 290 KB at each start) costs on the clock: estimated at tens of milliseconds.
 - `adb push` keeps a mode-600 file's mode in `/tmp`, and `umask` in the clock's `sh` applies
   to `cp`; `secrets.json` is `chmod 600` after the copy either way.
+- The daemon starts the launcher with a clean environment (no `ARTHUR_ONCLOCK_TEST`), and
+  `umask` is a builtin of the clock's `sh`.
+- The system time is set from the network soon after a boot with Wi-Fi; until it is past
+  2026-01-01 the program shows NO DATA and does not try Whisker. With no network time at all
+  it would wait for ever, saying so once in the console.
+- MicroPython's `os.getenv` and `Stream.readinto` exist in the clock's build (they do in the
+  Mac's 1.29 and in the static ARMv7 build under emulation).
+- Real Whisker and Cognito answer within the client's timeouts and the TLS handshakes cost
+  what the fake's 2048-bit RSA chain costs (the real chains are longer: more verification
+  work per handshake, not measured).
+- The clock's own speed: every figure for the clock in this note is the Mac's MicroPython
+  times 25 to 30 (the spike's ratio), an estimate.
