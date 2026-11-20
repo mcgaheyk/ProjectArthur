@@ -306,22 +306,42 @@ The feeder's live source also needs `cycle_count` (D-0025) and the activities as
 - The ARMv7 build has double-precision floats and a 31-bit small int; epoch seconds keep
   microseconds.
 
+## Seen from the real service (2026-11-20, 13:55 to 14:00 Boston time)
+
+`scripts/wire_check.py --minutes 5` ran once from Kyle's Mac with the feeder stopped, under
+CPython, from the saved token. No password login was tried and nothing was written back.
+
+- **Our User-Agent is accepted.** `getLitterRobot4ByUser` answered 200 with
+  `application/json; charset=UTF-8`, 2,395 bytes, neither chunked nor compressed. The record
+  our client built from it read as the feeder's did that day (`READY`, drawer 15, litter 90).
+- **Renewal** (`REFRESH_TOKEN_AUTH`) returned `AccessToken`, `IdToken`, `ExpiresIn` and
+  `TokenType`: **no new refresh token**, so the saved one stays in use. `ExpiresIn` is 3600 and
+  both the id and the access token live 3,600 s. The id token carries `mid`.
+- **History** comes **newest first**. Its `timestamp` looks like
+  `2026-11-20 13:31:05.702000000`: a space, and nine decimal places. A request with an
+  `endTimestamp` was answered without error and returned entries; that the bound was honoured
+  was not checked.
+- **The socket** accepted the `graphql-ws` subprotocol and sent `start_ack` once, then `ka`
+  every 60 s (gaps of 60.1, 59.9 and 60.0 s). It sent **no `connection_ack`**. The robot was
+  idle for the five minutes, so no `data` message was seen.
+
 ## Unknown until the supervised live step
 
 Each with the smallest check that settles it (with the Mac's feeder stopped).
 `scripts/wire_check.py` makes all but the last two in one run, read-only, from the saved
 token (`uv run --env-file .env python scripts/wire_check.py --minutes 5`); it prints no token,
-user id or serial. It has only ever run against the fake (`tests/test_wire_check_script.py`).
+user id or serial. It ran once against the real service on 2026-11-20 (section above); the rows
+that run settled are marked.
 
 | Unknown | Check |
 |---|---|
-| Whisker accepts our User-Agent | One `getLitterRobot4ByUser` with our client: 200, not 403 |
-| The refresh token's lifetime; whether renewal returns a new refresh token | Renew once; note whether `RefreshToken` comes back. The lifetime is a pool setting we cannot read; it shows only when a renewal fails (default 30 days) |
-| The id token's lifetime | Decode `exp - iat` of a fresh id token (Cognito's default is 1 hour) |
-| Whether the server sends `connection_ack`, and `ka`'s interval | Hold the socket 5 minutes, count message types and their spacing |
+| ~~Whisker accepts our User-Agent~~ | **Settled: accepted** |
+| The refresh token's lifetime | Renewal returns no new refresh token (settled). The lifetime is a pool setting we cannot read; it shows only when a renewal fails (Cognito's default is 30 days) |
+| ~~The id token's lifetime~~ | **Settled: 3,600 s** |
+| ~~Whether the server sends `connection_ack`, and `ka`'s interval~~ | **Settled: no `connection_ack`; `ka` every 60 s** |
 | Whether every `data` message carries every field | Through one visit, compare each message's keys with the model |
 | What an expired token looks like on GraphQL and on the open socket | Keep a socket open past the id token's expiry; make one query with an expired token |
-| The history's order and its `timestamp` format; whether `endTimestamp` works and in what format | One history request with `limit` 5 and a start; one with an `endTimestamp` |
-| Whether the server ever sends `Transfer-Encoding: chunked` or compresses despite `identity` | Seen in the first answers |
+| Whether `endTimestamp` is honoured | Order and format are settled (above). Compare the entries returned with and without the bound |
+| ~~Chunked or compressed answers~~ | **Not seen** on the robots query; other answers were not inspected |
 | Whether a password login by our SRP is accepted | One login. Only if the refresh token is already dead; it costs a login on the account |
 | Cognito's answer to an SRP login from the clock's slow arithmetic | The challenge's timestamp must be close to Cognito's clock; the clock's time was exact on 2026-11-20 |

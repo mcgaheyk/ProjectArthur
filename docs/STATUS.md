@@ -12,7 +12,7 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
 - **The clock is live.** The feeder (`python -m arthur.feeder`) has been **running on Kyle's
-  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, at 09:10 on 2026-11-18 after the push bench, at 13:47 that day after Kyle watched in use on the clock, at 18:04 from Terminal after a 42-minute outage, D-0024, at 08:56 on 2026-11-19 for the gap rule, D-0025, and at 12:46 on 2026-11-20 after a 58-minute stop for the no-Pi tests, D-0029), detached under `caffeinate`, against the real robot and
+  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, at 09:10 on 2026-11-18 after the push bench, at 13:47 that day after Kyle watched in use on the clock, at 18:04 from Terminal after a 42-minute outage, D-0024, at 08:56 on 2026-11-19 for the gap rule, D-0025, at 12:46 on 2026-11-20 after a 58-minute stop for the no-Pi tests, D-0029, and at 14:00 that day after a five-minute stop for the first live check of our own Whisker client), detached under `caffeinate`, against the real robot and
   the real clock (D-0018). It logged in, read the robot and showed idle; the clock's screen
   read-back matched our render of the robot's state on all 832 pixels. **No real visit has
   been watched on the clock yet.** It stops on a Mac restart and the clock shows the stale
@@ -166,9 +166,15 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
     MicroPython with pixels identical to the Mac's: 16 ms a frame for the home screen, 11 ms
     for the bird scene once its plan is built once and kept (93 ms as written), 1.5 MiB of
     memory, ten minutes at 8 a second with 1 beat missed of 4,800, TLS working, and a cold
-    boot with the cable out. **Only a slice has run there.** There is no Whisker connection
-    for MicroPython yet, the rest of the code has not been ported, and nothing of ours is on
-    the clock now.
+    boot with the cable out. **Only a slice has run there.** The rest of the code has not
+    been ported, and nothing of ours is on the clock now.
+  - **Our own Whisker client is in `main`** (`arthur/wire/`, read-only, no outside libraries,
+    the same code on CPython and MicroPython; protocol in `docs/reference/whisker-wire.md`).
+    Nothing uses it yet. It is tested against a fake Whisker, and on 2026-11-20 it made its
+    first real contact from the Mac (`scripts/wire_check.py`): Whisker accepted our
+    User-Agent, the token renewed, the robot and the history read correctly, and the live
+    socket held for five minutes. **No live update has been seen through it** (the robot was
+    idle), its password login has never been tried for real, and it has not run on the clock.
   - **Cloud relay (not chosen):** the feeder's image (`deploy/feeder/Dockerfile`) logged in
     to Whisker from Railway and read the robot for 43 minutes with no error. No visit
     happened, so live events from a data centre are unproven. **A Railway project
@@ -241,9 +247,9 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
    guesses about the clock are at the end of `docs/reference/awtrix-ng.md`.
 4. **The on-clock build (D-0029), with Claude.** The Mac's feeder stays live until the last
    step passes. In order:
-   - a Whisker connection that runs under MicroPython (login, token renewal, the live
-     subscription, the five-minute poll, the history), tested against a fake Whisker and then
-     through one real visit. This is the biggest unknown;
+   - the Whisker client (`arthur/wire/`, built) seen through one real visit: whether each
+     live update carries every field, on which the visit rule (D-0017) depends; and one real
+     password login;
    - `arthur/` itself made to run on both Pythons, with every golden frame compared under
      MicroPython in the test suite, the scenes' plans built once per play, a seeded generator
      of our own, and Boston's clock time without a time-zone library;
