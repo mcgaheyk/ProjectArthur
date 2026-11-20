@@ -651,10 +651,18 @@ def test_a_bad_bundle_falls_back(e2e, name, why):
 def test_pause_lets_the_mac_take_the_screen_then_resume(e2e):
     run, _inst, fakes = e2e
     p, r = run.marks["paused"], run.marks["resumed"]
-    during = [x for x in fakes.received if p + 0.5 < x["t"] < r]
-    assert during and {x["sha"] for x in during} == {run.data["mac_sha"]}  # only the Mac's
-    assert all(x["ua"] != "arthur-clock" for x in during)
-    after = [x for x in fakes.received if x["t"] > r]
+    # The pause is checked up to the moment ``resume`` was sent, not to when the command
+    # returned: the program draws again on its next beat, within 125 ms of the door's
+    # answer, and that frame can reach the clock before the Mac's command has exited.
+    end = run.marks["takeover_end"]
+    during = [x for x in fakes.received if p + 0.5 < x["t"] < end]
+    stray = [(round(x["t"] - p, 3), round(x["t"] - end, 3), x["ua"]) for x in during
+             if x["sha"] != run.data["mac_sha"] or x["ua"] == "arthur-clock"]
+    assert during and not stray, stray  # only the Mac's
+    first = min(x["t"] for x in fakes.received if x["t"] > end and x["ua"] == "arthur-clock")
+    print("resume: the program's first frame came", round(first - r, 3),
+          "s after the Mac's command returned (negative: before)")
+    after = [x for x in fakes.received if x["t"] > max(r, first)]
     assert after and all(x["ua"] == "arthur-clock" for x in after)
     assert run.marks["ws_closed"] - p < 15 * SLOW
 
