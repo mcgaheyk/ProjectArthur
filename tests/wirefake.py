@@ -236,6 +236,7 @@ class FakeWhisker:
         self.subscribers: list[tuple[web.WebSocketResponse, str]] = []
         self.subscribed = asyncio.Event()
         self.counts = {"refresh": 0, "login": 0, "graphql": 0, "ws": 0}
+        self.step = 0  # a test harness's progress, read at GET /_test/step
         self._srp_sessions: dict[str, tuple[int, int, int]] = {}
         self.url = ""  # set by start()
         self._runner: web.AppRunner | None = None
@@ -288,6 +289,7 @@ class FakeWhisker:
         app.router.add_get("/" + USER_POOL_ID + "/.well-known/jwks.json", self._jwks)
         app.router.add_post("/graphql", self._graphql)
         app.router.add_get("/graphql/realtime", self._realtime)
+        app.router.add_get("/_test/step", self._step)
         self._runner = web.AppRunner(app, access_log=None)
         await self._runner.setup()
         site = web.TCPSite(self._runner, host, port, ssl_context=ssl_context)
@@ -424,6 +426,10 @@ class FakeWhisker:
                                        "password.")
         return self._cognito_ok(self._auth_result(with_refresh=True))
 
+    async def _step(self, request: web.Request) -> web.Response:
+        """How far a test harness has got (a scripted source waits on it)."""
+        return web.json_response({"step": self.step})
+
     async def _jwks(self, request: web.Request) -> web.Response:
         self._log(request, None)
         return web.json_response(jwks())
@@ -456,6 +462,8 @@ class FakeWhisker:
             return web.json_response({"data": {"getLitterRobot4BySerial": robot}})
         if "getLitterRobot4Activity" in query:
             return self._activity(variables)
+        if "getPetsByUser" in query:
+            return web.json_response({"data": {"getPetsByUser": []}})
         return web.json_response({"data": None, "errors": [
             {"errorType": "ValidationError", "message": "unknown query"}]})
 
