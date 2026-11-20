@@ -224,20 +224,22 @@ class WhiskerClient:
         """``get_activity_history(limit, start)`` in pages of ``page``. ``start`` is epoch
         seconds. A full page is followed by the next one in the direction the server
         dropped entries (newest first: older ones, by ``endTimestamp``; oldest first: newer
-        ones, by ``startTimestamp``). Entries that come twice are kept once."""
+        ones, by ``startTimestamp``). The bounds are inclusive, so pages overlap by their edge
+        second and entries that come twice are kept once; a full page all in one second is
+        asked for again twice as big. The result is what one request for ``limit`` gives."""
         out = []
         seen = set()
         end = None
+        n = min(page, limit)
         while len(out) < limit:
-            n = min(page, limit - len(out))
             entries = await self.graphql(lr4.activity_query(self.serial, n, start, end),
                                          "getLitterRobot4Activity")
             if entries is None:
                 raise errors.api_error("Activity history could not be retrieved.")
             if not isinstance(entries, list):
                 raise errors.api_error("Activity history is not a list")
-            acts = lr4.parse_activities(entries)
             full = len(entries) >= n
+            acts = lr4.parse_activities(entries)
             entries = None
             fresh = 0
             for a in acts:
@@ -247,15 +249,22 @@ class WhiskerClient:
                 seen.add(key)
                 out.append(a)
                 fresh += 1
-            if not full or not fresh or len(acts) < 2:
+            if not full or len(acts) < 2:
                 break
             first, last = acts[0].ts, acts[-1].ts
+            if first == last:
+                if n >= 4 * page:
+                    break  # that many entries in one second: not a robot's history
+                n *= 2
+                continue
+            if not fresh:
+                break
             if first > last:
                 end = last
-            elif first < last:
-                start = last
             else:
-                break
+                start = last
+            n = page
+            acts = None
         return out[:limit]
 
     # -- the live subscription --------------------------------------------------------------
@@ -279,7 +288,7 @@ class WhiskerClient:
             if util.mono() - began >= WS_HEALTHY_S:
                 delay = self.ws_backoff[0]
             if on_event is not None:
-                on_event("ws_closed", f"{reason}; reconnecting in {delay:.0f}s")
+                on_event("ws_closed", f"{reason}; reconnecting in {delay:g}s")
             await self.sleep(delay)
             delay = min(delay * 2, self.ws_backoff[1])
 
