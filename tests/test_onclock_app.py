@@ -801,8 +801,8 @@ async def test_main_builds_the_app_and_returns_its_exit_code(client, root, monke
             made["app"].request_restart()
             await stop.wait()
 
-    def factory(*, cfg, log, tls):
-        made.update(cfg=cfg, log=log, tls=tls)
+    def factory(*, cfg, log, tls, root):
+        made.update(cfg=cfg, log=log, tls=tls, root=root)
         return StoppingSource(READY)
 
     monkeypatch.setattr(mainmod, "ClockApp", Recording)

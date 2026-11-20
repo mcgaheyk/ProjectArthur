@@ -82,6 +82,9 @@ PLAN_LEAD_S = 0.875
 #: much garbage there is (0.5 ms on the Mac at 2 MiB: the live data is what is marked), so
 #: fewer, larger steps cost less; a third of the free heap leaves room for a scene's plan.
 GC_EVERY_BYTES = 512 * 1024
+#: A beat that wakes more than this after its tick counts as woken late (``status()``).
+LATE_WAKE_MS = 20.0
+WORST_LATE_KEPT = 8
 #: The config file under ``root``.
 CONFIG_NAME = "config.json"
 
@@ -166,19 +169,23 @@ class ClockApp:
     """
 
     def __init__(self, source, *, root, base_url="http://127.0.0.1", ca_file, log=None,
-                 wall_fn=None, sleep=None, time_fn=None):
+                 wall_fn=None, sleep=None, time_fn=None, version=None, cfg=None,
+                 weather_url=None, tls=None):
         self.source = source
         self.root = root.rstrip("/") if len(root) > 1 else root
         self.config_path = self.root + "/" + CONFIG_NAME
         self.log = log if log is not None else ClockLog()
         self.clock = Clock(wall_fn, sleep, time_fn)
         self.echo = True  # console lines also go to stdout
-        self.cfg = load_config_json(self.config_path)
-        self.tls = tls_for(ca_file)
+        #: What ``status()`` reports as the version: the slot's bundle id on the clock.
+        self.version = version or VERSION
+        self.cfg = cfg if cfg is not None else load_config_json(self.config_path)
+        self.tls = tls if tls is not None else tls_for(ca_file)
         self.transport = ClockTransport(base_url, time_fn=self.clock.mono)
         self.pusher = Pusher(self.transport, time_fn=self.clock.mono)
+        wkw = {} if weather_url is None else {"url": weather_url}
         self.weather = WeatherService(self.cfg, self.tls, self.clock, log=self.console,
-                                      quiet_fn=self._quiet)
+                                      quiet_fn=self._quiet, **wkw)
         #: Called after every successful push as ``trace(now, frame, state, reason)``; tests.
         self.trace = None
         self.paused = False
@@ -203,6 +210,13 @@ class ClockApp:
         self.stats = _Stats()
         self.gc_pauses = _Stats()
         self.late_beats = 0
+        #: Beats that woke later than their tick: how many, the latest by how much, and the
+        #: worst few as ``[epoch s, ms]`` (what blocked the loop: TLS, a login slice, ...).
+        self.woke_late = 0
+        self.worst_late = []
+        #: The heap in use just after a scheduled collection: the last and the largest.
+        self.heap_after_gc = None
+        self.heap_after_gc_max = None
 
     # -- the console ---------------------------------------------------------------------
 
@@ -278,7 +292,7 @@ class ClockApp:
         contact = health.last_contact_at if health is not None else None
         last_push = self.pusher.last_push_t
         out = {
-            "version": VERSION,
+            "version": self.version,
             "uptime_s": round(mono - self._started, 1),
             "kind": st.kind if st is not None else None,
             "detail": st.detail if st is not None else None,
@@ -296,8 +310,31 @@ class ClockApp:
             "paused": self.paused,
             "log_first_seq": self.log.first_seq,
             "log_last_seq": self.log.last_seq,
+            "heap_after_gc": self.heap_after_gc,
+            "heap_after_gc_max": self.heap_after_gc_max,
+            "beats": self.stats.summary(),
+            "gc": self.gc_pauses.summary(),
+            "late_beats": self.late_beats,
+            "woke_late": self.woke_late,
+            "worst_late": self.worst_late,
         }
         return out
+
+    def drawing(self, within_s):
+        """Healthy, as ``deploy/clock/boot.py`` asks it: not paused, and a frame reached
+        AWTRIX within the last ``within_s`` seconds."""
+        last = self.pusher.last_push_t
+        return (not self.paused and last is not None
+                and self.clock.mono() - last <= within_s)
+
+    def _note_late(self, ms):
+        """A beat woke ``ms`` after its tick."""
+        self.woke_late += 1
+        w = self.worst_late
+        if len(w) < WORST_LATE_KEPT or ms > w[-1][1]:
+            w.append([round(self.clock.epoch(), 3), round(ms, 1)])
+            w.sort(key=lambda e: -e[1])
+            del w[WORST_LATE_KEPT:]
 
     # -- start ---------------------------------------------------------------------------
 
@@ -604,13 +641,17 @@ class ClockApp:
         t0 = stamp_us()
         gc.collect()
         self.gc_pauses.add("collect", since_us(t0))
-        self._gc_at = gc.mem_alloc() + min(GC_EVERY_BYTES, gc.mem_free() // 3)
+        used = gc.mem_alloc()
+        self.heap_after_gc = used
+        if self.heap_after_gc_max is None or used > self.heap_after_gc_max:
+            self.heap_after_gc_max = used
+        self._gc_at = used + min(GC_EVERY_BYTES, gc.mem_free() // 3)
 
     # -- the service ---------------------------------------------------------------------
 
     async def run(self):
         """Run until :meth:`request_stop` (returns 0) or :meth:`request_restart` (42)."""
-        self.console("info", "arthur on the clock " + VERSION + " starting; config "
+        self.console("info", "arthur on the clock " + self.version + " starting; config "
                      + self.config_path + ", AWTRIX " + self.transport.conn.base)
         self.warm()
         try:
@@ -623,9 +664,14 @@ class ClockApp:
                              + _error_text(exc))
             self._services = [_Service("source", "Whisker source", self.source.run),
                               _Service("weather", "weather source", self.weather.run)]
+            due = None
             while not self._exit.is_set():
                 self._supervise()
                 beat = self.clock.wall()
+                if due is not None:
+                    late = (beat - due).total_seconds() * 1000
+                    if late > LATE_WAKE_MS:
+                        self._note_late(late)
                 await self.tick()
                 self._collect()
                 if self._exit.is_set():
@@ -635,7 +681,9 @@ class ClockApp:
                     self.late_beats += 1
                 # Wake on the next beat of the wall clock. A beat that ran long lands on a
                 # later beat; the ones it covered are dropped.
-                await self.clock.sleep(until_next_tick(now))
+                wait = until_next_tick(now)
+                due = now + _seconds(wait)
+                await self.clock.sleep(wait)
         finally:
             await self._stop_services()
             try:

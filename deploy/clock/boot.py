@@ -12,13 +12,18 @@ Two code slots, ``ROOT/slots/a`` and ``ROOT/slots/b``. Each start:
    round, in case the failure was passing, such as no Wi-Fi.)
 3. Count this start in ``state.json`` BEFORE importing anything from the slot.
 4. Put the slot on ``sys.path`` and run ``arthur.onclock.main.main(ROOT, source_factory)``.
-5. Watch for health: once the program has run :data:`HEALTHY_AFTER_S` and its update door
-   answers on 127.0.0.1 with its greeting, the count goes back to 0. A program that is
-   alive and has its door open can be fixed from the Mac; that is what health means here.
+5. Watch for health: once the program has run :data:`HEALTHY_AFTER_S`, its update door
+   answers on 127.0.0.1 with its greeting, and it says it is drawing (``healthy()`` in the
+   slot's ``arthur.onclock.main``: a frame reached AWTRIX within the last minute), the count
+   goes back to 0. Until then it is looked at again every :data:`PROBE_EVERY_S`. A program
+   whose door answers can be fixed from the Mac, and one that draws is doing its job; one
+   that does both is healthy. It is never killed for being unhealthy: it stays counted, so
+   its next start (a crash, a restart, a power cycle) brings the fall-back closer.
 6. The program's answer is the exit code: 0 stops for good, 42 asks ``autostart.sh`` to start
-   it again at once (a new bundle, or a restart from the Mac). An import error or a crash is
-   recorded, and after a short pause also ends in 42, so the daemon's own failure counter
-   (5 in a row and it gives up) is not spent on them.
+   it again at once (a new bundle, or a restart from the Mac). An import error, a crash, or
+   any other exit code (``main`` returns 1 when it fails) is recorded, and after a short
+   pause also ends in 42, so the daemon's own failure counter (5 in a row and it gives up)
+   is not spent on them.
 
 ``state.json`` is the one file to read when something is wrong: active slot, counts, the last
 error of each slot, and ``halted`` with the reason when both slots are spent. Writes to the
@@ -222,9 +227,28 @@ class Boot:
             except Exception:  # noqa: BLE001, S110
                 pass
 
+    def drawing(self):
+        """Does the program say it is drawing? (``healthy()`` in the slot's
+        ``arthur.onclock.main``; a program without it is judged by its door alone.)"""
+        mod = sys.modules.get("arthur.onclock.main")
+        check = getattr(mod, "healthy", None)
+        if check is None:
+            return True
+        try:
+            return bool(check())
+        except Exception:  # noqa: BLE001 - a probe never raises
+            return False
+
     async def watch(self, slot):
         await asyncio.sleep(self.healthy_after)
-        while not await self.probe():
+        said = False
+        while True:
+            door = await self.probe()
+            if door and self.drawing():
+                break
+            if door and not said:
+                self.note("slot " + slot + ": the door answers but nothing is being drawn")
+                said = True
             await asyncio.sleep(self.probe_every)
         self.mark_healthy(slot)
 
@@ -275,24 +299,40 @@ class Boot:
             return RESTART
         if code is None:
             code = 0
+        if code not in (0, RESTART):
+            self.record_error(slot, "run: exited with " + str(code) + " (see console.log)")
+            time.sleep(self.crash_pause)
+            return RESTART
         self.note("program ended with " + str(code))
         return code
 
 
 def source_factory(*args, **kwargs):
-    """Build the robot source for the program.
+    """Build the robot source for the program: ``arthur.onclock.source.make_source`` from the
+    slot, called by ``arthur.onclock.main`` as ``(cfg=, log=, tls=, root=)``. It is imported
+    from the slot, so how the source is built can change over Wi-Fi; only this name is fixed
+    here."""
+    __import__("arthur.onclock.source")
+    return sys.modules["arthur.onclock.source"].make_source(*args, **kwargs)
 
-    ========================== INTEGRATION POINT ==========================
-    The real source is ``arthur/sources/wire_source.py`` (built on another branch). It is
-    imported from the slot, so how it is built can still change over Wi-Fi; only this call
-    is fixed here. At integration, check the module and function names below against
-    wire_source.py and the call in ``arthur/onclock/main.py``.
-    ========================================================================
-    """
-    __import__("arthur.sources.wire_source")
-    return sys.modules["arthur.sources.wire_source"].make_source(*args, **kwargs)
+
+def test_settings():
+    """Tests only: ``ARTHUR_ONCLOCK_TEST`` (a JSON object) may set ``door_port``,
+    ``healthy_after``, ``probe_every`` and ``crash_pause``. The daemon starts the launcher
+    with a clean environment on the clock, so there it is always empty."""
+    try:
+        text = os.getenv("ARTHUR_ONCLOCK_TEST")
+        data = json.loads(text) if text else {}
+    except Exception:  # noqa: BLE001
+        data = {}
+    out = {}
+    if isinstance(data, dict):
+        for k in ("door_port", "healthy_after", "probe_every", "crash_pause"):
+            if k in data:
+                out[k if k != "door_port" else "port"] = data[k]
+    return out
 
 
 if __name__ == "__main__":
     sys.exit(Boot(sys.argv[1] if len(sys.argv) > 1 else ROOT,
-                  sys.argv[2] if len(sys.argv) > 2 else TMP).run())
+                  sys.argv[2] if len(sys.argv) > 2 else TMP, **test_settings()).run())

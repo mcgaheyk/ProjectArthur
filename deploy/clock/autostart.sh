@@ -13,6 +13,7 @@ ROOT=/data/awtrix-ng/state/arthur
 TMP=/tmp/arthur
 HEAP=3M
 
+umask 077  # what the program writes (tokens.json, state.json, the slots) is root's alone
 mkdir -p "$TMP"
 if [ -f "$TMP/console.log" ]; then cp "$TMP/console.log" "$TMP/console.prev.log"; fi
 : > "$TMP/console.log"

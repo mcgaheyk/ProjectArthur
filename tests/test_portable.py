@@ -144,7 +144,7 @@ def test_boot_imports_only_micropythons_own_modules():
         if isinstance(node, ast.Import):
             for a in node.names:
                 assert a.name in allowed, a.name
-    assert _arthur_imports(tree) == {"arthur.onclock.main", "arthur.sources.wire_source"}
+    assert _arthur_imports(tree) == {"arthur.onclock.main", "arthur.onclock.source"}
 
 
 def test_slot_code_has_no_star_displays():

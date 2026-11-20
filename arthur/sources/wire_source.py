@@ -162,6 +162,7 @@ class WireSource:
         self._cycle_count = None  # the last cycle_count a contact carried
         self._visit_baseline = None  # last visit at the last rise or read
         self._seeded_once = False
+        self._gap_from = None  # set by forget_contact: the next contact ends a gap
 
     # -- what the feeder asks ----------------------------------------------------------------
 
@@ -187,6 +188,17 @@ class WireSource:
         self.cfg = cfg
         self.tracker.visit_min_s = float(cfg.timings.visit_min_s)
         self.monitor.poll_s = self.poll_s
+
+    def forget_contact(self):
+        """Before running again after watching stopped on purpose (the clock's pause): show
+        nothing old as current, and treat the next contact as the end of a gap in watching
+        (D-0025), however short, so the history is read. The tracker keeps the last visit.
+        Not used by the Mac's feeder."""
+        if self.last_contact_at is not None:
+            self._gap_from = self.last_contact_at
+        self._record = None
+        self.last_contact_at = None
+        self.error = None
 
     @property
     def poll_s(self):
@@ -288,8 +300,12 @@ class WireSource:
         self._record = dict(record)
         contact = source != "heartbeat"
         before = self.last_contact_at
+        forced = contact and before is None and self._gap_from is not None
+        if forced:
+            before, self._gap_from = self._gap_from, None
         if (contact and before is not None
-                and (now - before).total_seconds() > self.cfg.timings.no_data_after_s):
+                and (forced
+                     or (now - before).total_seconds() > self.cfg.timings.no_data_after_s)):
             self.tracker.gap(before)
             self.monitor.want_history()
             self._say("info", "Not watching from " + self._hhmm(before) + " to "
