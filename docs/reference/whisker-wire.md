@@ -317,8 +317,9 @@ CPython, from the saved token. No password login was tried and nothing was writt
 - **Renewal** (`REFRESH_TOKEN_AUTH`) returned `AccessToken`, `IdToken`, `ExpiresIn` and
   `TokenType`: **no new refresh token**, so the saved one stays in use. `ExpiresIn` is 3600 and
   both the id and the access token live 3,600 s. The id token carries `mid`.
-- **History** comes **newest first**. Its `timestamp` looks like
-  `2026-11-20 13:31:05.702000000`: a space, and nine decimal places. A request with an
+- **History** comes **newest first**. Its `timestamp` has the shape
+  `YYYY-MM-DD HH:MM:SS.nnnnnnnnn`: a space, and nine decimal places (the check printed the
+  shape only, with every digit replaced). A request with an
   `endTimestamp` was answered without error and returned entries; that the bound was honoured
   was not checked.
 - **The socket** accepted the `graphql-ws` subprotocol and sent `start_ack` once, then `ka`
