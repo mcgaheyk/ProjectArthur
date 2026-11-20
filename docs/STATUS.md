@@ -1,6 +1,6 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-19, evening._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-20, just after midnight._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
 - **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
@@ -22,9 +22,13 @@ _Last updated: 2026-11-19, evening._ Current state only. History belongs in git 
   in an hour the Mac slept. After more than ten minutes without contact, or a clean cycle
   with no visit seen, the feeder reads the robot's history again by itself; each time is a
   line in the console log ("Not watching from … to …", "Clean cycle with no visit seen",
-  "Last visit moved …"). **No real gap has happened since; only the tests have seen one.**
-  After the Mac wakes the first poll can be five minutes away, and NO DATA shows until
-  then. **The clock survives a power loss:** on 2026-11-18 its battery
+  "Last visit moved …"). **The first real gap was met on 2026-11-19:** Kyle closed the lid
+  at 23:49 and the Mac woke at 23:57. NO DATA showed from 23:58 until the first poll at
+  00:02, which logged "Not watching from 23:48 to 00:02" and read the history; the clock's
+  read-back then showed the sleeping cat and "4H AGO", right for the 19:42 visit, and no
+  push to the clock failed. No visit fell in that gap, so the history has not yet been seen
+  moving the last-visit time after one. After the Mac wakes the first poll can be up to
+  five minutes away (it was four that night), and NO DATA shows until then. **The clock survives a power loss:** on 2026-11-18 its battery
   ran down at 21:17 and Kyle charged it at about 23:26; it rejoined Wi-Fi, the running feeder
   drew on it again at 23:27 with no restart, and four minutes later only our app was in the
   rotation and double-size drawing was off. Keep it on USB power. Its messages go to `logs/feeder-console.log`. Stop it with
@@ -209,9 +213,8 @@ _Last updated: 2026-11-19, evening._ Current state only. History belongs in git 
 2. Kyle: react to the screens, now on real LEDs: which jokes land, which art does not read,
    colours and dim shades. Any one screen: `scripts/push_test.py` (stop the feeder first).
 3. With Claude, when they happen or can be staged: the cases the feeder has never met. The
-   stale border (stop the feeder for two minutes), an interruption, drawer full, the robot offline,
-   and a real gap (close the MacBook's lid for 15 minutes, open it, and look for "Not
-   watching from" in `logs/feeder-console.log`; the next overnight lid-close will do). The remaining
+   stale border (stop the feeder for two minutes), an interruption, drawer full, and the
+   robot offline. The remaining
    guesses about the clock are at the end of `docs/reference/awtrix-ng.md`.
 4. When the Pi arrives: deploy the feeder there (Later, first item) and stop the Mac's copy.
    Give the clock a fixed address in the router first; the feeder is started with its
@@ -286,7 +289,8 @@ _Last updated: 2026-11-19, evening._ Current state only. History belongs in git 
 - How fast Whisker pushes "cat detected" after Arthur steps in. The push trails the robot's
   own timestamp by up to 5 s; the robot's own delay is not known.
 - What the feeder does in the cases it has never met live: an interruption, Whisker's
-  connection dropping, a rejected login (D-0018), a gap in watching (D-0025). A visit with
+  connection dropping, a rejected login (D-0018), a visit that falls in a gap in watching
+  (D-0025; a gap with no visit in it was met on 2026-11-19). A visit with
   no weight push has now happened, at 14:17 on 2026-11-18: the log shows waiting began 120 s
   after detection (the fallback) and the history had no weight for it either. Nobody was
   watching the clock.
