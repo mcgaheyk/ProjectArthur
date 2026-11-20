@@ -309,6 +309,9 @@ The feeder's live source also needs `cycle_count` (D-0025) and the activities as
 ## Unknown until the supervised live step
 
 Each with the smallest check that settles it (with the Mac's feeder stopped).
+`scripts/wire_check.py` makes all but the last two in one run, read-only, from the saved
+token (`uv run --env-file .env python scripts/wire_check.py --minutes 5`); it prints no token,
+user id or serial. It has only ever run against the fake (`tests/test_wire_check_script.py`).
 
 | Unknown | Check |
 |---|---|
