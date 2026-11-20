@@ -15,16 +15,35 @@ import contextlib
 import json
 import logging
 import os
-import re
 import signal
 import sys
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
-from enum import Enum
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, TextIO
+
+# The line format, shared with the on-clock source (D-0029). Re-exported here under the names
+# this module always had.
+from arthur.sources.spikeformat import (  # noqa: F401
+    _REDACT_KEY,
+    _REDACT_VALUE,
+    NOISY_FIELDS,
+    NOISY_MIN_INTERVAL,
+    REDACTED,
+    Recorder,
+    activity_entries,
+    diff_records,
+    error_line,
+    format_duration,
+    info_line,
+    is_noisy_only,
+    redact,
+    scrub,
+    to_jsonable,
+    utc_iso_ms,
+)
 
 # --------------------------------------------------------------------------------------------
 # Constants
@@ -38,7 +57,6 @@ DEFAULT_POLL_SECONDS = 300
 MIN_POLL_SECONDS = 120
 HEARTBEAT_SECONDS = 15 * 60
 ACTIVITY_SECONDS = 6 * 60 * 60
-NOISY_MIN_INTERVAL = 5.0
 BACKOFF_START = 30.0
 BACKOFF_MAX = 600.0
 TOKEN_FILE = Path(".whisker-token.json")
@@ -94,79 +112,11 @@ TRACKED_RAW_KEYS: tuple[str, ...] = (
     "globeMotorFaultStatus",
 )
 
-# Fields that change without the robot doing anything interesting. When only these change,
-# write at most one line every NOISY_MIN_INTERVAL seconds (the latest value is kept and
-# flushed later, never dropped).
-NOISY_FIELDS: frozenset[str] = frozenset({"wifiRssi", "weightSensor", "last_seen", "litterLevel"})
-
 VISIT_SEQUENCE: tuple[str, ...] = ("CAT_DETECTED", "CAT_SENSOR_TIMING", "CLEAN_CYCLE", "READY")
-
-REDACTED = "**REDACTED**"
-_REDACT_KEY = re.compile(
-    r"(^id$|Id$|ID$|_id$|serial|name|email|token|password|session|^ip|ipaddress|"
-    r"mac(address)?$|^mac|ssid|account|^user|owner|phone)",
-    re.IGNORECASE,
-)
-_REDACT_VALUE = re.compile(
-    r"([^@\s]+@[^@\s]+\.[A-Za-z]{2,}"  # email
-    r"|\b\d{1,3}(\.\d{1,3}){3}\b"  # IPv4
-    r"|\b[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}\b)"  # MAC
-)
 
 # --------------------------------------------------------------------------------------------
 # Small helpers
 # --------------------------------------------------------------------------------------------
-
-
-def to_jsonable(value: Any) -> Any:
-    """Turn property values into plain JSON values (enums by name, datetimes as ISO)."""
-    if value is None or isinstance(value, (bool, int, float, str)):
-        return value
-    if isinstance(value, Enum):
-        return value.name
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if isinstance(value, date):
-        return value.isoformat()
-    if isinstance(value, Mapping):
-        return {str(k): to_jsonable(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [to_jsonable(v) for v in value]
-    return str(value)
-
-
-def utc_iso_ms(dt: datetime) -> str:
-    """UTC ISO timestamp with milliseconds and a Z suffix."""
-    return dt.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-
-def format_duration(seconds: float | None) -> str:
-    if seconds is None:
-        return "?"
-    seconds = max(0.0, seconds)
-    if seconds < 60:
-        return f"{seconds:.1f}s"
-    total = round(seconds)
-    hours, rest = divmod(total, 3600)
-    minutes, secs = divmod(rest, 60)
-    if hours:
-        return f"{hours}h{minutes:02d}m{secs:02d}s"
-    return f"{minutes}m{secs:02d}s"
-
-
-_SCRUB_PATTERNS = (
-    (re.compile(r"(header|payload)=[^&\s'\"]+"), r"\1=" + REDACTED),
-    (re.compile(r"Bearer\s+[A-Za-z0-9._\-]+"), "Bearer " + REDACTED),
-    (re.compile(r"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]*"), REDACTED),
-)
-
-
-def scrub(text: str) -> str:
-    """Remove tokens from text that may be logged (the WebSocket URL carries the bearer
-    token base64-encoded in its `header=` query parameter)."""
-    for pattern, replacement in _SCRUB_PATTERNS:
-        text = pattern.sub(replacement, text)
-    return text
 
 
 class ScrubFilter(logging.Filter):
@@ -180,23 +130,6 @@ class ScrubFilter(logging.Filter):
         record.msg = scrub(message)
         record.args = None
         return True
-
-
-def redact(data: Any) -> Any:
-    """Redact identifying values by key pattern (and emails/IPs/MACs by value); keep keys."""
-    if isinstance(data, Mapping):
-        out: dict[str, Any] = {}
-        for key, value in data.items():
-            if _REDACT_KEY.search(str(key)) and value not in (None, ""):
-                out[str(key)] = REDACTED
-            else:
-                out[str(key)] = redact(value)
-        return out
-    if isinstance(data, (list, tuple)):
-        return [redact(v) for v in data]
-    if isinstance(data, str) and _REDACT_VALUE.search(data):
-        return REDACTED
-    return to_jsonable(data)
 
 
 # --------------------------------------------------------------------------------------------
@@ -219,110 +152,6 @@ def build_record(robot: Any) -> dict[str, Any]:
     for key in TRACKED_RAW_KEYS:
         record[key] = to_jsonable(raw.get(key))
     return record
-
-
-def diff_records(old: Mapping[str, Any] | None, new: Mapping[str, Any]) -> dict[str, list]:
-    """{field: [old, new]} for every field that differs."""
-    old = old or {}
-    keys = list(dict.fromkeys([*old.keys(), *new.keys()]))
-    return {k: [old.get(k), new.get(k)] for k in keys if old.get(k) != new.get(k)}
-
-
-def is_noisy_only(changed: Mapping[str, Any]) -> bool:
-    return bool(changed) and all(k in NOISY_FIELDS for k in changed)
-
-
-class Recorder:
-    """Decides which observations become log lines.
-
-    Compares against the last *written* record, so a line's `changed` is always relative to
-    the previous line. Noisy-only changes are rate-limited; a suppressed one is held as
-    pending and written by `flush_pending` once the interval has passed.
-    """
-
-    def __init__(
-        self,
-        wall: Callable[[], datetime] | None = None,
-        mono: Callable[[], float] | None = None,
-        noisy_interval: float = NOISY_MIN_INTERVAL,
-    ) -> None:
-        self._wall = wall or (lambda: datetime.now(UTC))
-        self._mono = mono or time.monotonic
-        self._t0 = self._mono()
-        self.noisy_interval = noisy_interval
-        self.last_written: dict[str, Any] | None = None
-        self._last_write_mono: float | None = None
-        self._pending: tuple[dict[str, Any], str, Mapping | None] | None = None
-
-    def elapsed(self) -> float:
-        return self._mono() - self._t0
-
-    def wall(self) -> datetime:
-        """The wall time lines are stamped with."""
-        return self._wall()
-
-    def _line(
-        self, record: dict[str, Any], source: str, changed: dict, raw: Mapping | None
-    ) -> dict[str, Any]:
-        line: dict[str, Any] = {
-            "ts": utc_iso_ms(self.wall()),
-            "t": round(self.elapsed(), 3),
-            "kind": "state",
-            "source": source,
-            "status": record.get("status"),
-            "status_code": record.get("status_code"),
-            "changed": changed,
-            "record": record,
-        }
-        status_changed = "status" in changed or source == "start"
-        if status_changed and raw is not None:
-            line["raw"] = redact(raw)
-        return line
-
-    def _commit(self, record: dict[str, Any]) -> None:
-        self.last_written = dict(record)
-        self._last_write_mono = self._mono()
-        self._pending = None
-
-    def observe(
-        self, record: dict[str, Any], source: str, raw: Mapping | None = None
-    ) -> dict[str, Any] | None:
-        """Return the line to write for this observation, or None."""
-        if self.last_written is None:
-            line = self._line(record, source, {}, raw)
-            self._commit(record)
-            return line
-        changed = diff_records(self.last_written, record)
-        if source == "heartbeat":
-            line = self._line(record, source, changed, raw)
-            self._commit(record)
-            return line
-        if not changed:
-            self._pending = None
-            return None
-        if is_noisy_only(changed):
-            since = self._mono() - (self._last_write_mono or 0.0)
-            if since < self.noisy_interval:
-                self._pending = (dict(record), source, raw)
-                return None
-        line = self._line(record, source, changed, raw)
-        self._commit(record)
-        return line
-
-    def flush_pending(self) -> dict[str, Any] | None:
-        """Write a held noisy-only change once the rate-limit interval has passed."""
-        if self._pending is None or self.last_written is None:
-            return None
-        if self._mono() - (self._last_write_mono or 0.0) < self.noisy_interval:
-            return None
-        record, source, raw = self._pending
-        changed = diff_records(self.last_written, record)
-        self._pending = None
-        if not changed:
-            return None
-        line = self._line(record, source, changed, raw)
-        self._commit(record)
-        return line
 
 
 # --------------------------------------------------------------------------------------------
@@ -440,6 +269,26 @@ class DailyJsonl:
         if self._fh is not None:
             self._fh.close()
             self._fh = None
+
+
+class DailyFiles:
+    """The robot log's sink on the Mac: ``spike-YYYYMMDD.jsonl`` for state, info and error
+    lines and ``spike-activity-YYYYMMDD.jsonl`` for the history (see
+    :mod:`arthur.sources.spikeformat` for the sink interface)."""
+
+    def __init__(self, log_dir: Path, today: Callable[[], date] | None = None) -> None:
+        self.states = DailyJsonl(log_dir, "spike", today)
+        self.activities = DailyJsonl(log_dir, "spike-activity", today)
+
+    def state(self, line: Mapping[str, Any]) -> None:
+        self.states.write(line)
+
+    def activity(self, entry: Mapping[str, Any]) -> None:
+        self.activities.write(entry)
+
+    def close(self) -> None:
+        self.states.close()
+        self.activities.close()
 
 
 MISSING_ENV_MESSAGE = """\
@@ -659,17 +508,7 @@ class SpikeLogger:
     def log_error(
         self, where: str, exc: BaseException | str, retry_in: float | None = None
     ) -> None:
-        message = scrub(str(exc)) if isinstance(exc, BaseException) else scrub(exc)
-        error_type = type(exc).__name__ if isinstance(exc, BaseException) else "Error"
-        line = {
-            "ts": utc_iso_ms(self.recorder.wall()),
-            "t": round(self.recorder.elapsed(), 3),
-            "kind": "error",
-            "where": where,
-            "error": error_type,
-            "message": message,
-            "retry_in": retry_in,
-        }
+        line = error_line(self.recorder, where, exc, retry_in)
         try:
             self.states.write(line)
         except OSError:
@@ -677,18 +516,11 @@ class SpikeLogger:
         if not self.echo:
             return
         retry = f"; retrying in {format_duration(retry_in)}" if retry_in else ""
-        print(f"error ({where}): {error_type}: {message}{retry}", file=sys.stderr, flush=True)
+        print(f"error ({where}): {line['error']}: {line['message']}{retry}", file=sys.stderr,
+              flush=True)
 
     def log_info(self, event: str, **extra: Any) -> None:
-        self.states.write(
-            {
-                "ts": utc_iso_ms(self.recorder.wall()),
-                "t": round(self.recorder.elapsed(), 3),
-                "kind": "info",
-                "event": event,
-                **extra,
-            }
-        )
+        self.states.write(info_line(self.recorder, event, extra))
 
     # -- observing -------------------------------------------------------------------------
 
@@ -739,27 +571,18 @@ class SpikeLogger:
     # -- activity history --------------------------------------------------------------------
 
     def record_activity(self, activities: Iterable[Any], pets: Iterable[Any] = ()) -> int:
-        """Append history entries not seen before. Returns how many were new."""
-        new = 0
+        """Append history entries not seen before. Returns how many were new. A status
+        action's code is written as ``code`` (pylitterbot's ``LitterBoxStatus`` and our
+        client's ``Action`` both carry it as ``value``)."""
         fetched_at = utc_iso_ms(self.recorder.wall())
-        for act in sorted(activities, key=lambda a: str(a.timestamp)):
-            action = act.action
-            text = getattr(action, "text", None) or str(action)
-            code = action.value if isinstance(action, Enum) else None
-            ts = to_jsonable(act.timestamp)
-            key = (str(ts), text)
-            if key in self._seen_activity:
-                continue
-            self._seen_activity.add(key)
-            entry = {"fetched": fetched_at, "kind": "activity", "timestamp": ts, "action": text}
-            if code is not None:
-                entry["code"] = code
+        entries, newest = activity_entries(activities, fetched_at, self._seen_activity)
+        for entry in entries:
             self.activity.write(entry)
-            new += 1
-            if isinstance(act.timestamp, datetime) and (
-                self._activity_since is None or act.timestamp > self._activity_since
-            ):
-                self._activity_since = act.timestamp
+        new = len(entries)
+        if isinstance(newest, datetime) and (
+            self._activity_since is None or newest > self._activity_since
+        ):
+            self._activity_since = newest
         for index, pet in enumerate(pets or (), start=1):
             for m in getattr(pet, "weight_history", None) or ():
                 ts = to_jsonable(m.timestamp)

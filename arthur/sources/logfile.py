@@ -39,7 +39,6 @@ from __future__ import annotations
 
 import bisect
 import json
-import math
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
@@ -47,6 +46,13 @@ from pathlib import Path
 from typing import Any
 
 from arthur.model import FeederHealth, RobotSnapshot
+from arthur.sources.records import (  # noqa: F401  (re-exported)
+    _bool,
+    _num,
+    _str,
+    parse_ts,
+    snapshot_from_record,
+)
 from arthur.sources.tracker import DEFAULT_VISIT_MIN_S, Observed, TrackerState
 
 # arthur.spikelog imports only the standard library at module level (pylitterbot is imported
@@ -86,37 +92,6 @@ SPIKE_COMMAND = "uv run --env-file .env python scripts/spike_log.py"
 # =========================================================================================
 # Parsing
 # =========================================================================================
-
-
-def parse_ts(value: Any) -> datetime | None:
-    """An ISO timestamp (``...Z`` or with an offset) as an aware datetime, or None."""
-    if not isinstance(value, str) or not value:
-        return None
-    text = value.strip()
-    if text.endswith(("Z", "z")):
-        text = text[:-1] + "+00:00"
-    try:
-        dt = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        return None  # the spike always writes UTC with a zone; a naive time is not ours
-    return dt
-
-
-def _bool(value: Any, default: bool) -> bool:
-    return value if isinstance(value, bool) else default
-
-
-def _num(value: Any, default: float | None) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return default
-    v = float(value)
-    return v if math.isfinite(v) else default
-
-
-def _str(value: Any, default: str | None) -> str | None:
-    return value if isinstance(value, str) and value else default
 
 
 @dataclass(frozen=True)
@@ -183,42 +158,6 @@ def parse_activity(text: str) -> Activity | None:
     if obj.get("kind") != "activity" or not isinstance(action, str):
         return None
     return Activity(at, action)
-
-
-def snapshot_from_record(
-    record: dict[str, Any],
-    *,
-    status_since: datetime | None = None,
-    previous_status: str | None = None,
-    last_visit_at: datetime | None = None,
-    visit_started_at: datetime | None = None,
-    cat_left_at: datetime | None = None,
-) -> RobotSnapshot:
-    """A :class:`RobotSnapshot` from a state line's ``record``. Odd values fall back to the
-    model's defaults (the spike writes ``"<error: X>"`` for a property that raised)."""
-    defaults = RobotSnapshot(status="UNKNOWN")
-    wait = _num(record.get("clean_cycle_wait_time_minutes"), None)
-    return RobotSnapshot(
-        status=_str(record.get("status"), "UNKNOWN") or "UNKNOWN",
-        status_code=_str(record.get("status_code"), None),
-        is_online=_bool(record.get("is_online"), defaults.is_online),
-        is_on=_bool(record.get("is_on"), defaults.is_on),
-        waste_drawer_level=_num(record.get("waste_drawer_level"), defaults.waste_drawer_level),
-        litter_level=_num(record.get("litter_level"), defaults.litter_level),
-        litter_level_state=_str(record.get("litter_level_state"), None),
-        is_sleeping=_bool(record.get("is_sleeping"), defaults.is_sleeping),
-        is_laser_dirty=_bool(record.get("is_laser_dirty"), defaults.is_laser_dirty),
-        power_type=_str(record.get("power_type"), defaults.power_type) or defaults.power_type,
-        wait_time_minutes=int(wait) if wait is not None else defaults.wait_time_minutes,
-        last_seen=parse_ts(record.get("last_seen")),
-        pet_weight_lbs=_num(record.get("pet_weight"), None),
-        status_since=status_since,
-        previous_status=previous_status,
-        last_visit_at=last_visit_at,
-        visits_today=None,
-        visit_started_at=visit_started_at,
-        cat_left_at=cat_left_at,
-    )
 
 
 def raw_fields(record: dict[str, Any] | None) -> dict[str, Any]:

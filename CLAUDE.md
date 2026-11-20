@@ -25,6 +25,8 @@ asked to set this up for someone follows `docs/agent-setup.md`.
 - `docs/reference/open-meteo.md`: the weather API the idle show's page uses, confirmed live.
 - `docs/reference/micropython.md`: how MicroPython 1.29 differs from CPython, for the shared
   code the clock is to run (D-0029).
+- `docs/reference/onclock.md`: the program on the clock: its layout on the flash, start-up
+  and fall-back, the update door's protocol and threat list, the Mac's `scripts/clock.py`.
 - `docs/research/`: the hardware and firmware comparison behind the decisions, and the LED
   animation and idle cadence research behind the idle show (D-0019).
 - `docs/handoff.md`: the original brief. DECISIONS.md overrides it where they differ.
@@ -63,9 +65,9 @@ asked to set this up for someone follows `docs/agent-setup.md`.
 - **AWTRIX NG is pinned to 1.2.3** and rejects unknown keys with 422. The simulator does too.
 - **The shared code also runs on MicroPython** (D-0029), unchanged: `arthur/compat.py`,
   `model`, `config`, `timebase`, `schedule`, `mapping`, `zonetable`, `mtrandom`,
-  `awtrix_api`, `sources/tracker`, `sources/openmeteo`, all of `render/` except `preview.py`,
-  and all of `onclock/` (the program the clock runs; its end-to-end check under MicroPython is
-  `tests/test_onclock_mpy.py`). `tests/test_portable.py` holds the list. In them: records come from
+  `awtrix_api`, `sources/tracker`, `sources/records`, `sources/spikeformat`,
+  `sources/wire_source`, `sources/openmeteo` and all of `render/` except `preview.py`.
+  In them: records come from
   `compat.record` / `compat.tuple_record` (not dataclasses or class-form NamedTuple), seeded
   numbers from `compat.Random`, local time through `Config` (no `zoneinfo`, no `tomllib`); no
   star displays, `zip(strict=)`, `str[::-1]`, `removeprefix`, `\N{}`, or run-time type aliases
@@ -73,7 +75,18 @@ asked to set this up for someone follows `docs/agent-setup.md`.
   `OrderedDict`s or sorted, and equal sort keys go through `compat.stable_sorted`. The full
   list and how each was found: `docs/reference/micropython.md`. The check is
   `uv run pytest tests/test_micropython.py` (it needs `micropython` on PATH and says it
-  did not run without it); a change to a shared module is not done until it passes.
+  did not run without it); a change to a shared module is not done until it passes. For the
+  three `sources/` modules the check is `uv run pytest tests/test_wire_source_micropython.py`.
+  The on-clock code, `arthur/onclock/` (the program, `app.py`, and the update door,
+  `door.py`) and `arthur/wire/`, follows the same rules and runs under both too
+  (`tests/test_onclock_door.py`; the program end to end under MicroPython:
+  `tests/test_onclock_mpy.py`). The lists
+  are data in `arthur/tools/onclock_files.py`, which also decides what goes into a code slot
+  on the clock; `tests/test_portable.py` checks that they match this paragraph and that every
+  `arthur` import in a slot resolves inside the slot. `deploy/clock/boot.py` (stage 0 on the
+  clock, never replaced over Wi-Fi) imports only MicroPython's built-in modules and nothing
+  from a slot before it has counted the start; the door is the most security-sensitive code
+  here: read `docs/reference/onclock.md` before changing it.
 
 ## Commands
 - `uv run pytest` and `uv run ruff check`
@@ -88,10 +101,19 @@ asked to set this up for someone follows `docs/agent-setup.md`.
   Check for a running one first: `pgrep -fl arthur.feeder`. To leave it running on the Mac,
   start it with `open -a Terminal scripts/start_feeder.command`, never detached from a
   session's shell: macOS cuts it off the clock when that session closes (D-0024)
+- `... python -m arthur.feeder --source wire` (or `ARTHUR_SOURCE=wire`) runs the same feeder on
+  our own Whisker client (`arthur/sources/wire_source.py`, the one the clock is to run)
+  instead of pylitterbot; same log, same token file. Default `pylitterbot`.
+  `WHISKER_SERIAL` picks the robot if the account has two
 - `uv run python scripts/push_test.py --clock http://ADDRESS NAME` shows one screen on a real
   clock; stop the feeder first or the two fight over the screen
 - `uv run python scripts/push_bench.py --clock http://ADDRESS MODE` times frame pushes to a real
   clock and shows motion test patterns (`--help` lists the modes); stop the feeder first
+- `uv run python scripts/clock.py ...` runs the program on the clock itself (D-0029):
+  `build` (its MicroPython, via Docker), `--serial SERIAL install|status|logs|remove` over USB
+  (install with `uv run --env-file .env`; `--dry-run` shows what would be written), and
+  `--clock HOST push|status|logs pull|logs follow|pause|resume|restart` over Wi-Fi through
+  the door. Only Kyle runs `install` for real. Layout and protocol: `docs/reference/onclock.md`
 - `uv run --env-file .env python scripts/spike_log.py` logs the real robot without a clock.
   Superseded by the feeder; never run both
 - `uv run --env-file .env python scripts/spike_petlibro.py` logs the real PETLIBRO devices,

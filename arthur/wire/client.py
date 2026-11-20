@@ -68,6 +68,8 @@ class WhiskerClient:
         self.sleep = sleep_fn or asyncio.sleep
         self.data = None
         self.robot_id = None
+        #: How many onboarded Litter-Robot 4s the account had at the last load.
+        self.robots_seen = 0
         self.counts = {"refresh": 0, "login": 0, "graphql": 0, "ws_connect": 0}
 
     # -- tokens -----------------------------------------------------------------------------
@@ -183,6 +185,7 @@ class WhiskerClient:
         found = [r for r in robots if isinstance(r, dict) and r.get("serial") is not None
                  and r.get("isOnboarded") is True]
         robots = None
+        self.robots_seen = len(found)
         if self.serial:
             found = [r for r in found if r.get("serial") == self.serial]
             if not found:

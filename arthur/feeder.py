@@ -2,6 +2,7 @@
 
     uv run --env-file .env python -m arthur.feeder [--clock URL] [--config PATH]
                                                    [--log-dir DIR] [--app NAME]
+                                                   [--source pylitterbot|wire]
 
 Pipeline: ``source → RobotSnapshot → mapping → DisplayState → render → Frame → transport``.
 The source (:class:`~arthur.sources.whisker.WhiskerSource`) holds the Whisker connection in a
@@ -28,6 +29,12 @@ stops (D-0004).
 - SIGINT/SIGTERM stop it: the Whisker account is disconnected, the transport closed and the
   log's exit line written. The clock is not cleared; the last frame goes stale by itself.
 - Times passed to mapping and render are aware UTC, as the studio's feeder passes them.
+- ``--source`` (or ``ARTHUR_SOURCE``) picks the Whisker source: ``pylitterbot`` (the default,
+  :class:`~arthur.sources.whisker.WhiskerSource`) or ``wire``
+  (:class:`~arthur.sources.wire_source.WireSource`, our own client, the one the clock is to
+  run, D-0029), with TLS verified against the system's CA store. Both write the same log and
+  read the same token file. With ``wire`` and two robots on the account, ``WHISKER_SERIAL``
+  chooses one.
 """
 
 from __future__ import annotations
@@ -62,6 +69,8 @@ log = logging.getLogger("arthur.feeder")
 EXIT_OK = 0
 EXIT_USAGE = 2
 DEFAULT_APP = "litter"
+#: The Whisker sources ``--source`` takes; the first is the default.
+SOURCES = ("pylitterbot", "wire")
 #: How often the config file's modification time is checked.
 CONFIG_CHECK_S = 1.0
 #: After a service's task dies of a bug, start it again after this long.
@@ -111,6 +120,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="where the robot's log files go (default: logs)")
     p.add_argument("--app", default=DEFAULT_APP,
                    help=f"pushed app name on the clock (default {DEFAULT_APP})")
+    p.add_argument("--source", choices=SOURCES, default=None,
+                   help="the Whisker source: pylitterbot, or wire for our own client "
+                        "(default: the ARTHUR_SOURCE environment variable, else pylitterbot)")
     return p
 
 
@@ -392,6 +404,13 @@ async def run(
         for sig in (signal.SIGINT, signal.SIGTERM):
             with contextlib.suppress(NotImplementedError, RuntimeError):
                 loop.add_signal_handler(sig, stop.set)
+    if source is None and getattr(opts, "source", None) == "wire":
+        from arthur.sources.wire_source import WireSource
+
+        log.info("Whisker source: our own client (arthur.wire), TLS verified against the "
+                 "system's CA store")
+        source = WireSource(cfg, credentials=credentials, log_dir=opts.log_dir,
+                            wall_fn=wall_fn, serial=getattr(opts, "serial", None))
     if source is None:
         from arthur.sources.whisker import WhiskerSource
 
@@ -415,6 +434,13 @@ def main(argv: list[str] | None = None, environ: Mapping[str, str] | None = None
          **run_kw: Any) -> int:
     opts = build_parser().parse_args(argv)
     env = os.environ if environ is None else environ
+    if opts.source is None:
+        opts.source = (env.get("ARTHUR_SOURCE") or "").strip() or SOURCES[0]
+    if opts.source not in SOURCES:
+        print(f"feeder: ARTHUR_SOURCE must be one of {', '.join(SOURCES)}, not "
+              f"{opts.source!r}", file=sys.stderr)
+        return EXIT_USAGE
+    opts.serial = (env.get("WHISKER_SERIAL") or "").strip() or None
     raw = opts.clock or (env.get("CLOCK_URL") or "").strip()
     if not raw:
         print("feeder: no clock address: pass --clock URL or set CLOCK_URL", file=sys.stderr)
