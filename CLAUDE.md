@@ -63,7 +63,9 @@ asked to set this up for someone follows `docs/agent-setup.md`.
 - **AWTRIX NG is pinned to 1.2.3** and rejects unknown keys with 422. The simulator does too.
 - **The shared code also runs on MicroPython** (D-0029), unchanged: `arthur/compat.py`,
   `model`, `config`, `timebase`, `schedule`, `mapping`, `zonetable`, `mtrandom`,
-  `sources/tracker` and all of `render/` except `preview.py`. In them: records come from
+  `awtrix_api`, `sources/tracker`, `sources/openmeteo`, all of `render/` except `preview.py`,
+  and all of `onclock/` (the program the clock runs; its end-to-end check under MicroPython is
+  `tests/test_onclock_mpy.py`). `tests/test_portable.py` holds the list. In them: records come from
   `compat.record` / `compat.tuple_record` (not dataclasses or class-form NamedTuple), seeded
   numbers from `compat.Random`, local time through `Config` (no `zoneinfo`, no `tomllib`); no
   star displays, `zip(strict=)`, `str[::-1]`, `removeprefix`, `\N{}`, or run-time type aliases

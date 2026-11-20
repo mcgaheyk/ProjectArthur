@@ -29,14 +29,30 @@ ORDER_PATH = "/api/v1/apps/order"
 SCREEN_PATH = "/api/v1/display/screen"
 
 
+_NAME_SAFE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~"
+
+
+def _quoted(name):
+    """``name`` percent-encoded for a path segment, as aiohttp sends it. A valid name
+    (``[A-Za-z0-9_-]{1,32}``) is unchanged; an invalid one reaches AWTRIX, which refuses it."""
+    out = []
+    for ch in name:
+        if ch in _NAME_SAFE:
+            out.append(ch)
+        else:
+            for b in ch.encode():
+                out.append("%%%02X" % b)  # noqa: UP031 - the same on MicroPython
+    return "".join(out)
+
+
 def pushed_path(app_name):
     """``PUT`` here creates or replaces the pushed app."""
-    return "/api/v1/apps/pushed/" + app_name
+    return "/api/v1/apps/pushed/" + _quoted(app_name)
 
 
 def app_path(app_name):
     """``DELETE`` here removes the app."""
-    return "/api/v1/apps/" + app_name
+    return "/api/v1/apps/" + _quoted(app_name)
 
 
 def lifetime_ms(ttl_s):
