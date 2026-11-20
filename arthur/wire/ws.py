@@ -54,7 +54,7 @@ class Closed(Exception):
     """The connection is closed (by the server or by us). ``code`` if the server said."""
 
     def __init__(self, code=None, reason=""):
-        Exception.__init__(self, "WebSocket closed" + (f" ({code})" if code else ""))
+        super().__init__("WebSocket closed" + (f" ({code})" if code else ""))
         self.code = code
         self.reason = reason
 

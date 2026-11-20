@@ -145,7 +145,8 @@ async def request(method, url, tls, headers=None, body=None, timeout=REQUEST_TIM
         if errors.kind_of(exc) == errors.TIMEOUT:
             raise errors.WireError(errors.TIMEOUT, f"{where} took longer than {timeout}s") \
                 from None
-        raise errors.api_error(f"{where} failed: {type(exc).__name__}: {exc}") from None
+        text = " ".join(str(exc).split())
+        raise errors.api_error(f"{where} failed: {type(exc).__name__}: {text}") from None
 
 
 async def _request(method, url_text, tls, headers, body, timeout, max_body):

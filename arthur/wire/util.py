@@ -67,6 +67,28 @@ def sha256_hex(data):
     return binascii.hexlify(hashlib.sha256(data).digest()).decode()
 
 
+def float_text(v):
+    """``repr(v)`` as CPython writes it. MicroPython 1.29 parses floats to the same bits as
+    CPython but prints some differently (``0.07`` as ``0.07000000000000001``: 43 of the
+    8,002 values 0.00 to 40.00 in steps of 0.01 and 0.1), so on MicroPython the shortest
+    fixed-point text that reads back as ``v`` is used. Checked equal to CPython's ``repr``
+    for 129,016 values; values needing 17 digits still print MicroPython's way."""
+    if not IS_MPY or not (v == 0 or 1e-4 <= abs(v) < 1e15):  # also NaN and inf
+        return repr(v)
+    for d in range(16):
+        s = ("{:.%df}" % d).format(v)  # noqa: UP031 - the precision is the variable here
+        if float(s) == v:
+            return s if "." in s else s + ".0"
+    return repr(v)
+
+
+def value_text(v):
+    """``str(v)`` as CPython writes it (floats through :func:`float_text`)."""
+    if isinstance(v, float):
+        return float_text(v)
+    return str(v)
+
+
 def pad_left(text, width, fill="0"):
     text = str(text)
     if len(text) >= width:

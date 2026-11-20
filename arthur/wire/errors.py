@@ -20,7 +20,7 @@ class WireError(Exception):
     service's error code (Cognito's ``NotAuthorizedException``, a GraphQL ``errorType``)."""
 
     def __init__(self, kind, message, status=None, code=None):
-        Exception.__init__(self, message)
+        super().__init__(message)  # MicroPython has no Exception.__init__ to call
         self.kind = kind
         self.message = message
         self.status = status

@@ -231,9 +231,9 @@ def action_for(entry):
     if words is None:
         return Action(str(value))
     if value in ("catWeight",):
-        return Action(words + ": " + str(entry["actionValue"]) + " lbs")
+        return Action(words + ": " + util.value_text(entry["actionValue"]) + " lbs")
     if value in ("odometerCleanCycles", "litterHopperDispensed"):
-        return Action(words + ": " + str(entry["actionValue"]))
+        return Action(words + ": " + util.value_text(entry["actionValue"]))
     return Action(words)
 
 
