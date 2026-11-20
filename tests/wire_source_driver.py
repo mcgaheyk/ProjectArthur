@@ -80,7 +80,8 @@ class Counter:
 class Clock:
     """Monotonic and wall time that move only when the source sleeps."""
 
-    def __init__(self, start_us, events, stop_at, ask, counter, view):
+    def __init__(self, start_us, events, stop_at, ask, counter, view, on_probe=None):
+        self.on_probe = on_probe
         self.start_us = start_us
         self.t = 0.0
         self.stop_at = stop_at
@@ -117,7 +118,11 @@ class Clock:
         self._sample()
         if do == "probe":
             snap, health = self.view(self.wall())
-            self.probes.append({"t": ev["t"], "snap": enc(snap), "health": enc(health)})
+            probe = {"t": ev["t"], "snap": enc(snap), "health": enc(health)}
+            if self.on_probe is not None:
+                self.on_probe(probe)  # handed on at once: the run keeps nothing
+            else:
+                self.probes.append(probe)
             return
         if do == "asleep":
             self.t += ev["s"]

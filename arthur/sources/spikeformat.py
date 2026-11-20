@@ -659,9 +659,10 @@ def activity_entries(activities, fetched_at, seen):
 
 class MemorySink:
     """A sink that keeps the newest ``limit`` lines of each log as text (the clock has no
-    room for daily files). ``states`` and ``activities`` are lists of JSON lines."""
+    room for daily files). ``states`` and ``activities`` are lists of JSON lines. A state
+    line is about 1.5 KB, 3 KB with the raw data a status change carries."""
 
-    def __init__(self, limit=500):
+    def __init__(self, limit=100):
         self.limit = limit
         self.states = []
         self.activities = []
