@@ -128,9 +128,9 @@ class WebSocket:
     async def _read_exactly(self, n):
         try:
             return await self.reader.readexactly(n)
-        except Exception as exc:  # EOFError (MicroPython), IncompleteReadError (CPython)
+        except Exception:  # noqa: BLE001 - EOFError (MicroPython), IncompleteReadError (CPython)
             self.closed = True
-            raise Closed() from exc
+            raise Closed() from None  # MicroPython prints a warning for "from exc"
 
     async def _frame(self):
         """(fin, opcode, payload) of the next frame."""
@@ -195,6 +195,12 @@ class WebSocket:
             parts.append(payload)
             if fin:
                 return kind, b"".join(parts)
+
+    def close_now(self):
+        """Close the socket at once, without a goodbye and without awaiting (safe in a
+        cancelled task's ``finally``). Never raises."""
+        self.closed = True
+        net.close_now(self.writer)
 
     async def close(self, code=1000):
         """Say goodbye and close the socket. Never raises."""

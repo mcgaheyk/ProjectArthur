@@ -104,9 +104,25 @@ async def open_stream(url, tls, timeout):
     return await asyncio.wait_for(coro, timeout)
 
 
+def close_now(writer):
+    """Close a stream's socket without awaiting, never raising. (MicroPython's
+    ``Stream.close()`` does nothing; its socket is ``writer.s``.)"""
+    try:
+        if IS_MPY:
+            writer.s.close()
+        else:
+            writer.close()
+    except Exception:  # noqa: BLE001, S110 - closing must never raise
+        pass
+
+
 async def close_stream(writer):
     """Close on either Python, never raising. (MicroPython's ``close()`` does nothing and
-    ``wait_closed()`` closes the socket; CPython needs both.)"""
+    ``wait_closed()`` closes the socket; CPython needs both.) On MicroPython the socket is
+    closed first without awaiting: in a cancelled task's ``finally`` an await can raise
+    again, which would leave the socket open."""
+    if IS_MPY:
+        close_now(writer)
     try:
         writer.close()
         await writer.wait_closed()

@@ -346,12 +346,18 @@ class WhiskerClient:
                 elif kind == "start_ack" and on_event is not None:
                     on_event("ws_start_ack", "")
         finally:
-            if not sock.closed:
-                try:
-                    await asyncio.wait_for(sock.send_text(lr4.stop_message(sub_id)), 2)
-                except Exception:  # noqa: BLE001 - saying stop is a courtesy
-                    sock.closed = True
-            await sock.close()
+            # Cancelled (a pause on the clock), MicroPython 1.29 can raise again at an await
+            # in this block (``wait_for`` raised TypeError or CancelledError when probed), so
+            # the polite goodbye is tried and the socket is then closed without awaiting.
+            try:
+                if not sock.closed:
+                    try:
+                        await asyncio.wait_for(sock.send_text(lr4.stop_message(sub_id)), 2)
+                    except Exception:  # noqa: BLE001 - saying stop is a courtesy
+                        sock.closed = True
+                await sock.close()
+            finally:
+                sock.close_now()
 
 
 def _uuid4():
