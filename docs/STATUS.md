@@ -240,7 +240,9 @@ _Last updated: 2026-11-20, evening._ Current state only. History belongs in git 
     ran on the clock in the spike; `--serial S status` ran on the real clock (no autostart,
     nothing installed, 8.0 MB free on its storage; the install writes 0.88 MB); and four
     things the door and the launcher had only assumed about the clock hold there
-    (`docs/reference/onclock.md`, "Checked on the real clock"). **`install` itself has
+    (`docs/reference/onclock.md`, "Checked on the real clock"). The whole end-to-end run
+    passed again that evening on the Mac's MicroPython and on the emulated ARM clock with
+    the fresh build. **`install` itself has
     never been run on it**, and the first start there will also be our client's first real
     password login.
   - **Cloud relay (not chosen):** the feeder's image (`deploy/feeder/Dockerfile`) logged in
