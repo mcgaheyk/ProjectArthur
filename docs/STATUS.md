@@ -12,7 +12,7 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
 - **The clock is live.** The feeder (`python -m arthur.feeder`) has been **running on Kyle's
-  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, at 09:10 on 2026-11-18 after the push bench, at 13:47 that day after Kyle watched in use on the clock, at 18:04 from Terminal after a 42-minute outage, D-0024, at 08:56 on 2026-11-19 for the gap rule, D-0025, at 12:46 on 2026-11-20 after a 58-minute stop for the no-Pi tests, D-0029, and at 14:00 that day after a five-minute stop for the first live check of our own Whisker client), detached under `caffeinate`, against the real robot and
+  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, at 09:10 on 2026-11-18 after the push bench, at 13:47 that day after Kyle watched in use on the clock, at 18:04 from Terminal after a 42-minute outage, D-0024, at 08:56 on 2026-11-19 for the gap rule, D-0025, at 12:46 on 2026-11-20 after a 58-minute stop for the no-Pi tests, D-0029, at 14:00 that day after a five-minute stop for the first live check of our own Whisker client, and at 14:08 for the shared code, D-0029), detached under `caffeinate`, against the real robot and
   the real clock (D-0018). It logged in, read the robot and showed idle; the clock's screen
   read-back matched our render of the robot's state on all 832 pixels. **No real visit has
   been watched on the clock yet.** It stops on a Mac restart and the clock shows the stale
@@ -36,7 +36,7 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
   **never from a Claude session's shell**: the 13:47 copy lost the clock (not the robot) at
   17:22, when the session that started it closed, and the clock showed the stale border until
   18:04 (D-0024). Never run a second copy, or `scripts/spike_log.py`, on the same account.
-- **Built and tested (3,056 tests):**
+- **Built and tested (3,766 tests):**
   - Feeder: `arthur/feeder.py` (the loop), `arthur/pusher.py` (when to push),
     `arthur/sources/whisker.py` (the one Whisker connection). On a login or API failure it
     shows NO DATA and retries; it reloads `config/display.toml` when the file changes; it
@@ -156,7 +156,9 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
   logged in, showed the home page (the clock's read-back showed Arthur, the bars and the
   last-visit line) and logged no error in its first minute. It has played the idle show
   since 13:53. It has not been watched through a real visit, so a visit cutting into a
-  page or scene has only been seen in tests and the studio.
+  page or scene has only been seen in tests and the studio. It was restarted at 14:08 on
+  2026-11-20 on the shared code (D-0029): its first four minutes, a full idle round, logged no
+  error or warning, and the clock's read-back showed no stale border.
 - **The clock is to run itself (D-0029), chosen 2026-11-20; not built.** The goal is no Pi
   and no Mac: a MicroPython program on the TC002, started by AWTRIX NG's autostart slot,
   that talks to Whisker, draws with the same Python the studio uses and pushes frames to
@@ -175,6 +177,18 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
     User-Agent, the token renewed, the robot and the history read correctly, and the live
     socket held for five minutes. **No live update has been seen through it** (the robot was
     idle), its password login has never been tried for real, and it has not run on the clock.
+  - **The shared code runs on both Pythons, in `main`.** `arthur/`'s model, config, schedule,
+    mapping, tracker and all the drawing code run unchanged under MicroPython 1.29
+    (`arthur/compat.py`, stand-ins in `mpy/lib/`; the rule is in CLAUDE.md and the
+    differences in `docs/reference/micropython.md`). `tests/test_micropython.py` draws over
+    40,000 frames under MicroPython and compares each with CPython's; it needs `micropython`
+    on PATH (Homebrew) and says so when it did not run. Nothing changed on CPython: every
+    golden is identical, and 46,656 frames drawn by the old and new code matched. The
+    scenes still use CPython's exact random sequences (`arthur/mtrandom.py` reproduces them
+    on MicroPython). Each scene's plan is now built once per play. The art folder is
+    `arthur/render/icon_art/`. **Measured on the Mac only:** the whole drawing job needs a
+    1.1 MB heap there, and the rat scene's plan takes 5.8 ms to build under MicroPython,
+    which at the clock's 25 to 30 times would be 150 to 170 ms, over the 125 ms beat.
   - **Cloud relay (not chosen):** the feeder's image (`deploy/feeder/Dockerfile`) logged in
     to Whisker from Railway and read the robot for 43 minutes with no error. No visit
     happened, so live events from a data centre are unproven. **A Railway project
@@ -250,9 +264,8 @@ _Last updated: 2026-11-20, early afternoon._ Current state only. History belongs
    - the Whisker client (`arthur/wire/`, built) seen through one real visit: whether each
      live update carries every field, on which the visit rule (D-0017) depends; and one real
      password login;
-   - `arthur/` itself made to run on both Pythons, with every golden frame compared under
-     MicroPython in the test suite, the scenes' plans built once per play, a seeded generator
-     of our own, and Boston's clock time without a time-zone library;
+   - each scene's plan built ahead of its first frame, in pieces, during the frames before
+     it: the rat's is an estimated 150 to 170 ms on the clock in one go;
    - the clock's program and its installer: the loop, a launcher that falls back to the last
      good version, sending changes from the Mac over Wi-Fi, and a way home for the visit log;
    - trials on the clock: a real visit, a token renewal, a Wi-Fi outage, a cold boot, an
