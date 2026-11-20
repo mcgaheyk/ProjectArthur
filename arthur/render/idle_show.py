@@ -440,6 +440,26 @@ def planned_beats(name: str, cfg: Config, n: int, frames: int) -> Sequence[Beat]
     return beats
 
 
+def prepare_scene(cue: Cue, cfg: Config) -> bool:
+    """Build and keep the plan a scene cue will play, ahead of its first body frame (D-0029).
+
+    The plan is the same one that body frame would build (:func:`planned_beats`, the same
+    key), so no pixel changes; the frame that would have built it finds it kept instead. On
+    the clock a plan takes up to about 170 ms to build, more than a beat, so the program
+    calls this on a home-page beat shortly before the slot begins, where a late beat does not
+    show. True when there was a plan to build (or one was already kept for this play)."""
+    if cue.kind != "scene":
+        return False
+    n = slot_frames(cue)
+    if n < SCENE_FRAMES_AROUND:
+        return False
+    name = scene_name(cue)
+    if name is None:
+        return False
+    planned_beats(name, cfg, cue.n, n - SCENE_FRAMES_AROUND)
+    return True
+
+
 def forget_plan() -> None:
     """Drop the kept scene plan and scene pick (the next frame builds them again)."""
     global _plan, _picked
