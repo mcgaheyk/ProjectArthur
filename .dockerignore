@@ -1,0 +1,9 @@
+# Nothing goes into an image unless it is listed here. That keeps .env, .whisker-token.json
+# and logs/ out whatever else is added to the repo later.
+*
+!pyproject.toml
+!uv.lock
+!arthur/
+!config/
+**/__pycache__/
+**/*.pyc
