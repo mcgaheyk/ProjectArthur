@@ -454,7 +454,10 @@ records the longest gap while each job runs; MicroPython on this Mac):
 | door: write and hash a 24 KB chunk | 0.8 ms | 1.5 ms | 20 to 25 ms |
 | door: the tag of a full request | 0.8 ms | 0.3 ms | 20 to 25 ms |
 
-**What that means on the clock (an estimate: the Mac's figures times 25 to 30).** Every
+**What that means on the clock (an estimate: the Mac's figures times 25 to 30).**
+*Measured since, on 2026-11-21: the estimate was about four times too slow for drawing and
+five times too fast for a scene's plan; the real figures are under "The first install on the
+real clock" and replace this paragraph's numbers.* Every
 long job above costs about one beat on the clock. A drawn beat costs 70 to 125 ms by the
 same estimate (home 80 to 95, the bird scene 70 to 85, the page 105 to 125), and a
 collection 60 to 70 ms on top when one falls due, before the push (the slowest push measured
@@ -474,7 +477,7 @@ a minute); keep the mapped state between record changes; and only then split the
 client (connection, tracker, log) into a second MicroPython process that hands the record and
 the observed facts to the display process over a local socket, each with its own heap.
 
-## The first install on the real clock (the order; not yet run)
+## The first install on the real clock (run on 2026-11-21)
 
 `S` is the clock's adb serial (`adb devices -l`; the cable goes into the clock itself, not
 its charging base). `ADDRESS` is the clock's address on the Wi-Fi.
@@ -511,21 +514,71 @@ the program pushing and closes its Whisker connection, and the Mac's feeder can 
 but a pause does not outlast a restart of the program or the clock, so it is for an hour, not
 for a night.
 
+**What happened on 2026-11-21.** The Mac's feeder was stopped at 02:06:57. A password login
+from the Mac with our client (`scripts/wire_check.py --login`) took 1.42 s and the robot read
+READY: the first real password login the client made. The dry run printed no secret.
+`install` ran from 09:04:53 to 09:05:00 and reported "installed and running". Then, from the
+program's console and `status`:
+
+| When (local) | What |
+|---|---|
+| 09:04:57.1 | the program starts (slot a, try 1); the door opens on port 7531 |
+| 09:04:59.9 | "loaded in 2739 ms, heap in use 467648"; NO DATA |
+| 09:05:02.3 | first frame pushed to AWTRIX (that first push took 2,440 ms) |
+| 09:05:15.8 | "Whisker connected" (its own password login and the robot read), NO DATA to ready |
+| 09:05:16.8 | live updates subscribed; the history seeded the last visit (08:16) at 09:05:19 |
+| 09:06:57 | boot: "slot a is healthy" |
+
+**Measured there, 398 s after the start** (about 3,200 beats, two idle rounds with the
+weather page twice, the rat scene and the stretch scene; `status`, milliseconds):
+
+| What | Count | Mean | Worst |
+|---|---|---|---|
+| a beat's mapping and drawing: home | 1,767 | 21.6 | 25.4 |
+| the same: NO DATA | 104 | 17.4 | 19.0 |
+| the same: the weather page | 858 | 25.7 | 45.7 |
+| the same: a wipe into or out of a scene | 30 | 29.1 | 38.0 |
+| the same: the rat scene | 269 | 16.5 | 22.2 |
+| the same: the stretch scene | 76 | 17.2 | 18.7 |
+| a scene's plan, built 0.875 s ahead: rat | 1 | 798.6 | |
+| the same: stretch | 1 | 408.9 | |
+| a push to AWTRIX (308 after the first) | 308 | about 38 | |
+| a scheduled collection | 213 | 23.3 | 26.2 |
+
+14 beats took longer than 125 ms; the eight latest wakes were 228, 225, 212, 192, 175, 174,
+69 and 56 ms late. No push failed. The heap in use after a collection was 0.61 to 0.65 MB of
+3 MB. The clock had 10.3 MiB of memory available (14.3 before the install) and the process
+4,216 kB of address space; `/data` had 7.44 MB free.
+
+**What the figures say.** Drawing on the clock costs about six times the Mac's MicroPython,
+not 25 to 30: a beat with a push and a collection is about 85 ms of its 125. A scene's plan
+is the opposite: 140 times the Mac's 5.8 ms for the rat. The plans draw their random numbers
+from `arthur/mtrandom.py`, whose 32-bit arithmetic fits MicroPython's small integers on the
+64-bit Mac and not on the 32-bit clock, where each value is a heap-allocated big integer;
+that is the likely cause, not confirmed. The plan fits its 0.875 s lead by 77 ms for the rat.
+The bird's plan has not been timed there in the whole program (87 ms in the spike's slice).
+
+Also seen: the clock's screen read back from the Mac showed the weather page the program
+drew (the sun, 45°, `NOV` over `21`), no stale mark, pixels changing; `logs pull` brought 3
+robot lines, 64 history lines and 8 console lines into `logs/`; `push` answered "nothing to
+do (code bd2ef8a4853d02cc, config 470834297cb28a26 already there)". On the flash,
+`secrets.json`, `tokens.json` and `state.json` are mode 600 and the autostart 700; `ROOT`
+and `slots/` are mode 777, because adb's shell has umask 000 when `clockctl.py place` makes
+them. Only root exists on the clock, so nothing can use that today; make them 700.
+
 ## Assumed about the real clock, not checked
 
 - The daemon stops the running autostart (and so our launcher, which stops the program) on
-  `ctl restart-autostart`; `remove` kills what is left either way.
-- The daemon starts the autostart with `/bin/sh` from its `#!` line, as the spike's four-line
-  script was. (The clock's `sh` has `trap`, `wait`, `$!` and `umask`; see below. A trap on
-  a signal was not tried, only on exit.)
+  `ctl restart-autostart`; `remove` kills what is left either way. (That it starts the
+  launcher is seen; a trap on a signal was not tried, only on exit.)
 - `os.rename` over an existing file is atomic on JFFS2, so `state.json`, `config.json` and the
   manifest are always whole.
 - The heap the program needs on the clock is what the emulated ARMv7 build needed: 1.5 MB ran
   the measured day, 1 MB did not, and the launcher gives it 3M (see "The whole program,
   measured"). Weeks of running are not measured. `--heap` changes it at install.
-- The clock's Wi-Fi lets the Mac reach port 7531 (no client isolation on the home network).
-- How long the real program takes to start, and how often boot's manifest check (hashing
-  about 290 KB at each start) costs on the clock: estimated at tens of milliseconds.
+- What boot's manifest check (hashing about 290 KB at each start) costs on the clock:
+  estimated at tens of milliseconds. (From the boot note to the program's first line was
+  about a second, the check and the imports together.)
 - `adb push` keeps a mode-600 file's mode in `/tmp`, and `umask` in the clock's `sh` applies
   to `cp`; `secrets.json` is `chmod 600` after the copy either way.
 - The daemon starts the launcher with a clean environment (no `ARTHUR_ONCLOCK_TEST`).
@@ -534,11 +587,9 @@ for a night.
   it would wait for ever, saying so once in the console.
 - MicroPython's `Stream.readinto` exists in the clock's build (it does in the Mac's 1.29 and
   in the same static ARMv7 file under emulation; `os.getenv` was seen on the clock).
-- Real Whisker and Cognito answer within the client's timeouts and the TLS handshakes cost
-  what the fake's 2048-bit RSA chain costs (the real chains are longer: more verification
-  work per handshake, not measured).
-- The clock's own speed: every figure for the clock in this note is the Mac's MicroPython
-  times 25 to 30 (the spike's ratio), an estimate.
+- What a TLS handshake with the real services costs on the clock (the real chains are
+  longer than the fake's; the first login, the read and the live connection together took
+  16 s, not broken down).
 
 **Checked on the real clock on 2026-11-20** (over USB, read-only, the built MicroPython run
 from `/tmp` and removed afterwards; AWTRIX and the Mac's feeder kept running):
@@ -551,3 +602,8 @@ from `/tmp` and removed afterwards; AWTRIX and the Mac's feeder kept running):
 - `os.getenv` exists, and the system time was right (not checked soon after a boot).
 - The clock's `sh` has `umask` (it reports 000 over adb; the launcher sets 077), `wait $!`
   and `trap` (tried on exit).
+
+**Seen at the first install, 2026-11-21:** the daemon starts our launcher from the autostart
+file; the Mac reaches the door on port 7531 over the home Wi-Fi; `secrets.json` is mode 600
+on the flash; the program loads in 2.7 s; real Cognito and Whisker answer within the client's
+timeouts from the clock; the heap and the speed are as measured above, not as estimated.

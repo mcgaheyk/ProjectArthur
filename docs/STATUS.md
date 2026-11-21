@@ -1,6 +1,6 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-20, evening._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-21, morning._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
 - **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
@@ -11,8 +11,44 @@ _Last updated: 2026-11-20, evening._ Current state only. History belongs in git 
   (D-0010); commit 7d4393e is the last one that has them.
 - **Firmware target:** AWTRIX NG pinned to 1.2.3 (D-0002). It is the latest release and ships a
   TC002 build. The feeder draws every pixel and pushes a bitmap (D-0003).
-- **The clock is live.** The feeder (`python -m arthur.feeder`) has been **running on Kyle's
-  Mac since 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, at 09:10 on 2026-11-18 after the push bench, at 13:47 that day after Kyle watched in use on the clock, at 18:04 from Terminal after a 42-minute outage, D-0024, at 08:56 on 2026-11-19 for the gap rule, D-0025, at 12:46 on 2026-11-20 after a 58-minute stop for the no-Pi tests, D-0029, at 14:00 that day after a five-minute stop for the first live check of our own Whisker client, at 14:08 for the shared code, D-0029, at 14:58 for the reorganised log code, and at 15:10, 15:15 and 18:26 on our own Whisker client, below), detached under `caffeinate`, against the real robot and
+- **The clock has run itself since 09:04 on 2026-11-21 (D-0029), as a trial. The Mac's
+  feeder is stopped: do not start it while the program on the clock runs** (two programs on
+  the Whisker account, and the two fight over the screen). To go back:
+  `scripts/clock.py --serial S remove` over USB, then
+  `open -a Terminal scripts/start_feeder.command`. The program was installed over USB with
+  `scripts/clock.py install` (Claude ran it, at Kyle's word). Its first seven minutes, from
+  its own status and console and the clock's screen read back:
+  - It loaded in 2.7 s and put NO DATA on the screen 5 s after starting. It then made its
+    own password login and read the robot: the home screen came 19 s after starting. The
+    last visit (08:16, when nothing was watching) came from the robot's history. Live
+    updates subscribed. The boot script marked the slot healthy at two minutes.
+  - Two whole idle rounds with no warning, no error and no failed push: the weather page
+    (read back from the clock: the sun, 45°, `NOV` over `21`), the rat scene, the stretch
+    scene.
+  - **Speed, measured there for the first time.** Mapping and drawing one beat: home
+    22 ms (worst 25), the weather page 26 (worst 46), a scene 17 (worst 22), a wipe 29
+    (worst 38); a push about 40 ms; a memory collection 23 ms. So a beat costs about half of
+    its 125 ms, and the estimate (25 to 30 times the Mac) was about four times too slow for
+    drawing. **The exception is a scene's plan: 799 ms for the rat and 409 ms for the
+    stretch, in one go, 0.875 s before the scene**, far over the estimate of 150 to 170 ms.
+    Nothing is pushed meanwhile; the home page is on screen then. 14 of about 3,200 beats
+    took longer than their 125 ms.
+  - Memory: 0.61 to 0.65 MB of the 3 MB heap in use after a collection; the clock had
+    10.3 MiB available with everything running (14.3 before the install). Storage: 7.4 MB
+    free.
+  - Over Wi-Fi from the Mac: `status`, `logs pull` (3 robot lines, 64 history lines and 8
+    console lines came back into `logs/`), and `push`, which answered that nothing differs.
+  - On the clock the login file, the tokens and the state file are readable by root only.
+    The install folder itself is mode 777 (only root exists on the clock); to tighten.
+  **Not yet seen there:** a visit, the hourly token renewal, a real change pushed over
+  Wi-Fi, a Wi-Fi outage, a cold boot with the program installed, the cable out, a night.
+  The clock keeps its log in memory only (about 128 KB): pull it every few hours
+  (`scripts/clock.py --clock ADDRESS logs pull`) or leave `logs follow` running.
+  **The screen showed the stale border from 02:08 to 09:05 that morning:** the Mac's feeder
+  was stopped at 02:07 for the install, and the install ran seven hours later.
+- **The Mac's feeder: stopped since 02:07 on 2026-11-21, now the way back.** The feeder
+  (`python -m arthur.feeder`) **ran on Kyle's
+  Mac from 18:12 on 2026-11-17** (restarted at 18:33 for the litter bar, at 09:10 on 2026-11-18 after the push bench, at 13:47 that day after Kyle watched in use on the clock, at 18:04 from Terminal after a 42-minute outage, D-0024, at 08:56 on 2026-11-19 for the gap rule, D-0025, at 12:46 on 2026-11-20 after a 58-minute stop for the no-Pi tests, D-0029, at 14:00 that day after a five-minute stop for the first live check of our own Whisker client, at 14:08 for the shared code, D-0029, at 14:58 for the reorganised log code, and at 15:10, 15:15 and 18:26 on our own Whisker client, below), detached under `caffeinate`, against the real robot and
   the real clock (D-0018). It logged in, read the robot and showed idle; the clock's screen
   read-back matched our render of the robot's state on all 832 pixels. **No real visit has
   been watched on the clock yet.** It stops on a Mac restart and the clock shows the stale
@@ -159,7 +195,7 @@ _Last updated: 2026-11-20, evening._ Current state only. History belongs in git 
   page or scene has only been seen in tests and the studio. It was restarted at 14:08 on
   2026-11-20 on the shared code (D-0029): its first four minutes, a full idle round, logged no
   error or warning, and the clock's read-back showed no stale border.
-- **The clock is to run itself (D-0029), chosen 2026-11-20; not built.** The goal is no Pi
+- **How the clock came to run itself (D-0029, chosen 2026-11-20).** The goal is no Pi
   and no Mac: a MicroPython program on the TC002, started by AWTRIX NG's autostart slot,
   that talks to Whisker, draws with the same Python the studio uses and pushes frames to
   AWTRIX on the clock. Two routes were tested that day
@@ -206,18 +242,20 @@ _Last updated: 2026-11-20, evening._ Current state only. History belongs in git 
     that differ are on purpose (`docs/reference/whisker-wire.md`). The log code it shares
     with the pylitterbot source was reorganised (`arthur/sources/spikeformat.py`,
     `records.py`); the real logs replay identically through the old and new code.
-  - **Installing and updating, in `main`, never run on the real clock:** `scripts/clock.py`
+  - **Installing and updating, in `main`** (on the real clock so far: install, status,
+    logs, a log pull and a push with nothing to send, 2026-11-21): `scripts/clock.py`
     (build MicroPython, install over USB, `push` changes over Wi-Fi, pull the log, pause),
     `deploy/clock/` (the MicroPython recipe with its entropy fixes, the launcher, a boot
     script with two code slots that falls back after three failed starts) and the update
     door `arthur/onclock/door.py`. Protocol, layout and threat list:
     `docs/reference/onclock.md`. On an emulated ARM clock: install, a config change in
     0.3 s, a code change in about 1 s, and a clean removal.
-  - **The clock's own program, in `main`, never run on the real clock:**
+  - **The clock's own program, in `main`, on the real clock since 2026-11-21:**
     `arthur/onclock/app.py` (the loop, the push to AWTRIX on 127.0.0.1, the weather, each
     scene's plan built 0.875 s before its slot, a log kept in memory). Under MicroPython on
     the Mac every frame it pushed matched CPython's, with a scripted source.
-  - **The pieces are joined into one program, in `main`, never run on the real clock.** The
+  - **The pieces are joined into one program, in `main`** (on the real clock since
+    2026-11-21). The
     launcher, the boot script, the program, the Whisker source (login from
     `secrets.json` on the clock, D-0030) and the update door start as one. Run as installed
     under MicroPython on the Mac and on an emulated ARM clock, against a fake Whisker, a
@@ -228,23 +266,22 @@ _Last updated: 2026-11-20, evening._ Current state only. History belongs in git 
     the studio's reader. No secret appears in any log, status or door answer. The door now
     reads every request into one buffer made at start. The launcher gives MicroPython a
     3 MB heap; the largest heap in use over a compressed day was 1.1 MB.
-    **Known weak points:** (1) speed is only estimated: if the clock is 25 to 30 times
-    slower than the Mac for the whole beat, a scene will drop frames while the source
-    reconnects or logs in (`status` reports the beat times once it runs there); (2) a
+    **Known weak points:** (1) a scene's plan takes 0.4 to 0.8 s in one go on the clock
+    (drawing itself is fast there; figures above), and what a reconnect or a login costs a
+    scene has not been seen; (2) a
     `config.json` the new code rejects stops both code slots, and then only USB reaches
     the clock; (3) the log is kept in memory and is lost at every restart unless the Mac
     is following it.
-  - **Ready for the first install; nothing of ours is on the clock.** Checked on
-    2026-11-20 evening with the clock on USB and the Mac's feeder still running:
+  - **Checked before the first install,** on 2026-11-20 evening with the clock on USB and
+    the Mac's feeder still running:
     `scripts/clock.py build` gives the same file, byte for byte, as the MicroPython that
     ran on the clock in the spike; `--serial S status` ran on the real clock (no autostart,
     nothing installed, 8.0 MB free on its storage; the install writes 0.88 MB); and four
     things the door and the launcher had only assumed about the clock hold there
     (`docs/reference/onclock.md`, "Checked on the real clock"). The whole end-to-end run
     passed again that evening on the Mac's MicroPython and on the emulated ARM clock with
-    the fresh build. **`install` itself has
-    never been run on it**, and the first start there will also be our client's first real
-    password login.
+    the fresh build. Our client's first real password login was made from the Mac at
+    02:07 on 2026-11-21 (1.4 s), before the clock made its own.
   - **Cloud relay (not chosen):** the feeder's image (`deploy/feeder/Dockerfile`) logged in
     to Whisker from Railway and read the robot for 43 minutes with no error. No visit
     happened, so live events from a data centre are unproven. **A Railway project
@@ -270,7 +307,7 @@ _Last updated: 2026-11-20, evening._ Current state only. History belongs in git 
   docs cite the new ones) and pushed to a fresh repo. The pre-rewrite copy, Gmail and all, is
   kept private as `mcgaheyk/ProjectArthur-old`. **No agent has followed the setup guide yet;
   only its config edits were tried, on a copy.**
-- **Not built:** the on-clock program (D-0029; see Next), night dimming, food and water. The
+- **Not built:** night dimming, food and water. The
   Pi deployment is now only a fallback (the unit `scripts/arthur-feeder.service` is written
   but has never run). See Later.
 ## Next
@@ -315,20 +352,23 @@ _Last updated: 2026-11-20, evening._ Current state only. History belongs in git 
    stale border (stop the feeder for two minutes), an interruption, drawer full, and the
    robot offline. The remaining
    guesses about the clock are at the end of `docs/reference/awtrix-ng.md`.
-4. **The on-clock build (D-0029), with Claude.** The Mac's feeder stays live until the last
-   step passes. In order:
-   - the Mac's feeder kept on the wire source (`--source wire`; two visits seen so far) for
-     some days, to meet a token that will not renew, a dropped connection and an
-     interruption; and one real password login;
-   - each scene's plan built ahead of its first frame, in pieces, during the frames before
-     it: the rat's is an estimated 150 to 170 ms on the clock in one go;
-   - **the first install on the real clock** (`scripts/clock.py`, order in
-     `docs/reference/onclock.md`): stop the Mac's feeder first, since the program connects
-     to Whisker as soon as it starts; then read the beat times from `status`;
-   - after that: keep the last good `config.json` so a bad one cannot stop both slots; keep
-     the log across restarts; make Whisker work wait for a quiet screen if beats run late;
-   - trials on the clock: a real visit, a token renewal, a Wi-Fi outage, a cold boot, an
-     AWTRIX restart and 48 hours, then the way back to the Mac rehearsed once.
+4. **The on-clock trial (D-0029), with Claude.** The clock runs itself since 2026-11-21
+   and the Mac's feeder is the way back (above). In order:
+   - **Kyle: say whether the clock stays on its own program** or goes back to the Mac's
+     feeder for now.
+   - keep the clock's log: `logs pull` every few hours, or `logs follow` left running in a
+     Terminal window;
+   - watch for, in the log and `status`: a real visit, the hourly token renewal, a Wi-Fi
+     outage, a cold boot, an AWTRIX restart, the cable out, 48 hours;
+   - a first real change sent over Wi-Fi with `push`: the config, then the code;
+   - each scene's plan built in pieces during the frames before it (799 ms for the rat and
+     409 ms for the stretch in one go on the clock, 0.875 s before the scene);
+   - keep the last good `config.json` so a bad one cannot stop both slots; keep the log
+     across restarts; tighten the install folder's mode;
+   - then the cutover decision (a DECISIONS entry) and the way back to the Mac rehearsed
+     once.
+   Not yet met by our Whisker client anywhere: a token that will not renew, a dropped
+   connection, an interruption.
    Kyle: delete the Railway project `ProjectArthur` (it holds the Whisker login) unless the
    cloud relay is wanted as a fallback.
 5. Kyle: leave the PETLIBRO spike running until the Granary has run low and been refilled at
@@ -418,8 +458,8 @@ _Last updated: 2026-11-20, evening._ Current state only. History belongs in git 
 - Whether the feeder can share a Whisker account with Home Assistant's Litter-Robot
   integration. People who build their own will ask; the README does not claim either way.
 - For the on-clock build (D-0029): whether a Whisker connection written for MicroPython holds
-  up (the password login is about 20 seconds of arithmetic on the clock by estimate; live
-  events; weeks of uptime); how long Whisker's refresh token lasts; memory with drawing, TLS,
-  the live connection and the weather all running at once (each was measured alone); whether
-  the 87 ms frame that builds a scene's plan shows on the LEDs; whether AWTRIX's autostart
+  up (the first login and read took 16 s there; live events and weeks of uptime are not
+  seen yet); how long Whisker's refresh token lasts; memory over days (10.3 MiB was
+  available with everything running, seven minutes in); whether the 0.4 to 0.8 s that
+  builds a scene's plan shows on the LEDs; whether AWTRIX's autostart
   survives a firmware update on this clock (the docs say it does; not tried).
