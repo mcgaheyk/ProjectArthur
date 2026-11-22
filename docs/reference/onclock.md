@@ -555,7 +555,9 @@ not 25 to 30: a beat with a push and a collection is about 85 ms of its 125. A s
 is the opposite: 140 times the Mac's 5.8 ms for the rat. The plans draw their random numbers
 from `arthur/mtrandom.py`, whose 32-bit arithmetic fits MicroPython's small integers on the
 64-bit Mac and not on the 32-bit clock, where each value is a heap-allocated big integer;
-that is the likely cause, not confirmed. The plan fits its 0.875 s lead by 77 ms for the rat.
+that was the guess that morning, confirmed and measured in the next section. The plan fits
+its 0.875 s lead by 77 ms for the rat in this first reading (later rat plans took up to
+920 ms).
 The bird's plan has not been timed there in the whole program (87 ms in the spike's slice).
 
 Also seen: the clock's screen read back from the Mac showed the weather page the program
@@ -565,6 +567,144 @@ do (code bd2ef8a4853d02cc, config 470834297cb28a26 already there)". On the flash
 `secrets.json`, `tokens.json` and `state.json` are mode 600 and the autostart 700; `ROOT`
 and `slots/` are mode 777, because adb's shell has umask 000 when `clockctl.py place` makes
 them. Only root exists on the clock, so nothing can use that today; make them 700.
+
+## The first two days alone (2026-11-21 and 22)
+
+From the program's console and robot log as the Mac pulled them, and its `status`. The Mac
+was asleep from about 12:15 on the 21st to 13:57 on the 22nd, so nothing was watching then.
+
+**Visits.** Three were logged, each drawn through in use, waiting, cleaning, just cleaned
+and back to ready:
+
+| Visit | What was new | The countdown against the real clean start |
+|---|---|---|
+| 21st, 09:23 | the weight came over the live connection 109 s after detection; **the first interruption logged live**, 25 s, 40 s into the clean (`docs/states.md`) | reached zero 1 s before it |
+| 22nd, 07:42 | | 5 s after it |
+| 22nd, 13:19 | a second weight reading at 13:25 (he moved or came back) started the countdown again from 8:00, as it should | 12 s before it |
+
+(The visits between 12:05 on the 21st and the cold boot are not in the Mac's log; the
+robot's own history, read at each start, has them.)
+
+**A cold boot, by itself, at 00:26 on the 22nd.** The clock lost power some time after
+12:15 on the 21st: it had been on the Mac's USB port, the Mac went to sleep, and by the
+afternoon of the 22nd the cable was out (when the power went and came back is in no log).
+At 00:26:04 the program started from the autostart. The system time was still 1970 and was
+set 23 s later, at 00:26:27; by 00:26:33 the program had read the robot and its history
+(last visit 19:57 the evening before). Six seconds is the saved token's doing: a password
+login takes about 14 s there. The first weather fetch failed and the retry a minute later
+worked (00:27:19). It then ran 14 h 23 min, over 35,000 pushes, none failed.
+
+**Whisker closed the live connection five times that night** (01:20, 01:29, 03:47, 04:29,
+08:06, "closed by the server"); each time the program was subscribed again within 2 s.
+Contact never lapsed across the hourly token expiry on either day, so the renewals work
+(they are not logged). Open-Meteo answered 503 once (07:30:05); the reading was kept and
+the retry at 07:31:41 worked.
+
+**Memory.** The heap in use after a collection was 0.73 MB after 14 h, 0.84 MB at most
+(0.61 to 0.65 MB in the first minutes; the program's own log ring, 128 KB when full, is part
+of the difference).
+
+**What was lost.** The clock's log from 12:05 on the 21st to the cold boot (it is kept in
+memory), and the first 30 lines after the boot: by the time the Mac woke, 13 and a half
+hours of lines had pushed the start-up lines out of the 128 KB ring (a robot line is about
+1.5 KB).
+
+**The first real change over Wi-Fi, 14:49 on the 22nd** (`push`, the code only; the clock on
+its charger, no cable):
+
+| When | What |
+|---|---|
+| 14:49:14 | `push` starts: the Mac builds the slot; the door takes 111 files, 327 KB, into slot b in 8.8 s (every file: slot b was empty) |
+| about 14:49:23 | the old program stops; its last frame stays on the screen |
+| 14:49:24.4 | the new program starts from slot b and opens the door |
+| 14:49:26.5 | the Mac's `push` returns: "the program is back", 12.5 s after it began |
+| 14:49:27.1 | "loaded in 2684 ms"; NO DATA |
+| 14:49:29.6 | first frame pushed (2.5 s: the weather's first handshake ran in that push) |
+| 14:49:30.4 | "Whisker connected" from the saved token; the home page |
+
+So a code change costs the display about 7 s on the last frame and half a second of NO
+DATA. The follower on the Mac lost the door for 10 s and carried on with the new run.
+
+## What holds the loop on the clock (measured 2026-11-21)
+
+After 2 h 34 min (74,000 beats, 10,927 pushes, none failed) the program's `status` counted
+558 beats longer than 125 ms and 92 late wakes. Two things cause nearly all of them. Both
+were then timed on the clock itself, with small read-only scripts run by the installed
+MicroPython over USB beside the program (the clock has two cores, so the display was not
+disturbed; the scripts lived in `/tmp` and were removed).
+
+**1. The weather fetch: 2.2 s, every 15 minutes.** The eight latest wakes (1,987 to
+2,169 ms) were 15 minutes apart: 09:20:05, 09:35:07, 09:50:10, 10:35:17, 10:50:20, 11:06:02,
+11:21:04 and 11:36:07. Opening a verified TLS connection, by host:
+
+| Host | DNS | TCP connect | TLS handshake | Suite |
+|---|---|---|---|---|
+| `api.open-meteo.com` | 44 to 108 ms | 24 to 28 ms | **2,238 and 2,249 ms** | ECDHE-ECDSA, AES-256-GCM-SHA384 |
+| `lr4.iothings.site` (Whisker) | 51 to 111 ms | 13 to 22 ms | 273 and 283 ms | ECDHE-RSA, AES-128-GCM-SHA256 |
+| `cognito-idp.us-east-1.amazonaws.com` | 42 ms | 25 ms | 319 ms | ECDHE-RSA, AES-128-GCM-SHA256 |
+
+Loading the CA bundle into a new context took 255 ms (once per program). The handshake is
+arithmetic inside mbedTLS and nothing else runs meanwhile; Open-Meteo's certificate chain is
+elliptic-curve, which this build of mbedTLS checks slowly, and Whisker's is RSA. The DNS
+lookup also holds the loop (MicroPython's `open_connection` calls `getaddrinfo` directly),
+for a tenth of a second at most here. The program already kept the fetch out of pages and
+scenes; it did not keep it out of a visit.
+
+**2. A scene's plan: 0.4 to 0.9 s, twenty times an hour.** In the program, over 46 plans:
+rat mean 691 ms and worst 920, stretch 413 and 432, bird 376 and 400, against the 0.875 s
+lead. Alone on the clock, with an empty heap:
+
+| | rat | stretch | bird |
+|---|---|---|---|
+| the plan, four rounds | 245 to 560 ms | 193 to 203 ms | 135 to 177 ms |
+| generators it seeds | 3 to 6 | 4 | 2 |
+| of which seeding | 126 to 255 ms | 168 to 173 ms | 84 to 86 ms |
+
+So the cause guessed above is confirmed. The clock's MicroPython is 32-bit, a small integer
+there holds 31 bits, and `arthur/mtrandom.py` kept its 624 words as 32-bit integers: every
+word of 2^30 or more was a heap-allocated big integer and every operation on one allocated
+another. One `Random(seed)` took 43 to 47 ms and left about half a megabyte of garbage
+(0.30 ms on the Mac's 64-bit MicroPython); one word drawn 47 µs, `random()` 105 µs,
+`randrange(17)` 117 µs. In the program the garbage of four seeds does not fit the 3 MB heap
+beside 0.65 MB of live data, so collections land inside the build: that is why a plan costs
+1.5 to 2.5 times more there than alone. With the state kept as 16-bit halves, so that
+nothing reaches 2^30, a first sketch of the same seeding gave the identical state and took
+13.5 ms on the clock. `arthur/mtrandom.py` was rewritten that way the same day (on the Mac's
+64-bit MicroPython it costs a little more than before, 0.32 ms a seed against 0.25 to 0.28,
+because the arithmetic is done once per half; one code path for both was preferred to a
+faster one the Mac's tests would not run). What is left of the rat's plan is its own work:
+placing the rat 103 times (74 ms) and mirroring 89 sprites (69 ms) in round 0.
+
+**Not used: MicroPython's native code.** The clock's build has the native and viper
+emitters (`@micropython.native`, `@micropython.viper` compile and run there); the Mac's
+arm64 build has neither ("invalid micropython decorator"). Code compiled that way would run
+only on the clock and under emulation, outside the 40,000-frame comparison the Mac runs, so
+it was left alone.
+
+**The log follower costs nothing that shows.** With `logs follow` asking every 2 s, the
+drawing times were the same to a tenth of a millisecond.
+
+**After the change** (commit `b10a520`, pushed over Wi-Fi at 14:49 on 2026-11-22: the
+generator's state in 16-bit halves, no weather fetch during a visit, and `status` saying
+what was on screen at each late wake). A scene's plan in the running program, ms:
+
+| | before (the 14 hours to 14:49): mean, worst | after (the first five plans) |
+|---|---|---|
+| rat | 735, 1,035 (47 plans) | 456 and 467 |
+| stretch | 411, 431 (48 plans) | 151 and 152 |
+| bird | 374, 399 (47 plans) | 158 |
+
+Every plan now ends at least 0.4 s before its scene; the rat's had overrun its 0.875 s lead
+at its worst. What is left of the rat's plan is its own work, above.
+
+`late_by_part` over those first 14 minutes: eight late wakes. Five in the first three
+seconds (the weather's first handshake falls in the program's first push, which is why that
+push takes 2.5 s). Then **the Whisker poll, every five minutes**: 162 ms on the home page at
+14:54:31, and 198 ms and 35 ms in the middle of the rat scene at 14:59:32. Its TLS handshake
+(0.3 s) is not held back from pages and scenes as the weather's is; about one poll in five
+falls in a scene. That is the next thing that shows. The first scheduled weather fetch on
+the new code, at 15:04:41, fell on the home page (1,990 ms). Not yet seen on the clock: a
+weather fetch held back by a visit.
 
 ## Assumed about the real clock, not checked
 

@@ -48,7 +48,12 @@ at a time.
 
 A normal visit: `ready → in_use → waiting → cleaning → just_cleaned → ready`. An interruption
 goes `cleaning → interrupted → cleaning`: in the two interruptions in the robot's history the
-cycle resumed and finished without a new wait. No interruption has been logged live yet.
+cycle resumed and finished without a new wait. **One has been logged live,** on 2026-11-21
+(by the program on the clock): the cat sensor stopped the cycle 40 s in, at 09:33:47;
+`CAT_SENSOR_INTERRUPTED` lasted 25 s; the cycle then resumed and finished 85 s later, so
+125 s of cycling in all, the usual length. The robot carried on from where it had stopped.
+**The cleaning countdown does not know that:** it starts again from 130 s when the cycle
+resumes, so that morning it was cut off with 0:45 still showing.
 
 ### How a visit is read (D-0017)
 Measured on seven real visits, 2026-11-15 to 17. The two statuses do not say where the cat is:
@@ -142,6 +147,7 @@ Badges were removed (D-0012). What they used to mark:
   `CYCLE_LEVEL`, `CYCLE_HOME`, but each varies as much as the whole (home alone 3 to 18 s), so
   they would not end the countdown more accurately. `catDetect` and `robotCycleState` carry
   nothing usable.
-- **Open:** what a live interruption looks like and how long it lasts; what sleep mode does to
+- **Open:** how long interruptions usually last (one seen live: 25 s) and whether the cycle
+  always carries on from where it stopped; what sleep mode does to
   the waiting state; whether `DRAWER_FULL` appears while cycles still run; how long after
   Arthur steps in `CAT_DETECTED` arrives (the push trails the robot's own clock by up to 5 s).

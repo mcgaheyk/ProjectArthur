@@ -702,3 +702,42 @@ clock's reset key for five seconds erases it with everything else on `/data`.
 **Not known.** Whether our own password login is accepted by the real service; it has only
 run against a fake.
 
+
+## D-0031 — The clock stays on its own program; what is slow there is made cheaper in the same Python
+
+**2026-11-21 and 22.** Two hours after the first install (D-0029), asked whether to leave the
+clock running on its own program or go back to the Mac's feeder, Kyle said to leave it. The
+Mac's feeder stays stopped as the way back. This is the trial going on, not the cutover.
+
+The clock then showed what holds its loop (figures in `docs/reference/onclock.md`, "What
+holds the loop on the clock"), and two things were chosen:
+
+- **The scenes' random numbers keep their exact sequences and are computed in 16-bit
+  halves** (`arthur/mtrandom.py`), the same code on the Mac and the clock. The clock's
+  MicroPython is 32-bit; with 32-bit words every value was a heap-allocated big integer, and
+  a scene's plan took 0.4 to 1.0 s. In halves: 0.15 s for the bird and the stretch, 0.46 s
+  for the rat.
+- **The weather waits out a visit.** Its TLS handshake holds the whole program for 2.2 s. It
+  starts only on the idle home page (or NO DATA), and waits up to 20 minutes for one.
+
+**Why.** D-0029 rests on one body of Python that the studio, the tests and the clock all
+run, checked frame for frame on the Mac. A fix that only the clock runs gives that up.
+
+**Rejected.**
+- MicroPython's native and viper code. The clock's build has the emitters and they would
+  make the seeding far faster still (not measured); the Mac's arm64 build does not have
+  them, so the Mac's 40,000-frame comparison could not run the code the clock would.
+- The old whole-word arithmetic kept for 64-bit builds, where it is a little faster: the
+  same objection the other way round.
+- Building a scene's plan in pieces over several beats. It would restructure three scenes
+  to spread a stall that falls on a still home page, and most of the stall was the seeding.
+- A cheaper generator. Every round of every scene would play differently, and the goldens
+  with them, for no gain a viewer could see.
+- For the weather: a second process on the clock's other core (one more program to start,
+  watch and update, for a decoration), or a faster elliptic-curve build of mbedTLS (a new
+  install over USB, untried). Either can come later.
+
+**Accepted.** On the Mac's 64-bit MicroPython seeding is a little slower than before
+(0.32 ms against 0.25 to 0.28). The home page stands still for 2.2 s every 15 minutes while
+the weather is fetched. Whisker's five-minute poll still holds the loop 0.2 to 0.3 s
+wherever it falls, a scene included.

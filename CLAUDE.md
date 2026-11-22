@@ -115,6 +115,9 @@ asked to set this up for someone follows `docs/agent-setup.md`.
   (install with `uv run --env-file .env`; `--dry-run` shows what would be written), and
   `--clock HOST push|status|logs pull|logs follow|pause|resume|restart` over Wi-Fi through
   the door. Only Kyle runs `install` for real. Layout and protocol: `docs/reference/onclock.md`
+- `open -a Terminal scripts/follow_clock.command` keeps the clock's log on the Mac while the
+  clock runs itself (the clock keeps it in memory only). Start it that way, like the feeder,
+  never from a session's shell; it refuses to start a second copy
 - `uv run --env-file .env python scripts/spike_log.py` logs the real robot without a clock.
   Superseded by the feeder; never run both
 - `uv run --env-file .env python scripts/spike_petlibro.py` logs the real PETLIBRO devices,

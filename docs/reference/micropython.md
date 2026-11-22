@@ -6,9 +6,11 @@ Collected 2026-11-20 on Kyle's Mac (Apple Silicon) with MicroPython 1.29.0 from 
 modules run on both. Items marked **[guard]** were found or are now caught by the pixel
 comparison in `tests/test_micropython.py`; **[probe]** were seen in a small script run under
 both; **[spike]** come from `spike/mpy/RESULTS-2A.md` on the local branch
-`spike/micropython-slice` and were seen again here. **Nothing here ran on the clock**, whose
-build is 32-bit ARM with its own libm; the spike's on-clock run is in
-`docs/research/2026-11-20-no-pi-two-tests.md`.
+`spike/micropython-slice` and were seen again here; **[clock]** were measured on the clock
+itself on 2026-11-21. Apart from those, nothing here ran on the clock, whose build is
+32-bit ARM with its own libm; the spike's on-clock run is in
+`docs/research/2026-11-20-no-pi-two-tests.md` and the program's first days there in
+`docs/reference/onclock.md`.
 
 ## Which code, and the check
 Shared, so it must run unchanged on both: `arthur/compat.py`, `model`, `config`,
@@ -61,6 +63,8 @@ imports for the rest is in `arthur/compat.py`, which on CPython is CPython's own
   `tests/test_mtrandom.py` proves it equal to `random.Random` on CPython over 424 seeds and
   every method the code calls, and the guard runs the same exercise under MicroPython
   [guard]. Seeding costs 0.32 ms here, so one generator per key per scene play, not per frame.
+  Its state is kept in 16-bit halves, for the clock's sake: see "On the clock's 32-bit
+  build" below.
 - **A folder `x/` next to `x.py` is imported in place of the module** [spike]: the art
   folder is `render/icon_art/`, not `render/icons/`. `tests/test_portable.py` checks.
 - **micropython-lib's `datetime` raises on `dt == None`** (AttributeError; CPython says
@@ -214,6 +218,36 @@ Also found while building it:
   kernel-wide), so a `python:3.13-slim` container can run the test suite's CPython side and
   call the ARMv7 binary as `ARTHUR_MICROPYTHON`. A container cannot reach the Mac's
   127.0.0.1, even with `--network host`, so both sides must be in one container.
+
+## On the clock's 32-bit build
+The clock's MicroPython is the same 1.29 built for 32-bit ARMv7. What differs from the Mac's
+64-bit build, and was not caught by anything run on the Mac:
+
+- **A small int holds 31 bits, not 63** [clock]. Any int of 2^30 or more is a big int on the
+  heap, and every operation on one allocates another. Code that does 32-bit arithmetic in a
+  loop (a hash, a CRC, a random generator) is correct there and very slow:
+  `arthur/mtrandom.py` with its words kept whole took 43 to 47 ms to seed one generator and
+  left about 0.5 MB of garbage (0.25 to 0.28 ms on the Mac), 47 µs to draw a word, and made a
+  scene's plan cost 0.4 to 0.9 s in the running program. It now keeps each word as two
+  16-bit halves and splits every product so nothing reaches 2^30. **Rule:** in shared code
+  that runs often, keep integers under 2^30, or split them; a one-off value (a `zlib.crc32`
+  used as a seed, a time in milliseconds) may be big.
+  `tests/test_mtrandom.py::test_no_big_ints_on_a_32_bit_micropython` runs `mpy/rngalloc.py`
+  on the clock's own build under Docker's emulation and checks what seeding and drawing
+  allocate; it is skipped, saying so, without Docker or the built `micropython-armv7`.
+- **`list(t)` of a tuple grows as it goes** [emulated ARMv7]: 4.1 KB for 624 small ints where
+  a slice of a list (`xs[:]`) takes 2.5 KB.
+- **The native and viper emitters exist there and not on the Mac** [clock]:
+  `@micropython.native` and `@micropython.viper` compile on the clock's build; on the Mac's
+  arm64 build they are "invalid micropython decorator". Nothing uses them, because the
+  Mac's guard could not run that code.
+- **How slow the clock is depends on the work** [clock]: the seeding loop in halves (small
+  ints only) took 13.5 ms there against 0.32 ms here, about 40 times; with big ints 43 to
+  47 ms against 0.25 to 0.28, about 170 times. No single factor turns a Mac timing into the
+  clock's; measure there.
+- **A TLS handshake is arithmetic that holds the whole program** [clock]: 0.3 s with an RSA
+  chain (Whisker's hosts), 2.2 s with an elliptic-curve chain (Open-Meteo). Figures by host
+  in `docs/reference/onclock.md`, "What holds the loop on the clock".
 
 ## Not checked
 - The clock's own float and libm results: `sin`, `atan2`, `radians` and float `%` were
