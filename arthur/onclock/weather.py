@@ -10,9 +10,12 @@ latest reading as it is (mapping judges its age). It is a decoration and never r
 Over verified TLS with :mod:`arthur.wire` (the CA file is the clock's bundle). One connection
 per fetch, closed after it: fetches are 15 minutes apart.
 
-``quiet_fn``, when given, is asked before each fetch: while it says False (a scene is about to
-play or playing) the fetch waits, up to :data:`QUIET_WAIT_S`, so the TLS handshake's
-arithmetic does not land on the frames that move most.
+``quiet_fn``, when given, is asked before each fetch: while it says False (a page or scene is
+playing or about to, or the robot is doing something: a visit, cleaning, a fault) the fetch
+waits, up to :data:`QUIET_WAIT_S`. A fetch holds the program's loop for about 2.3 s on the
+clock: the TLS handshake with Open-Meteo, whose certificate chain is elliptic-curve, is 2.2 s
+of arithmetic there (Whisker's RSA chain takes 0.3 s; both measured on the clock on
+2026-11-21), and no frame is drawn meanwhile.
 """
 
 import asyncio
@@ -31,8 +34,14 @@ from arthur.sources.openmeteo import (
     request_params,
 )
 
-#: Longest a fetch waits for ``quiet_fn``.
-QUIET_WAIT_S = 60.0
+#: Longest a fetch waits for ``quiet_fn``. Long enough to cover an ordinary visit end to end
+#: (in use, waiting about 8 minutes, cleaning about 2, just cleaned: up to about 15 minutes),
+#: short enough that a screen lasting for days (a full drawer, a fault) cannot starve the
+#: weather. In the idle show a quiet moment comes within about a minute (home stretches are
+#: 45 s), so the cap is never reached there.
+QUIET_WAIT_S = 20 * 60.0
+#: How often ``quiet_fn`` is asked while waiting.
+QUIET_POLL_S = 0.5
 #: How often a fetch in flight looks at the stop event, real seconds.
 POLL_S = 0.05
 
@@ -160,7 +169,7 @@ class WeatherService:
                     return False
             except Exception:  # noqa: BLE001 - a broken hint must not stop the weather
                 return False
-            await self.clock.sleep(0.5)
+            await self.clock.sleep(QUIET_POLL_S)
         return stop.is_set()
 
     async def run(self, stop):

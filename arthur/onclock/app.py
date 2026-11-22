@@ -26,8 +26,8 @@ What it adds for the clock:
   of memory, while the heap is still in one piece), then waits for AWTRIX's API to answer,
   retrying without end, before it starts anything else.
 - **The scene's plan is built ahead** (:data:`PLAN_LEAD_S` before its slot begins, on a
-  home-page beat, after that beat's push): the clock would otherwise spend 150 to 170 ms on
-  the scene's first body frame, more than a beat.
+  home-page beat, after that beat's push): the clock would otherwise spend the whole build
+  (0.4 to 0.9 s there on 2026-11-21) on the scene's first body frame, several beats.
 - **Memory is collected on a schedule**: after a beat's push, once :data:`GC_EVERY_BYTES`
   have been allocated since the last collection, so the pause falls in the beat's idle time
   rather than in the middle of a drawing.
@@ -74,14 +74,21 @@ AWTRIX_WAIT_MAX_S = 10.0
 #: the last whole second of the home page. The home page changes only on whole seconds and
 #: slots begin on whole seconds, so the beats a long build covers would draw the same frame,
 #: and the build has 7/8 s before the slot's first frame is due. (On the Mac under
-#: MicroPython the build and the collection before it took up to 18 ms; at 25 to 30 times
-#: slower, up to about half a second on the clock.)
+#: MicroPython the build and the collection before it took up to 18 ms. On the clock, on
+#: 2026-11-21, it took 0.4 to 0.9 s, about half of it seeding the generators while
+#: ``arthur.mtrandom`` still kept its words whole; see that module.)
 PLAN_LEAD_S = 0.875
 #: Collect once this much has been allocated since the last collection, or a third of what
 #: was free after it if that is less (MicroPython only). A pause costs the same however
 #: much garbage there is (0.5 ms on the Mac at 2 MiB: the live data is what is marked), so
 #: fewer, larger steps cost less; a third of the free heap leaves room for a scene's plan.
 GC_EVERY_BYTES = 512 * 1024
+#: The weather may start a fetch on the home page only if no page or scene begins within
+#: this long. A fetch holds the loop about 2.3 s on the clock (DNS 0.1 s, the TLS handshake
+#: 2.2 s); the state it judges by is up to a beat old (0.125 s); and the scene's plan is
+#: built :data:`PLAN_LEAD_S` before its slot. 0.125 + 2.3 + 0.875 = 3.3 s, so 5 s leaves
+#: 1.7 s to spare.
+QUIET_AHEAD_S = 5.0
 #: A beat that wakes more than this after its tick counts as woken late (``status()``).
 LATE_WAKE_MS = 20.0
 WORST_LATE_KEPT = 8
@@ -211,10 +218,18 @@ class ClockApp:
         self.stats = _Stats()
         self.gc_pauses = _Stats()
         self.late_beats = 0
-        #: Beats that woke later than their tick: how many, the latest by how much, and the
-        #: worst few as ``[epoch s, ms]`` (what blocked the loop: TLS, a login slice, ...).
+        #: Beats that woke later than their tick: how many, and the worst few as
+        #: ``[epoch s, ms, part]`` (what blocked the loop: TLS, a login slice, ...), where
+        #: ``part`` is what was on screen meanwhile: the last drawn beat's label in the
+        #: timing table ("home", "page", "scene rat", "scene wipe", "in_use", ...).
         self.woke_late = 0
         self.worst_late = []
+        #: The late wakes by that part: ``part -> [count, worst ms]``. One entry per part
+        #: seen, so it stays as small as the timing table.
+        self.late_by_part = {}
+        #: The part label of the last beat drawn; "none" before the first, "paused" while
+        #: paused.
+        self._last_part = "none"
         #: The heap in use just after a scheduled collection: the last and the largest.
         self.heap_after_gc = None
         self.heap_after_gc_max = None
@@ -318,6 +333,7 @@ class ClockApp:
             "late_beats": self.late_beats,
             "woke_late": self.woke_late,
             "worst_late": self.worst_late,
+            "late_by_part": self.late_by_part,
         }
         return out
 
@@ -329,11 +345,20 @@ class ClockApp:
                 and self.clock.mono() - last <= within_s)
 
     def _note_late(self, ms):
-        """A beat woke ``ms`` after its tick."""
+        """A beat woke ``ms`` after its tick, while the last drawn beat's part was on
+        screen."""
         self.woke_late += 1
+        part = self._last_part
+        ms = round(ms, 1)
+        by = self.late_by_part.get(part)
+        if by is None:
+            self.late_by_part[part] = [1, ms]
+        else:
+            by[0] += 1
+            by[1] = max(by[1], ms)
         w = self.worst_late
         if len(w) < WORST_LATE_KEPT or ms > w[-1][1]:
-            w.append([round(self.clock.epoch(), 3), round(ms, 1)])
+            w.append([round(self.clock.epoch(), 3), ms, part])
             w.sort(key=lambda e: -e[1])
             del w[WORST_LATE_KEPT:]
 
@@ -538,6 +563,7 @@ class ClockApp:
     async def tick(self):
         """One beat."""
         if self.paused:
+            self._last_part = "paused"
             return
         t0 = stamp_us()
         cfg = self.cfg
@@ -582,7 +608,9 @@ class ClockApp:
                     self._failed_pushes = 0
                 if self.trace is not None:
                     self.trace(now, frame, state, result.reason)
-        self.stats.add(self._part(state, now), drawn_us)
+        part = self._part(state, now)
+        self._last_part = part
+        self.stats.add(part, drawn_us)
         p0 = stamp_us()
         planned = self._plan_ahead(state, now, cfg)
         if planned is not None:
@@ -590,16 +618,26 @@ class ClockApp:
             self.stats.add("plan " + planned, since_us(p0))
 
     def _quiet(self):
-        """For the weather: False while a page or scene is playing or begins within 5 s (their
-        dissolves and wipes run at 8 frames a second; a TLS handshake on the clock takes about
-        0.3 s of arithmetic). Home stretches are 45 s, so a fetch waits at most about a minute.
-        Other screens change at most once a second, where a short stall does not show."""
+        """For the weather: True only when a fetch may hold the loop. A fetch holds it for
+        about 2.3 s: the TLS handshake with Open-Meteo, whose certificate chain is
+        elliptic-curve, is 2.2 s of arithmetic on the clock (Whisker's RSA chain, 0.3 s;
+        measured there on 2026-11-21), and nothing is drawn meanwhile.
+
+        - No state yet, or NO DATA: True (no robot facts on screen for a stall to hold up).
+        - The idle home page with no page or scene playing or beginning within
+          :data:`QUIET_AHEAD_S`: True. Home stretches are 45 s, so in the idle show a fetch
+          waits at most about a minute.
+        - Anything else, a page or scene, or any robot screen (in use, waiting, cleaning,
+          interrupted, just cleaned, drawer full, a fault, ...): False. A visit's timer,
+          countdown and cleaning border would freeze for 2 s. The weather's own cap
+          (:data:`arthur.onclock.weather.QUIET_WAIT_S`) keeps a screen that lasts for days
+          from starving it."""
         st = self.state
-        if st is None or st.kind != "ready":
+        if st is None or st.kind == "no_data":
             return True
-        if st.cue is not None:
+        if st.kind != "ready" or st.cue is not None:
             return False
-        return idle_cue(st.since, self.clock.wall() + _seconds(5), self.cfg) is None
+        return idle_cue(st.since, self.clock.wall() + _seconds(QUIET_AHEAD_S), self.cfg) is None
 
     def _plan_ahead(self, state, now, cfg):
         """Build the coming scene's plan if its slot begins within :data:`PLAN_LEAD_S`, and
@@ -665,12 +703,15 @@ class ClockApp:
                              + _error_text(exc))
             self._services = [_Service("source", "Whisker source", self.source.run),
                               _Service("weather", "weather source", self.weather.run)]
-            due = None
+            due = None  # when this beat should wake, on the monotonic clock
             while not self._exit.is_set():
                 self._supervise()
                 beat = self.clock.wall()
                 if due is not None:
-                    late = (beat - due).total_seconds() * 1000
+                    # Measured on the monotonic clock: after a cold boot the wall clock jumps
+                    # from 1970 to now when the network sets it, and that is not a late wake
+                    # (it was counted as one of 1.8e12 ms on the clock on 2026-11-22).
+                    late = (self.clock.mono() - due) * 1000
                     if late > LATE_WAKE_MS:
                         self._note_late(late)
                 await self.tick()
@@ -683,7 +724,7 @@ class ClockApp:
                 # Wake on the next beat of the wall clock. A beat that ran long lands on a
                 # later beat; the ones it covered are dropped.
                 wait = until_next_tick(now)
-                due = now + _seconds(wait)
+                due = self.clock.mono() + wait
                 await self.clock.sleep(wait)
         finally:
             await self._stop_services()

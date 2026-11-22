@@ -5,6 +5,7 @@ Mac's, case for case where they apply, then verified TLS. No network."""
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import ssl
 from dataclasses import replace
@@ -265,6 +266,85 @@ async def test_waits_while_a_scene_is_near(fake):
     await run(src)
     assert asked == [0.0, 0.5, 1.0] and len(fake.requests) == 1
     assert src.view(T0).fetched_at == T0 + timedelta(seconds=1)
+
+
+def _sleeping_clock(clock):
+    """``clock.sleep`` moves the fake time on, as the program's quiet polls do."""
+    real_sleep = clock.sleep
+
+    async def sleeping(s):
+        clock.t += s
+        await real_sleep(s)
+
+    clock.sleep = sleeping
+
+
+async def test_waits_through_a_whole_visit(fake):
+    """A visit of 15 minutes (in use, waiting, cleaning, just cleaned): no fetch begins until
+    the screen is quiet again, then one begins at once."""
+    clock = FakeTime(1)
+    src = make(fake, clock)
+    started = []
+    real_fetch = src.fetch
+
+    async def fetch(wc):
+        started.append(clock.t)
+        return await real_fetch(wc)
+
+    src.fetch = fetch
+    src.quiet_fn = lambda: clock.t >= 900.0
+    _sleeping_clock(clock)
+    await run(src)
+    assert started == [900.0] and len(fake.requests) == 1
+    assert ow.QUIET_WAIT_S > 900.0
+
+
+async def test_the_wait_is_capped_for_a_screen_that_lasts_for_days(fake):
+    """A full drawer or a fault never says quiet: the fetch goes ahead after the cap, about
+    20 minutes, and the wait after it is the usual refresh."""
+    clock = FakeTime(2)
+    src = make(fake, clock)
+    started = []
+    real_fetch = src.fetch
+
+    async def fetch(wc):
+        started.append(clock.t)
+        return await real_fetch(wc)
+
+    src.fetch = fetch
+    asked = []
+    src.quiet_fn = lambda: asked.append(clock.t) or False
+    _sleeping_clock(clock)
+    await run(src)
+    assert ow.QUIET_WAIT_S == 20 * 60.0
+    cap = ow.QUIET_WAIT_S
+    refresh = float(CFG.weather.refresh_s)
+    assert started == [cap, cap + refresh + cap]
+    assert clock.waits == [refresh, refresh]
+    assert len(fake.requests) == 2 and src.reading is not None
+    first = [t for t in asked if t < cap]
+    assert first[0] == 0.0 and len(first) == cap / ow.QUIET_POLL_S
+    assert {b - a for a, b in itertools.pairwise(first)} == {ow.QUIET_POLL_S}
+
+
+async def test_a_quiet_screen_fetches_at_once(fake):
+    clock = FakeTime(1)
+    src = make(fake, clock)
+    asked = []
+    src.quiet_fn = lambda: asked.append(clock.t) or True
+    _sleeping_clock(clock)
+    await run(src)
+    assert asked == [0.0] and len(fake.requests) == 1
+
+
+async def test_stops_promptly_while_waiting_for_quiet(fake):
+    clock = FakeTime(5)
+    src = make(fake, clock)
+    stop = asyncio.Event()
+    src.quiet_fn = lambda: False if clock.t < 30.0 else (stop.set() or False)
+    _sleeping_clock(clock)
+    await asyncio.wait_for(src.run(stop), timeout=10)
+    assert fake.requests == [] and clock.t <= 31.0
 
 
 # ---- verified TLS -------------------------------------------------------------------------

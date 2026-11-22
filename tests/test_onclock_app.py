@@ -685,6 +685,60 @@ async def test_status_is_small_and_json_able(client, clock, root):
     assert 2.9 <= st["uptime_s"] <= 3.2
 
 
+async def test_a_late_wake_says_what_was_on_screen(client, clock, tmp_path):
+    """Each late wake is kept with the part the last drawn beat showed, and counted by part:
+    a freeze during a page or scene is told apart from one on the still home page."""
+    root = idle_cfg_root(tmp_path)
+    app = make_app(client, clock, FakeSource(READY), root)
+    stalls = {1042.0: 0.06, 1043.0: 0.09, 1050.0: 0.2}  # home, home, the weather page
+
+    def stall(c):
+        for at in sorted(stalls):
+            if c.t >= at:
+                c.t += stalls.pop(at)
+                return
+
+    clock.on_tick = stall
+    clock.t = 1000.0 + 40  # the home page; the weather page from 45 s
+    await run_for(app, clock, 12)
+    st = app.status()
+    assert json.loads(json.dumps(st)) == st
+    assert st["woke_late"] == 3
+    assert [(ms, part) for _, ms, part in st["worst_late"]] == [
+        (200.0, "page"), (90.0, "home"), (60.0, "home")]
+    assert st["late_by_part"] == {"home": [2, 90.0], "page": [1, 200.0]}
+
+
+async def test_the_wall_clock_being_set_is_not_a_late_wake(client, clock, root):
+    """After a cold boot the system time jumps from 1970 to now when the network sets it. A
+    late wake is measured on the monotonic clock, so the jump is not counted."""
+    offset = [0.0]
+    fake_wall = clock.wall
+    clock.wall = lambda: fake_wall() + timedelta(seconds=offset[0])
+    app = make_app(client, clock, FakeSource(READY), root)
+    clock.on_tick = lambda c: offset.__setitem__(0, 3600.0) if c.t >= 1001.0 else None
+    await run_for(app, clock, 3)
+    assert offset[0] == 3600.0
+    assert app.woke_late == 0 and app.late_by_part == {} and app.worst_late == []
+
+
+async def test_a_late_wake_while_paused_says_paused(client, clock, root):
+    app = make_app(client, clock, FakeSource(READY), root)
+    done = []
+
+    def stall(c):
+        if c.t >= 1001.0 and not done:
+            app.pause()
+        if c.t >= 1001.5 and len(done) < 1:
+            done.append(c.t)
+            c.t += 0.1
+
+    clock.on_tick = stall
+    await run_for(app, clock, 2)
+    assert app.late_by_part == {"paused": [1, 100.0]}
+    assert app.worst_late[0][2] == "paused"
+
+
 async def test_console_lines_go_to_the_ring_with_sequence_numbers(client, clock, root):
     ring = ClockLog(4096)
     app = ClockApp(FakeSource(READY), root=root, base_url=base(client), ca_file=None,
@@ -759,7 +813,34 @@ async def test_the_weather_is_told_when_the_screen_is_quiet(client, clock, tmp_p
     assert not seen[40.0] and not seen[60.0] and not seen[98.875]
     assert seen[99.125] and seen[138.875] and not seen[139.0]  # (state from the beat before)
     app.state = replace(app.state, kind="in_use", cue=None)
-    assert app._quiet()
+    assert not app._quiet()
+
+
+async def test_the_weather_waits_on_every_screen_but_home_and_no_data(client, clock, tmp_path):
+    """A fetch holds the loop about 2.3 s on the clock: never during a visit (the timer, the
+    countdown and the cleaning border would freeze) or any robot screen; at once on the idle
+    home page, in NO DATA, and before the first beat."""
+    from arthur.model import KINDS
+
+    root = idle_cfg_root(tmp_path)
+    app = make_app(client, clock, FakeSource(READY), root)
+    assert app._quiet()  # no state yet
+    clock.t = 1000.0 + 20  # the home page, the weather page from 45 s
+    await run_for(app, clock, 1)
+    home = app.state
+    assert home.kind == "ready" and home.cue is None and app._quiet()
+    for kind in KINDS:
+        app.state = replace(home, kind=kind)
+        assert app._quiet() is (kind in ("ready", "no_data")), kind
+    for name in ("in_use", "waiting", "cleaning", "interrupted", "just_cleaned",
+                 "drawer_full", "fault", "robot_offline"):
+        assert name in KINDS
+
+
+def test_the_quiet_margin_covers_a_fetch_and_the_plan_lead():
+    """The look-ahead before a page or scene covers a beat-old state, the fetch's 2.3 s hold
+    measured on the clock and the plan built ahead."""
+    assert appmod.QUIET_AHEAD_S >= 0.125 + 2.3 + appmod.PLAN_LEAD_S + 1.0
 
 
 async def test_no_plan_is_built_ahead_at_night_or_off_idle(client, clock, tmp_path,

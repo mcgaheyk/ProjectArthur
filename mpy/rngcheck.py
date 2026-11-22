@@ -11,10 +11,12 @@ cross several 624-word blocks of the twister.
 """
 
 #: Seeds the guard and the test use: edges, the dissolve's seed, CRC-32 sized values like
-#: the scenes' and the jokes', more than 32 bits, negative.
+#: the scenes' and the jokes', more than 32 bits, negative, and either side of 2**30 (the
+#: first big int on a 32-bit MicroPython, which ``arthur.mtrandom`` keeps its state under).
 SEEDS = (
-    0, 1, 2, 7, 5216, 65535, 65536, 2**31 - 1, 2**31, 2**32 - 1, 2**32, 2**32 + 1,
-    2**64 - 1, 2**64 + 12345, 2**100 + 3, -1, -5216, -(2**40),
+    0, 1, 2, 7, 5216, 65535, 65536, 2**30 - 1, 2**30, 2**31 - 1, 2**31, 2**32 - 1, 2**32,
+    2**32 + 1, 2**64 - 1, 2**64 + 5, 2**64 + 12345, 2**100 + 3, -1, -5216, -(2**30),
+    -(2**31), -(2**40),
     3735928559, 2654435761, 123456789, 987654321, 4022250974, 1144201745,
 )
 
@@ -35,9 +37,11 @@ def exercise(random_class, seed):
     out = []
     plan = seed & 0xFFFF if seed >= 0 else (-seed) & 0xFFFF
     out.append(r.random())
-    for k in (1, 2, 7, 8, 31, 32, 33, 63, 64, 65, 96, 100):
+    for k in (1, 2, 7, 8, 15, 16, 17, 29, 30, 31, 32, 33, 63, 64, 65, 96, 100):
         out.append(r.getrandbits(k))
-    for n in (1, 2, 3, 10, 17, 255, 256, 257, 1000, 2**31, 2**32 + 7, 10**20):
+    for n in (1, 2, 3, 10, 17, 255, 256, 257, 1000, 2**15, 2**16, 2**16 + 1, 2**29 - 1,
+              2**29, 2**30 - 1, 2**30, 2**30 + 1, 2**31, 2**32 - 1, 2**32, 2**32 + 7,
+              10**20):
         out.append(r.randrange(n))
     out.append(r.randrange(3, 99, 2))
     out.append(r.randrange(8, 17, 2))  # the bird's lead (LEAD_MIN, LEAD_MAX + 1, 2)
