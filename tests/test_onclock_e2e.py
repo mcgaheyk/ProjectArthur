@@ -215,11 +215,13 @@ def rejected_config(cfg: dict) -> bytes:
 def door_bundle(inst: Install, stub: Path, config: bytes) -> dict:
     """A bundle and a config sent straight through the door (``scripts/clock.py push``
     exports the config with the Mac's code, so it cannot send one this code rejects)."""
+    from arthur.clocktool import read_key
     from arthur.tools.doorclient import DoorClient
 
     slot, manifest = make_slot(not inst.compiled, stub)
     try:
-        with DoorClient("127.0.0.1", inst.door_port, DOOR_KEY) as c:
+        # The install's key (the emulated install makes its own, not DOOR_KEY).
+        with DoorClient("127.0.0.1", inst.door_port, read_key(inst.key_file)) as c:
             return c.bundle(slot, manifest, config=config)
     finally:
         shutil.rmtree(slot.parent, ignore_errors=True)
@@ -366,6 +368,12 @@ async def _phases(run: Run, inst: Install, fakes: Fakes, base: Path) -> None:
         # -- 9b. new code that fails, pushed with a config only it would take ------------------
         # Before kept copies this spent both slots: the new code fails, boot falls back, the
         # old code rejects the new config.json. Now the old slot runs on its kept copy.
+        # First the restored slot must be healthy (its count back to 0): the emulated clock
+        # probes after 20 s, longer than phase 9 waits, and a slot still counted 3 would
+        # make boot halt on its tries before any config is read.
+        since = inst.boot_notes().rfind("falling back")
+        await until(lambda: "slot b is healthy" in inst.boot_notes()[since:], 60,
+                    "slot b healthy before the stranding push")
         run.mark("strand")
         notes, off = len(inst.boot_notes()), len(inst.console())
         bad = rejected_config(run.data["cfg1"])
