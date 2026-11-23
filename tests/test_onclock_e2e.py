@@ -13,8 +13,11 @@ order: the first start with no tokens (a password login); a real visit from
 renewal refused (a password login again); the live connection going silent; an outage with
 a visit found in the history afterwards; ``push`` of a config change; ``push`` of a code
 change; a bundle that fails at import and one that starts and dies, each falling back;
-``pause``, the Mac's feeder taking the screen, ``resume``; the fake clock restarted;
-``logs pull``. The checks below each read what the run recorded.
+new code that fails pushed with a config only it would take (the old slot runs on its kept
+copy of the config), then a good push that clears it; ``pause``, the Mac's feeder taking
+the screen, ``resume``; the fake clock restarted; ``logs pull``; last, the same stranding
+with the kept copies deleted, which spends both slots, as it did before kept copies. The
+checks below each read what the run recorded.
 
 Skips, saying the on-clock end-to-end test did NOT run, when ``micropython`` is missing.
 ``ARTHUR_MICROPYTHON`` names another binary (the clock's ARMv7 build under emulation).
@@ -47,7 +50,7 @@ from onclock_e2e import (
 from wirefake import raw_from_record
 from wirehelp import real_lines
 
-from arthur.clocktool import config_bytes
+from arthur.clocktool import config_bytes, make_slot
 from arthur.config import config_from_json
 from arthur.mapping import to_display_state
 from arthur.model import FeederHealth
@@ -185,7 +188,10 @@ async def scenario(base: Path, tls_files) -> tuple[Run, Install, Fakes]:
         run.data["launcher_alive_at_end"] = inst.launcher_alive()
         run.data["launcher_exit"] = await inst.stop()
         inst.collect()
-        run.data["console"] = inst.console()
+        # The emulated daemon restarts a launcher that exited (after the halt), and each
+        # launcher starts a new console.log: keep what came before.
+        console, before = inst.console(), run.data.pop("console_before_halt", "")
+        run.data["console"] = console if console.startswith(before) else before + console
         run.data["boot"] = inst.boot_notes()
         await fakes.close()
     return run, inst, fakes
@@ -195,9 +201,28 @@ async def _status(run: Run, inst: Install) -> dict:
     rc, out, _ = await inst.clock_py("status")
     assert rc == 0, out
     run.door_texts.append(out)
-    st = json.loads(out)
+    st = json.JSONDecoder().raw_decode(out)[0]  # a warning line may follow the JSON
     run.statuses.append(st)
     return st
+
+
+def rejected_config(cfg: dict) -> bytes:
+    """``cfg`` with a key the program's code rejects (as a newer program's config might)."""
+    data = dict(cfg, timings=dict(cfg["timings"], zz_new_key=1))
+    return json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+
+
+def door_bundle(inst: Install, stub: Path, config: bytes) -> dict:
+    """A bundle and a config sent straight through the door (``scripts/clock.py push``
+    exports the config with the Mac's code, so it cannot send one this code rejects)."""
+    from arthur.tools.doorclient import DoorClient
+
+    slot, manifest = make_slot(not inst.compiled, stub)
+    try:
+        with DoorClient("127.0.0.1", inst.door_port, DOOR_KEY) as c:
+            return c.bundle(slot, manifest, config=config)
+    finally:
+        shutil.rmtree(slot.parent, ignore_errors=True)
 
 
 async def _phases(run: Run, inst: Install, fakes: Fakes, base: Path) -> None:
@@ -338,6 +363,35 @@ async def _phases(run: Run, inst: Install, fakes: Fakes, base: Path) -> None:
             run.data[name] = {"status": st, "notes": inst.boot_notes()[notes:],
                               "launcher_alive": inst.launcher_alive()}
 
+        # -- 9b. new code that fails, pushed with a config only it would take ------------------
+        # Before kept copies this spent both slots: the new code fails, boot falls back, the
+        # old code rejects the new config.json. Now the old slot runs on its kept copy.
+        run.mark("strand")
+        notes, off = len(inst.boot_notes()), len(inst.console())
+        bad = rejected_config(run.data["cfg1"])
+        run.data["strand_config"] = hashlib.sha256(bad).hexdigest()[:16]
+        await asyncio.to_thread(door_bundle, inst, stub_main(base, "strand", BROKEN), bad)
+        await until(lambda: "falling back" in inst.boot_notes()[notes:], 90, "fall-back")
+        run.marks["strand_kept"] = await inst.wait_console("running on the kept copy", 60,
+                                                           after=off)
+        await until(lambda: "slot b is healthy" in inst.boot_notes()[notes:], 60, "healthy")
+        st = await _status(run, inst)
+        run.data["strand"] = {"status": st, "notes": inst.boot_notes()[notes:],
+                              "console": inst.console()[off:],
+                              "door_text": run.door_texts[-1]}
+        # A working bundle with a valid, different config takes over and clears the error.
+        run.mark("unstrand")
+        good_toml = short_toml(base, fur="#FF7A10", text_color="#FFE4D0")
+        rc, out, secs = await inst.clock_py("push", "--config", str(good_toml), "--program-stub",
+                                            str(stub_main(base, "fixed", "PUSHED_IN_TEST = 3\n")))
+        assert rc == 0, out
+        await asyncio.sleep(2)
+        st = await _status(run, inst)
+        run.data["unstrand"] = {"status": st, "out": out,
+                                "config": hashlib.sha256(config_bytes(good_toml))
+                                .hexdigest()[:16]}
+        run.mark("unstrand_end")
+
     # -- 10. pause, the Mac's feeder on the screen, resume ---------------------------------
     run.mark("pause")
     rc, out, _ = await inst.clock_py("pause")
@@ -395,6 +449,28 @@ async def _phases(run: Run, inst: Install, fakes: Fakes, base: Path) -> None:
     run.data["clocks"] = [{"apps": sorted(c.apps), "enlarge": c.enlarge_apps,
                            "rotation": c.in_rotation()} for c in fakes.clocks]
     run.mark("end")
+
+    if not DAY_ONLY:
+        # -- 13. the same stranding with the kept copies deleted: both slots spent --------------
+        # What happened before kept copies (and what still happens when none loads): the
+        # program halts and only USB would reach the clock. Last, since it ends the run.
+        run.data["launcher_alive_before_halt"] = inst.launcher_alive()
+        run.data["console_before_halt"] = inst.console()
+        notes = len(inst.boot_notes())
+        for s in ("a", "b"):
+            inst.remove_root(f"config.good.{s}.json")
+        await asyncio.to_thread(door_bundle, inst, stub_main(base, "strand", BROKEN),
+                                rejected_config(run.data["cfg1"]))
+
+        def halted() -> bool:
+            try:
+                return bool(inst.state().get("halted"))
+            except ValueError:  # read while being replaced (the emulated clock's cat)
+                return False
+
+        await until(halted, 120, "both slots spent")
+        run.mark("halted")
+        run.data["halted"] = {"state": inst.state(), "notes": inst.boot_notes()[notes:]}
 
 
 @pytest.fixture(scope="module")
@@ -648,6 +724,47 @@ def test_a_bad_bundle_falls_back(e2e, name, why):
     assert d["launcher_alive"]
 
 
+def test_a_bad_config_pushed_with_failing_code_runs_on_the_kept_copy(e2e):
+    run, _inst, _fakes = e2e
+    if DAY_ONLY:
+        pytest.skip("ARTHUR_E2E_DAY: no code pushes in this run")
+    d = run.data["strand"]
+    st, app = d["status"], d["status"]["app"]
+    print("strand: fell back and ran on the kept copy after",
+          round(run.marks["strand_kept"] - run.marks["strand"], 1), "s")
+    # boot fell back from the failing new code to the old slot, which kept running.
+    assert "falling back from slot a to slot b" in d["notes"]
+    assert st["running"] == "b" and st["active"] == "b" and st["tries"]["a"] == 3
+    assert st["tries"]["b"] == 0 and not st["halted"]
+    # On its kept copy, saying why; the flash holds the refused file.
+    assert st["config"] == run.data["strand_config"] != app["config_in_use"]
+    assert app["config_in_use"] == app["config_kept"]
+    assert app["config_error"].startswith("config.json refused (")
+    assert "zz_new_key" in app["config_error"]
+    assert app["config_error"].endswith("config.good.b.json")
+    assert d["console"].count("running on the kept copy") == 1
+    assert "WARNING: the clock is not using the config on its flash" in d["door_text"]
+    # The good push: warned first, then took over and cleared it.
+    u = run.data["unstrand"]
+    assert u["out"].count("WARNING: the clock is not using the config on its flash") == 1
+    us, uapp = u["status"], u["status"]["app"]
+    assert us["running"] == "a" and us["config"] == u["config"]
+    assert uapp["config_error"] is None
+    assert uapp["config_in_use"] == uapp["config_kept"] == u["config"]
+
+
+def test_without_kept_copies_the_same_push_spends_both_slots(e2e):
+    """What happened before kept copies: the clock halted, and only USB reaches it."""
+    run, _inst, _fakes = e2e
+    if DAY_ONLY:
+        pytest.skip("ARTHUR_E2E_DAY: no code pushes in this run")
+    h = run.data["halted"]
+    assert h["state"]["halted"] and h["state"]["tries"] == {"a": 3, "b": 3}
+    assert "both slots failed" in h["notes"]
+    assert h["state"]["errors"]["b"].startswith("import: RuntimeError")
+    assert h["state"]["errors"]["a"].startswith("run: exited with 1")
+
+
 def test_pause_lets_the_mac_take_the_screen_then_resume(e2e):
     run, _inst, fakes = e2e
     p, r = run.marks["paused"], run.marks["resumed"]
@@ -736,9 +853,14 @@ def test_nothing_secret_anywhere(e2e):
     for name, text in texts.items():
         for s in secrets:
             assert s not in text, f"a secret ({s[:4]}...) in {name}"
-    # The launcher was still the same process at the end, and stopped cleanly.
-    assert run.data["launcher_alive_at_end"]
-    assert run.data["launcher_exit"] == (0 if EMULATED else 143)  # remove, or SIGTERM
+    # The launcher was still the same process at the end, and stopped cleanly; with the
+    # halt at the end of the run, alive until then, and it ended with boot's exit 3.
+    if "halted" in run.data:
+        assert run.data["launcher_alive_before_halt"]
+        assert run.data["launcher_exit"] == (0 if EMULATED else 3)  # remove, or the halt
+    else:
+        assert run.data["launcher_alive_at_end"]
+        assert run.data["launcher_exit"] == (0 if EMULATED else 143)  # remove, or SIGTERM
 
 
 def test_memory_and_time(e2e):

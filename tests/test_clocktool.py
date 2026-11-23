@@ -127,6 +127,40 @@ def test_pause_resume_restart_and_status(root, key_file, capsys):
     assert t.app._code == 42
 
 
+REFUSED = ("config.json refused (ConfigError: unknown key(s) in [timings]: zz_new); "
+           "running on the kept copy config.good.a.json")
+
+
+def test_config_warning_only_when_the_status_says_so():
+    assert ct.config_warning({"app": {"config_error": REFUSED}}) == (
+        f"WARNING: the clock is not using the config on its flash ({ct.ROOT}/config.json); "
+        f"it runs on a kept copy: {REFUSED}")
+    # An older program, without the field; a good one; a status without an app.
+    for st in ({"app": {"paused": False}}, {"app": {"config_error": None}}, {}, None):
+        assert ct.config_warning(st) is None
+
+
+def test_status_and_push_warn_when_the_clock_runs_on_a_kept_copy(root, key_file, capsys):
+    t = DoorThread(root)
+    try:
+        base = ["--clock", f"127.0.0.1:{t.port}", "--key-file", str(key_file)]
+        assert cli(*base, "status") == 0  # the stub's status has no such field
+        assert "WARNING" not in capsys.readouterr().out
+        plain = t.app.status
+        t.app.status = lambda: dict(plain(), config_error=REFUSED)
+        assert cli(*base, "status") == 0
+        out = capsys.readouterr().out
+        lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+        assert len(lines) == 1 and REFUSED in lines[0] and "kept copy" in lines[0]
+        assert json.JSONDecoder().raw_decode(out)[0]["app"]["config_error"] == REFUSED
+        assert cli(*base, "push", "--source", "--no-wait") == 0
+        out = capsys.readouterr().out
+        assert out.count("WARNING: the clock is not using the config on its flash") == 1
+        assert "push: bundle" in out  # what push sends is unchanged
+    finally:
+        t.stop()
+
+
 # -- logs ------------------------------------------------------------------------------------
 
 STATE_LINE = json.loads((REPO / "tests" / "data" / "real-cycles.jsonl").read_text()
@@ -326,8 +360,10 @@ def test_clockctl_install_status_and_removal(py, tmp_path):
     (root / "secrets.json").write_text(json.dumps({"whisker_password": FAKE_PASS}))
     os.chmod(root / "secrets.json", 0o600)
     auto.write_text(ct.render_autostart())
+    (root / "config.good.a.json").write_text("{}")  # the program's kept copy of the config
     r = ctl(py, "status", str(root), str(auto))
     assert r["autostart"] == "ours" and r["file.secrets.json"] == "present, mode 0o600"
+    assert r["file.config.good.a.json"] == "2" and r["file.config.good.b.json"] == "absent"
     assert r["slot.b.bundle"] == "none" and len(r["slot.a.bundle"]) == 16
     assert FAKE_PASS not in r["_out"]
     # Removal: our autostart goes, a foreign one never does.

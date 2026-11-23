@@ -4,7 +4,7 @@
     from arthur.onclock.main import main
     code = asyncio.run(main("/data/awtrix-ng/state/arthur", source_factory))
 
-In order: the log ring; ``<root>/config.json``; the shared TLS context for the clock's CA
+In order: the log ring; the config (below); the shared TLS context for the clock's CA
 bundle; the robot source, from ``source_factory(cfg=, log=, tls=, root=)``
 (``deploy/clock/boot.py`` hands :func:`arthur.onclock.source.make_source` through); the
 :class:`~arthur.onclock.app.ClockApp`, reporting the slot's bundle id as its version; the
@@ -12,8 +12,21 @@ update door (:func:`arthur.onclock.door.start`), and without a valid key in
 ``secrets.json``, or if its port is taken, the program carries on without it and says so;
 then the app's loop until it asks to stop or be restarted.
 
+**The config.** Both code slots read the one ``<root>/config.json``, so a file this code
+rejects must not stop the program, or a bad file pushed with new code would spend both slots
+(the new code fails, boot.py falls back, the old code rejects the file) and only a USB cable
+would reach the clock. So the program keeps, per slot, the exact bytes of the last
+``config.json`` the code from that slot loaded (``<root>/config.good.a.json``,
+``config.good.b.json``; written whole, and only when they changed). At start:
+``config.json`` if it loads (and it becomes this slot's kept copy); else this slot's kept
+copy, then the other slot's, the first that loads, with one error line in the log saying
+why ``config.json`` was refused and which kept file is in use, and ``config_error`` in the
+app's status until a good ``config.json`` is reloaded (``config-put``) or the program
+restarts on one. Outside a slot (the tests that run the repository's ``arthur``) no copy is
+kept or read. (:func:`arthur.onclock.app.start_config`, ``ClockApp.keep_config``.)
+
 Returns the exit code: 0 to stop for good, 42 to be restarted, 1 if the program failed (the
-traceback is printed; boot.py counts it as a failed start).
+traceback is printed; boot.py counts it as a failed start), as when no config loads at all.
 
 :func:`healthy` is what boot.py asks, besides the door's greeting, before it calls a start
 good: a frame reached AWTRIX within the last :data:`HEALTHY_PUSH_S` seconds.
@@ -80,6 +93,25 @@ def slot_dir():
     return path[:cut]
 
 
+def _norm(path):
+    while "//" in path:
+        path = path.replace("//", "/")
+    return path.rstrip("/") if len(path) > 1 else path
+
+
+def slot_name(root):
+    """``"a"`` or ``"b"`` when this program was imported from that slot of ``root``
+    (:func:`slot_dir` is ``<root>/slots/a``), else None."""
+    folder = slot_dir()
+    if not folder:
+        return None
+    folder = _norm(folder)
+    for s in ("a", "b"):
+        if folder == _norm(root + "/slots/" + s):
+            return s
+    return None
+
+
 def bundle_version(folder):
     """The bundle id of the slot at ``folder`` (the first 16 hex digits of its manifest's
     SHA-256, as ``scripts/clock.py`` and the door name it), or None."""
@@ -97,8 +129,8 @@ def bundle_version(folder):
 
 async def main(root, source_factory, *, ca_file=None, base_url=None,
                log_bytes=DEFAULT_MAX_BYTES, door_port=None, settings=None):
-    from arthur.config import load_config_json
     from arthur.onclock import door as doormod
+    from arthur.onclock.app import start_config
 
     _current.clear()
     door = None
@@ -110,7 +142,9 @@ async def main(root, source_factory, *, ca_file=None, base_url=None,
         if door_port is None:
             door_port = test.get("door_port") or doormod.DOOR_PORT
         log = ClockLog(log_bytes)
-        cfg = load_config_json(root + "/config.json")
+        slot = slot_name(root)
+        # config.json, else a kept copy (an error, said once below); raises if none loads.
+        cfg, cfg_data, cfg_error = start_config(root, slot)
         tls = Tls(ca_file=ca_file, server_name=test.get("server_name"))
         wire = {}
         client = dict(test.get("client") or {})
@@ -122,8 +156,11 @@ async def main(root, source_factory, *, ca_file=None, base_url=None,
         source = source_factory(cfg=cfg, log=log, tls=tls, root=root, **wire)
         app = ClockApp(source, root=root, base_url=base_url, ca_file=ca_file, log=log,
                        version=bundle_version(slot_dir()), cfg=cfg, tls=tls,
-                       weather_url=test.get("weather_url"))
+                       weather_url=test.get("weather_url"), slot=slot,
+                       config_data=cfg_data, config_error=cfg_error)
         _current["app"] = app
+        app.settle_config()
+        cfg_data = None  # the app has kept what it needs; not held for the whole run
         try:
             door = await doormod.start(app, root, host=test.get("door_host") or "0.0.0.0",
                                        port=door_port)

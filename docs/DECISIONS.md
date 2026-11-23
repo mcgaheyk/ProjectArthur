@@ -814,3 +814,40 @@ its retry fails too, NO DATA shows until the next retry succeeds; it took three 
 polls in a row before. The reconnect and the history reads still hold the loop
 0.3 s wherever they fall. `health.ws_connected` in the snapshot is still always true, on
 the Mac and the clock; only the monitor's `live_up` tells the truth.
+
+## D-0034 — Each code slot keeps the last config it accepted
+
+**2026-11-23.** The clock has two code slots and falls back from one that fails to the
+other, but both read one `config.json`, and a start that could not load it was a failed
+start. A config sent alone is checked by the running code before it is accepted. A config
+sent with new code is checked by nothing that will read it. So one push could leave the
+clock reachable only by USB: new code that fails to start, sent with a config that has a
+key only the new code knows; boot falls back; the old code rejects the file. Asked whether
+to close that before he starts changing colours and timings from the Mac, Kyle said to.
+
+**The rule.** The program keeps, per slot, the exact bytes of the last `config.json` the
+code from that slot loaded (`ROOT/config.good.a.json`, `config.good.b.json`), written only
+when they change. At start it loads `config.json`; if that fails, its own kept copy; then
+the other slot's. Running on a kept copy it opens the door as usual, logs why once, and
+says so in `status` (`config_error`); the Mac's `push` and `status` print a warning. The
+refused file stays where it is until a good one replaces it. If none of the three loads,
+the start fails as before.
+
+**Why here and not in the boot script or the door.** The boot script is the one file that
+cannot be replaced over Wi-Fi, and the door is the code most worth leaving alone. The fix
+lives in the program, which is in the slots, so it reached the clock by an ordinary push.
+Neither of those two files changed.
+
+**Rejected.**
+- The door checking a bundle's config before the commit. The running code is the old code;
+  it cannot say what the new code will accept.
+- One config inside each slot. A colour or a caption would then need a new slot and a
+  restart; `config.json` sits outside the slots so that it does not.
+- Starting on built-in defaults when nothing loads. The clock would show the wrong time
+  zone, colours and captions with nothing on the screen to say so. A kept copy is at least
+  a config Kyle chose.
+
+**Accepted.** One more small write to the flash for each config change in each slot. The
+slot that was not running when this arrived has the older code until the next push
+replaces it; until then a fall-back to it is as exposed as before. A slot that has never
+loaded a `config.json` has only the other slot's copy to fall back to.

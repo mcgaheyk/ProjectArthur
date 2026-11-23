@@ -259,6 +259,9 @@ class Install:
     def state(self) -> dict:
         return json.loads((self.root / "state.json").read_text())
 
+    def remove_root(self, rel: str) -> None:
+        (self.root / rel).unlink(missing_ok=True)
+
     async def wait_console(self, text: str, timeout: float, *, after: int = 0) -> float:
         """Wait until ``text`` is in the console after offset ``after``; when it showed."""
         timeout *= self.slow
@@ -419,6 +422,9 @@ class EmuInstall(Install):
 
     def state(self) -> dict:
         return json.loads(self.read_root("state.json"))
+
+    def remove_root(self, rel: str) -> None:
+        _sh(f"rm -f {EMU_ROOT}/{rel}")
 
     def launcher_pid(self) -> int | None:
         text = _sh("cat /tmp/awtrix-release/autostart.pid 2>/dev/null").strip()

@@ -59,9 +59,9 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
     at worst) and 122 on the weather page (0.48 s at worst). **Since 11:03 on 2026-11-23
     the routine poll waits for the home page too (D-0033):** it is held while a page or
     scene is on or about to begin, 90 s at most, and never during a visit, with the live
-    connection down, or when it is a retry. In its first 22 minutes
-    there, three of the four polls due were held (59.7 s at longest) and no late beat
-    fell on a page or in a scene. **Left:** the live
+    connection down, or when it is a retry. In its first 3.9 hours
+    there 36 polls were held (60.6 s at longest) and no late beat fell on a page or in
+    a scene, where the old rates would have put about 30: those hitches were the poll. **Left:** the live
     connection's reconnect (a few a night) and the history reads (four a day) still hold
     the loop 0.3 s wherever they fall.
   - Memory: 0.61 MB of the 3 MB heap in use after a collection at a start, 0.73 MB after
@@ -409,9 +409,9 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
      folders root-only;
    - watch for, in the log and `status`: a config change sent over Wi-Fi, a Wi-Fi outage,
      48 hours without a restart, memory over days, the next interruption (the countdown
-     should carry on from where it was, D-0032), and over a day `poll_held` and the late
-     beats on pages and scenes in `late_by_part` (D-0033; they were 6.5 and 1.3 an hour
-     before it);
+     should carry on from where it was, D-0032), and whether the late beats on pages and
+     scenes in `late_by_part` stay at none over days (D-0033; none in the first 3.9
+     hours, against 6.5 and 1.3 an hour before it);
    - the weather's 2.2 s handshake could be made cheaper only in the clock's MicroPython
      build (mbedTLS's elliptic-curve arithmetic), which means a new install over USB; not
      tried;

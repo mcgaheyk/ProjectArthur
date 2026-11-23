@@ -243,7 +243,10 @@ def cmd_status(root, autostart):
                              binascii.hexlify(hashlib.sha256(fh.read()).digest()).decode()[:16])
                 except OSError:
                     emit("slot." + slot + ".bundle", "none")
-        for name in ("micropython", "boot.py", "config.json"):
+        # config.good.a.json and b: the last config.json each slot's code loaded, which
+        # the program falls back to when config.json is refused.
+        for name in ("micropython", "boot.py", "config.json", "config.good.a.json",
+                     "config.good.b.json"):
             p = root + "/" + name
             emit("file." + name, os.stat(p)[6] if kind(p) == "f" else "absent")
         for name in ("secrets.json", "tokens.json"):  # never their contents

@@ -25,6 +25,7 @@ folder.
 | `ROOT/slots/a/`, `ROOT/slots/b/` | the code slots: `arthur/` (compiled `.mpy`, the package `__init__`s too), fonts (`.bdf`), art (`.txt`), `lib/` (the stand-ins from `mpy/lib/`, as source), `manifest.json` | `install` (a), the door (the inactive one) |
 | `ROOT/state.json` | active slot, failed starts, errors, halted | boot.py, the door |
 | `ROOT/config.json` | the exported config (`arthur.tools.export_config`), outside the slots so a colour or caption needs no new slot | `install`, the door |
+| `ROOT/config.good.a.json`, `ROOT/config.good.b.json` | the kept copies (D-0034): the exact bytes of the last `config.json` the code from that slot loaded, written whole and only when they changed | the program |
 | `ROOT/secrets.json` | mode 600: `whisker_username`, `whisker_password` (D-0030), `door_key` (64 hex digits) | `install` only |
 | `ROOT/tokens.json` | Whisker's tokens (`access_token`, `id_token`, `refresh_token`), written whole (temporary file and rename) and **only when the refresh token changes**, i.e. after a password login; an hourly renewal never writes the flash | the program (`arthur/onclock/source.py`) |
 | `/tmp/arthur/` | RAM: `boot.txt` (boot's notes), `console.log` and `console.prev.log` (the program's stdout and stderr, from the launcher), `booted` (the power-on marker) | the launcher, boot.py |
@@ -110,8 +111,10 @@ In the order they happen at each start:
 2. **boot.py** picks and counts the slot, imports `arthur.onclock.main` from it and starts the
    health watch beside `main`.
 3. **`main(root, source_factory)`** (`arthur/onclock/main.py`), in order: the log ring
-   (`ClockLog`, 128 KB of JSON text); `ROOT/config.json` (a file that does not load ends the
-   start with exit 1, a counted failure); one `Tls` for the CA bundle, shared by Whisker and
+   (`ClockLog`, 128 KB of JSON text); the config: `ROOT/config.json`, which then becomes
+   this slot's kept copy, or, if it does not load, this slot's kept copy and then the other
+   slot's, with an error line in the log and `config_error` in `status` (D-0034; only when
+   none of the three loads does the start end with exit 1, a counted failure); one `Tls` for the CA bundle, shared by Whisker and
    the weather; the robot source, `source_factory(cfg=, log=, tls=, root=)` (boot hands
    `arthur.onclock.source.make_source` through); the `ClockApp`, whose version is the slot's
    **bundle id** (read from the `manifest.json` next to the `arthur` package it was imported
@@ -180,7 +183,10 @@ work took over 125 ms), `woke_late` and `worst_late` (beats that woke over 20 ms
 tick, and the eight worst as `[epoch s, ms, what was on screen]`: what blocked the loop),
 `late_by_part` (the late wakes by what was on screen, each `[count, worst ms]`),
 `poll_held` (`[count, longest wait s]` of Whisker polls held back from pages and scenes,
-D-0033) and `live_up` (whether Whisker's live subscription is acknowledged and up, from the
+D-0033), `config_in_use` and `config_kept` (the ids of the config the program runs on and
+of this slot's kept copy, in the form of the door's `config`, which is the file on the
+flash), `config_error` (None, or why `config.json` was refused and which kept copy is in
+use, D-0034) and `live_up` (whether Whisker's live subscription is acknowledged and up, from the
 monitor; `health.ws_connected` beside it is always true and tells nothing).
 
 `main` opens the door with `door = await arthur.onclock.door.start(app, root)` (port 7531
@@ -200,11 +206,20 @@ carries on without it, saying so) and closes it with `door.close()` when `run()`
   `logs/feeder-console.log` as the feeder's logging writes them; anything else goes there as
   JSON.
 - A config the door has installed has passed `arthur.config.config_from_json` (or, with a
-  bundle, came from the Mac's export with the same code). **The program does not survive a
-  bad one at start**: `main` returns 1, a counted failure, and both slots read the same
-  `config.json`, so a bad file would halt both. A `config-put` of a bad file is refused; a
-  reload of one keeps the last good config. Only a bundle's config is not checked by the
-  code that will read it (see Not done).
+  bundle, came from the Mac's export with the same code). A `config-put` of a bad file is
+  refused; a reload of one keeps the last good config. Only a bundle's config is not checked
+  by the code that will read it, and both slots read the same `config.json`. **Since
+  2026-11-23 a file the code rejects no longer stops the program at start (D-0034):** each
+  slot's code keeps the bytes of the last `config.json` it loaded
+  (`ROOT/config.good.<slot>.json`; `ClockApp.keep_config`, at start and after a reload that
+  was taken) and `start_config` falls back to its own kept copy, then the other slot's. The
+  refused file stays on the flash; `status` then shows `config_error` (why, and which kept
+  file is in use) and a `config_in_use` that differs from the door's `config`, and
+  `scripts/clock.py` prints a warning with `push` and `status`. A good `config-put` clears
+  it. Before, this spent both slots: new code that fails to start, pushed with a config
+  only it would take, falls back to old code that rejects the file
+  (`tests/test_onclock_e2e.py` runs both, with the kept copies and with them deleted).
+  A slot that has never loaded a `config.json` has no kept copy of its own.
 
 ## The update door
 
@@ -744,13 +759,15 @@ screen, with the live subscription down, or as a retry.
 | the 19 hours to 10:05 | 122 (6.5 an hour) | 25 (1.3 an hour) | none could be |
 | the 58 minutes from 10:06 | 4 | 0 | none could be |
 | the first 22 minutes with the hold | 0 | 0 | 3 of the 4 due, 59.7 s at longest |
+| the first 3.9 hours with the hold (to 14:55) | 0 | 0 | 36, 60.6 s at longest |
 
 `poll_held` read `[3, 59.7]`. Late wakes of about 0.2 s, which is what a poll costs, fell
 on the home page at 11:14:02 (185 ms), 11:19:39 (176 ms) and 11:25:40 (200 ms); the first
 poll, due at 11:08:36, left none among the eight worst. A poll that changes nothing writes
 no log line, so its time shows only this way. `live_up` read true at both readings.
-Twenty-two minutes is a small sample: whether the page's and the scenes' late wakes stay at none, and
-so how many of the old ones were the poll, wants a day of `late_by_part`.
+At 3.9 hours every late wake was on the home page (91) or in the start-up's NO DATA (4),
+where the old rates would have put about 25 on the page and 5 in scenes: so those late
+wakes were the poll, all of them so far. 15,236 pushes in that time, none failed.
 
 ## Assumed about the real clock, not checked
 

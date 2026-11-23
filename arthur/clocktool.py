@@ -461,6 +461,24 @@ def connect(a: argparse.Namespace):
     return DoorClient(host, port, read_key(a.key_file))
 
 
+def config_warning(st: Any) -> str | None:
+    """The warning line for a door status whose program runs on a kept copy of the config
+    because it refused ``config.json`` (its ``app.config_error``), or None. An older program,
+    without the field, gives None."""
+    app = st.get("app") if isinstance(st, dict) else None
+    err = app.get("config_error") if isinstance(app, dict) else None
+    if not err:
+        return None
+    return (f"WARNING: the clock is not using the config on its flash ({ROOT}/config.json); "
+            f"it runs on a kept copy: {err}")
+
+
+def warn_config(st: Any) -> None:
+    line = config_warning(st)
+    if line:
+        say(line)
+
+
 def cmd_push(a: argparse.Namespace) -> int:
     t0 = time.monotonic()
     slot, manifest = make_slot(a.source, a.program_stub)
@@ -478,6 +496,7 @@ def cmd_push(a: argparse.Namespace) -> int:
             return 0
         with connect(a) as c:
             st = c.status()
+            warn_config(st)
             code_same = st["slots"].get(st["running"]) == want_code and not st["restart_pending"]
             cfg_same = st["config"] == want_cfg
             if code_same and cfg_same:
@@ -495,9 +514,10 @@ def cmd_push(a: argparse.Namespace) -> int:
                 f"({time.monotonic() - t0:.2f} s); the program is restarting")
         if a.no_wait:
             return 0
-        _wait_for_code(a, want_code)
+        st = _wait_for_code(a, want_code)
         say(f"push: the program is back, running bundle {want_code} "
             f"({time.monotonic() - t0:.2f} s from the start of the push)")
+        warn_config(st)
         return 0
     finally:
         shutil.rmtree(slot.parent, ignore_errors=True)
@@ -525,6 +545,7 @@ def cmd_door_status(a: argparse.Namespace) -> int:
     with connect(a) as c:
         st = c.status()
     say(json.dumps(st, indent=2, sort_keys=True))
+    warn_config(st)
     return 0
 
 

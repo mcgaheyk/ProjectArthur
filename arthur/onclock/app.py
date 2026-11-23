@@ -35,6 +35,12 @@ What it adds for the clock:
   stopped (Whisker allows us one connection); resume starts both again.
 - **Its console lines go to the log ring** (:class:`~arthur.onclock.clocklog.ClockLog`),
   which the source also writes the robot's lines to.
+- **A kept copy of the config per slot** (``<root>/config.good.a.json``,
+  ``config.good.b.json``): the exact bytes of the last ``config.json`` the code from that
+  slot loaded, written whole and only when they changed (:meth:`ClockApp.keep_config`). Both
+  slots read the one ``config.json``, so a file the code rejects would otherwise stop both;
+  :func:`start_config` falls back to a kept copy at start (``arthur.onclock.main``), and
+  ``status()`` says which config is in use and why.
 
 Times passed to mapping and render are aware UTC.
 """
@@ -45,12 +51,13 @@ import sys
 from datetime import timedelta
 
 from arthur.compat import replace
-from arthur.config import load_config_json
+from arthur.config import config_from_json
 from arthur.mapping import to_display_state
 from arthur.onclock import VERSION
 from arthur.onclock.awtrix import ClockTransport, TransportError
 from arthur.onclock.clock import Clock, since_us, stamp_us
 from arthur.onclock.clocklog import ClockLog
+from arthur.onclock.door import hexstr, write_atomic
 from arthur.onclock.pusher import Pusher
 from arthur.onclock.weather import WeatherService
 from arthur.render import idle_show as show
@@ -94,8 +101,68 @@ LATE_WAKE_MS = 20.0
 WORST_LATE_KEPT = 8
 #: The config file under ``root``.
 CONFIG_NAME = "config.json"
+#: The code slots, for the kept copies of the config.
+SLOTS = ("a", "b")
+#: A config error in ``status()`` and its console line are cut to this many characters of
+#: the reason.
+CONFIG_ERROR_CHARS = 200
 
 _tls = {}
+
+
+def kept_name(slot):
+    """The file under ``root`` holding the last ``config.json`` the code from ``slot``
+    loaded: ``config.good.a.json``."""
+    return "config.good." + slot + ".json"
+
+
+def config_id(data):
+    """A config file's id: the first 16 hex digits of its bytes' SHA-256 (the door's
+    ``"config"`` in its status, and ``scripts/clock.py``'s)."""
+    import hashlib
+
+    return hexstr(hashlib.sha256(data).digest())[:16]
+
+
+def parse_config(data):
+    """The :class:`arthur.config.Config` from the exported JSON's bytes (raises if they do
+    not load)."""
+    import json
+
+    return config_from_json(json.loads(data.decode()))
+
+
+def read_config(path):
+    """``(Config, bytes)`` from the exported JSON at ``path`` (raises if it does not load)."""
+    with open(path, "rb") as f:
+        data = f.read()
+    return parse_config(data), data
+
+
+def start_config(root, slot):
+    """The config to start on: ``(Config, bytes, error)``.
+
+    ``<root>/config.json`` if it loads (``error`` None). If it does not and the program runs
+    from a slot, this slot's kept copy, then the other slot's (the first that loads), with
+    ``error`` saying why ``config.json`` was refused and which kept file is in use. With none
+    (or outside a slot) it raises what ``config.json`` raised, as before kept copies."""
+    try:
+        cfg, data = read_config(root + "/" + CONFIG_NAME)
+        return cfg, data, None
+    except Exception as exc:  # noqa: BLE001 - any failure: try the kept copies
+        first = exc
+    if slot not in SLOTS:
+        raise first
+    for s in (slot, "b" if slot == "a" else "a"):
+        name = kept_name(s)
+        try:
+            cfg, data = read_config(root + "/" + name)
+        except Exception:  # noqa: BLE001, S112 - missing or broken: the next one
+            continue
+        why = _error_text(first)[:CONFIG_ERROR_CHARS]
+        return cfg, data, (CONFIG_NAME + " refused (" + why + "); running on the kept copy "
+                           + name)
+    raise first
 
 
 def tls_for(ca_file):
@@ -174,11 +241,17 @@ class ClockApp:
     the CA bundle for TLS (on the clock ``/tmp/awtrix-release/share/ca-certificates.crt``).
     ``wall_fn`` (aware UTC datetimes), ``sleep`` and ``time_fn`` (monotonic seconds; derived
     from ``wall_fn`` when only that is given) are for tests.
+
+    ``slot`` (``"a"`` or ``"b"``, None outside a slot) is the code slot the program runs
+    from: it names the kept copy of the config (:meth:`keep_config`). ``cfg`` comes with
+    ``config_data``, the bytes it was loaded from, and ``config_error`` when those are a kept
+    copy because ``config.json`` was refused (:func:`start_config`); without ``cfg`` the app
+    loads ``config.json`` itself.
     """
 
     def __init__(self, source, *, root, base_url="http://127.0.0.1", ca_file, log=None,
                  wall_fn=None, sleep=None, time_fn=None, version=None, cfg=None,
-                 weather_url=None, tls=None):
+                 weather_url=None, tls=None, slot=None, config_data=None, config_error=None):
         self.source = source
         self.root = root.rstrip("/") if len(root) > 1 else root
         self.config_path = self.root + "/" + CONFIG_NAME
@@ -187,7 +260,16 @@ class ClockApp:
         self.echo = True  # console lines also go to stdout
         #: What ``status()`` reports as the version: the slot's bundle id on the clock.
         self.version = version or VERSION
-        self.cfg = cfg if cfg is not None else load_config_json(self.config_path)
+        if cfg is None:
+            cfg, config_data = read_config(self.config_path)
+        self.cfg = cfg
+        self.slot = slot if slot in SLOTS else None
+        #: The id of the config bytes in use (``status()``), None when not known.
+        self.config_in_use = None if config_data is None else config_id(config_data)
+        #: Why ``config.json`` is not the config in use, or None (``status()``).
+        self.config_error = config_error
+        # The bytes, until :meth:`settle_config` has kept them.
+        self._config_data = config_data
         self.tls = tls if tls is not None else tls_for(ca_file)
         self.transport = ClockTransport(base_url, time_fn=self.clock.mono)
         self.pusher = Pusher(self.transport, time_fn=self.clock.mono)
@@ -275,14 +357,17 @@ class ClockApp:
 
     def reload_config(self):
         """Read ``<root>/config.json`` again. A file that does not load is logged and the
-        last good config kept. True if the new one was taken."""
+        last good config kept (the kept copy is not touched). True if the new one was taken:
+        then it is kept as this slot's copy and any error from the start is cleared."""
         try:
-            cfg = load_config_json(self.config_path)
+            cfg, data = read_config(self.config_path)
         except Exception as exc:  # noqa: BLE001 - keep the last good config
             self.console("error", "config " + self.config_path + " not reloaded, keeping the "
                          "last good one: " + _error_text(exc))
             return False
         self.cfg = cfg
+        self.config_in_use = config_id(data)
+        self.config_error = None
         for target in (self.source, self.weather):
             try:
                 target.update_config(cfg)
@@ -290,7 +375,59 @@ class ClockApp:
                 self.console("error", "could not pass the new config on: " + _error_text(exc))
         self._prepared = None
         self.console("info", "config reloaded from " + self.config_path)
+        self.keep_config(data)
         return True
+
+    # -- the kept copy of the config -----------------------------------------------------
+
+    def kept_path(self):
+        """``<root>/config.good.<slot>.json``, or None outside a slot."""
+        if self.slot is None:
+            return None
+        return self.root + "/" + kept_name(self.slot)
+
+    def keep_config(self, data):
+        """Keep ``data`` (the bytes of a ``config.json`` this code loaded) as this slot's
+        copy: written whole or not at all, and only when it differs from the copy there, so
+        an ordinary start writes nothing to the flash. A failure is logged and otherwise
+        ignored. True if the file was written."""
+        path = self.kept_path()
+        if path is None or data is None:
+            return False
+        try:
+            try:
+                with open(path, "rb") as f:
+                    if f.read() == data:
+                        return False
+            except OSError:
+                pass  # no copy yet
+            write_atomic(path, data)
+            return True
+        except Exception as exc:  # noqa: BLE001 - the copy is a safety net, never a failure
+            self.console("error", "could not keep a copy of the config in " + path + ": "
+                         + _error_text(exc))
+            return False
+
+    def settle_config(self):
+        """At start (``arthur.onclock.main``), once the app is built: on ``config.json``,
+        keep it as this slot's copy; on a kept copy, say once why (an error line)."""
+        data = self._config_data
+        self._config_data = None
+        if self.config_error is not None:
+            self.console("error", self.config_error)
+        else:
+            self.keep_config(data)
+
+    def _kept_id(self):
+        """The id of this slot's kept copy as it is on the flash, or None."""
+        path = self.kept_path()
+        if path is None:
+            return None
+        try:
+            with open(path, "rb") as f:
+                return config_id(f.read())
+        except Exception:  # noqa: BLE001 - status never fails for this
+            return None
 
     def request_restart(self):
         """:meth:`run` returns 42 at the next beat."""
@@ -341,6 +478,11 @@ class ClockApp:
             "late_by_part": self.late_by_part,
             "poll_held": self._poll_held(),
             "live_up": self._live_up(),
+            # The config this program runs on, the same id as the door's "config" (the file
+            # on the flash), this slot's kept copy, and why config.json is not in use.
+            "config_in_use": self.config_in_use,
+            "config_kept": self._kept_id(),
+            "config_error": self.config_error,
         }
         return out
 

@@ -1046,3 +1046,268 @@ async def test_main_without_a_config_fails_with_1(tmp_path, capsys):
     rc = await main(str(tmp_path), lambda **kw: FakeSource(READY), ca_file=None)
     assert rc == 1
     assert "failed" in capsys.readouterr().err
+
+
+# ---- the kept copy of the config (a bad config.json must not stop the clock) -------------------
+
+DOOR_KEY = bytes(range(32))  # made up, for tests only
+
+
+def slot_root(tmp_path: Path, monkeypatch, slot: str | None = "a") -> Path:
+    """An install root with a good ``config.json`` and a door key, and the program made to
+    believe it was imported from ``slots/<slot>`` of it (None: from the source tree)."""
+    from arthur.onclock import main as mainmod
+
+    root = tmp_path / "arthur"
+    (root / "slots" / "a").mkdir(parents=True)
+    (root / "slots" / "b").mkdir()
+    (root / "config.json").write_bytes(good_config_bytes())
+    (root / "secrets.json").write_text(json.dumps({"door_key": DOOR_KEY.hex()}))
+    if slot is not None:
+        monkeypatch.setattr(mainmod, "slot_dir", lambda: f"{root}/slots/{slot}")
+    return root
+
+
+def good_config_bytes(**timings) -> bytes:
+    data = export()
+    if timings:
+        data["timings"] = dict(data["timings"], **timings)
+    return json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+
+
+def flash_id(data: bytes) -> str:
+    import hashlib
+
+    return hashlib.sha256(data).hexdigest()[:16]
+
+
+def free_port() -> int:
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+async def run_main(client, root: Path, monkeypatch) -> dict:
+    """``main`` as boot.py runs it, with the real door on a free port: the source waits a
+    moment, asks the door for its status (from another thread, as the Mac would), then asks
+    for a restart. Returns ``rc``, ``app``, ``door`` (the door's status, or None)."""
+    from arthur.onclock import main as mainmod
+    from arthur.tools.doorclient import DoorClient
+
+    made: dict = {"door": None}
+    port = free_port()
+
+    class Recording(ClockApp):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.echo = False
+            self.weather = FakeWeather()
+            made["app"] = self
+
+    def door_status():
+        with DoorClient("127.0.0.1", port, DOOR_KEY) as c:
+            return c.status()
+
+    class AskingSource(FakeSource):
+        async def run(self, stop):
+            await asyncio.sleep(0.2)
+            made["door"] = await asyncio.to_thread(door_status)
+            made["app"].request_restart()
+            await stop.wait()
+
+    monkeypatch.setattr(mainmod, "ClockApp", Recording)
+    made["rc"] = await asyncio.wait_for(mainmod.main(
+        str(root), lambda **kw: AskingSource(READY), ca_file="/no/such/ca.pem",
+        base_url=base(client), door_port=port, settings={"door_host": "127.0.0.1"}), 20)
+    return made
+
+
+def count_kept_writes(monkeypatch) -> list[str]:
+    """Every file ``write_atomic`` writes from the app, by name."""
+    writes: list[str] = []
+    real = appmod.write_atomic
+
+    def counting(path, data):
+        writes.append(Path(path).name)
+        real(path, data)
+
+    monkeypatch.setattr(appmod, "write_atomic", counting)
+    return writes
+
+
+def errors_logged(app) -> list[str]:
+    lines, _ = app.log.read(0, 10**9)
+    return [ln["msg"] for _, ln in lines if ln.get("kind") == "console"
+            and ln["level"] == "error"]
+
+
+async def test_a_good_start_keeps_the_config_once(client, tmp_path, monkeypatch):
+    root = slot_root(tmp_path, monkeypatch)
+    writes = count_kept_writes(monkeypatch)
+    made = await run_main(client, root, monkeypatch)
+    assert made["rc"] == 42
+    kept = root / "config.good.a.json"
+    assert kept.read_bytes() == (root / "config.json").read_bytes()
+    assert writes == ["config.good.a.json"]
+    assert not (root / "config.good.b.json").exists()
+    st = made["door"]["app"]
+    assert st["config_error"] is None
+    assert st["config_in_use"] == st["config_kept"] == made["door"]["config"]
+    # A second start on the same bytes writes nothing: no write, the same file.
+    before = kept.stat()
+    made = await run_main(client, root, monkeypatch)
+    assert made["rc"] == 42 and writes == ["config.good.a.json"]
+    after = kept.stat()
+    assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+    assert not list(root.glob("*.new"))
+
+
+BAD_CONFIGS = {
+    "broken json": lambda good: good[: len(good) // 2],
+    "a key this code rejects": lambda good: good.replace(b'"timings":{', b'"timings":{"zz_new":1,', 1),
+}
+
+
+@pytest.mark.parametrize("how", list(BAD_CONFIGS))
+async def test_a_refused_config_runs_on_the_kept_copy(client, tmp_path, monkeypatch, how):
+    root = slot_root(tmp_path, monkeypatch)
+    good = (root / "config.json").read_bytes()
+    (root / "config.good.a.json").write_bytes(good)
+    bad = BAD_CONFIGS[how](good)
+    assert bad != good
+    (root / "config.json").write_bytes(bad)
+    writes = count_kept_writes(monkeypatch)
+    made = await run_main(client, root, monkeypatch)
+    assert made["rc"] == 42  # ran, and was asked to restart
+    assert made["door"] is not None  # the door opened and answered
+    st = made["door"]["app"]
+    assert st["config_in_use"] == st["config_kept"] == flash_id(good)
+    assert made["door"]["config"] == flash_id(bad) != st["config_in_use"]
+    err = st["config_error"]
+    assert err.startswith("config.json refused (") and err.endswith("config.good.a.json")
+    assert len(err) < 300
+    if how == "a key this code rejects":
+        assert "unknown key(s) in [timings]: zz_new" in err
+    json.dumps(st)  # JSON-able
+    errors = errors_logged(made["app"])
+    assert [e for e in errors if "refused" in e] == [err]
+    assert writes == []  # neither copy is touched
+    assert (root / "config.good.a.json").read_bytes() == good
+    assert made["app"].cfg == appmod.parse_config(good)
+
+
+@pytest.mark.parametrize("own", ["missing", "broken"])
+async def test_the_other_slots_copy_when_this_one_has_none(client, tmp_path, monkeypatch, own):
+    root = slot_root(tmp_path, monkeypatch)
+    good = (root / "config.json").read_bytes()
+    (root / "config.good.b.json").write_bytes(good)
+    if own == "broken":
+        (root / "config.good.a.json").write_bytes(b"{not json")
+    (root / "config.json").write_bytes(b"{")
+    made = await run_main(client, root, monkeypatch)
+    assert made["rc"] == 42
+    st = made["door"]["app"]
+    assert st["config_error"].endswith("config.good.b.json")
+    assert st["config_in_use"] == flash_id(good)
+    assert st["config_kept"] == (None if own == "missing" else flash_id(b"{not json"))
+    # The other slot's copy is not this slot's: nothing is written.
+    assert (root / "config.good.a.json").exists() == (own == "broken")
+
+
+@pytest.mark.parametrize("kept", ["none", "both broken"])
+async def test_nothing_loads_fails_with_1_as_before(tmp_path, monkeypatch, capsys, kept):
+    from arthur.onclock.main import main
+
+    root = slot_root(tmp_path, monkeypatch)
+    (root / "config.json").write_bytes(b'{"timings": ')
+    if kept == "both broken":
+        for s in "ab":
+            (root / f"config.good.{s}.json").write_bytes(b"[]")
+    rc = await main(str(root), lambda **kw: FakeSource(READY), ca_file=None,
+                    settings={"door_host": "127.0.0.1"}, door_port=free_port())
+    assert rc == 1
+    assert "arthur on the clock failed" in capsys.readouterr().err
+
+
+async def test_outside_a_slot_no_copy_is_kept_or_read(client, tmp_path, monkeypatch, capsys):
+    root = slot_root(tmp_path, monkeypatch, slot=None)
+    made = await run_main(client, root, monkeypatch)
+    assert made["rc"] == 42 and made["door"]["app"]["config_kept"] is None
+    assert not list(root.glob("config.good.*"))
+    good = (root / "config.json").read_bytes()
+    (root / "config.good.a.json").write_bytes(good)
+    (root / "config.json").write_bytes(b"{")
+    from arthur.onclock.main import main
+
+    assert await main(str(root), lambda **kw: FakeSource(READY), ca_file=None,
+                      settings={"door_host": "127.0.0.1"}, door_port=free_port()) == 1
+
+
+async def test_a_broken_kept_copy_is_rewritten(client, tmp_path, monkeypatch):
+    root = slot_root(tmp_path, monkeypatch)
+    (root / "config.good.a.json").write_bytes(b'{"half')
+    writes = count_kept_writes(monkeypatch)
+    made = await run_main(client, root, monkeypatch)
+    assert made["rc"] == 42 and writes == ["config.good.a.json"]
+    assert (root / "config.good.a.json").read_bytes() == (root / "config.json").read_bytes()
+    assert made["door"]["app"]["config_error"] is None
+
+
+async def test_a_failure_to_keep_the_copy_is_logged_and_ignored(client, tmp_path, monkeypatch):
+    root = slot_root(tmp_path, monkeypatch)
+
+    def full(path, data):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(appmod, "write_atomic", full)
+    made = await run_main(client, root, monkeypatch)
+    assert made["rc"] == 42 and made["door"] is not None
+    assert any("could not keep a copy of the config" in e for e in errors_logged(made["app"]))
+    st = made["door"]["app"]
+    assert st["config_kept"] is None and st["config_error"] is None
+
+
+def test_the_slot_is_named_from_where_the_code_was_imported(monkeypatch):
+    from arthur.onclock import main as mainmod
+
+    for folder, want in (("/r/arthur/slots/a", "a"), ("/r/arthur/slots/b", "b"),
+                         ("/r/arthur//slots/b/", "b"), ("/r/other/slots/a", None),
+                         ("/r/arthur/slots/c", None), ("/Users/x/ProjectArthur", None),
+                         (None, None)):
+        monkeypatch.setattr(mainmod, "slot_dir", lambda f=folder: f)
+        assert mainmod.slot_name("/r/arthur/") == want, folder
+
+
+async def test_a_reload_keeps_the_new_copy_and_clears_the_error(client, clock, tmp_path):
+    root = tmp_path / "arthur"
+    root.mkdir()
+    good = good_config_bytes()
+    (root / "config.json").write_bytes(b"{")
+    (root / "config.good.a.json").write_bytes(good)
+    cfg, data, error = appmod.start_config(str(root), "a")
+    assert data == good and error is not None
+    app = ClockApp(FakeSource(READY), root=str(root), base_url=base(client), ca_file=None,
+                   wall_fn=clock.wall, sleep=clock.sleep, time_fn=clock, cfg=cfg,
+                   config_data=data, config_error=error, slot="a")
+    app.echo = False
+    app.weather = FakeWeather()
+    app.settle_config()
+    assert app.status()["config_error"] == error
+    # A bad file reloaded: nothing changes.
+    (root / "config.json").write_bytes(b'{"timings": ')
+    assert app.reload_config() is False
+    st = app.status()
+    assert st["config_error"] == error and st["config_in_use"] == st["config_kept"] \
+        == flash_id(good)
+    assert (root / "config.good.a.json").read_bytes() == good
+    # A good, different file (as the door installs after config-put): taken and kept.
+    new = good_config_bytes(heartbeat_s=20)
+    (root / "config.json").write_bytes(new)
+    assert app.reload_config() is True
+    st = app.status()
+    assert st["config_error"] is None
+    assert st["config_in_use"] == st["config_kept"] == flash_id(new) != flash_id(good)
+    assert (root / "config.good.a.json").read_bytes() == new
+    assert app.cfg.timings.heartbeat_s == 20
