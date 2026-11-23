@@ -232,15 +232,29 @@ def scenario_cases() -> list[dict]:
 
 
 def replay_cases() -> list[dict]:
-    """The real robot's three cycles (tests/data/real-cycles.jsonl), fed through the tracker
-    and mapped, two frames a second through each visit's window, as the studio's Replay."""
+    """The real robot's three cycles (tests/data/real-cycles.jsonl), and a synthesised visit
+    whose clean cycle is interrupted the way the real one of 2026-11-21 was (so the countdown
+    carries on: ``cycled_s``), fed through the tracker and mapped, two frames a second
+    through each visit's window, as the studio's Replay."""
+    from logsynth import interrupted_visit_lines, write
+
+    data = ROOT / "tests" / "data" / "real-cycles.jsonl"
+    return [
+        _replay_case("replay:real-cycles",
+                     lambda d: shutil.copy(data, d / "spike-20261116.jsonl")),
+        _replay_case("replay:interrupted",
+                     lambda d: write(d / "spike-20260301.jsonl", interrupted_visit_lines(100))),
+    ]
+
+
+def _replay_case(case_id: str, put) -> dict:
     import tempfile
 
     from arthur.sources.logfile import RobotLog, snapshot_from_record
 
-    data = ROOT / "tests" / "data" / "real-cycles.jsonl"
-    with tempfile.TemporaryDirectory() as d:
-        shutil.copy(data, Path(d) / "spike-20261116.jsonl")
+    with tempfile.TemporaryDirectory() as dname:
+        d = Path(dname)
+        put(d)
         rl = RobotLog(Path(d), just_cleaned_s=CFG.timings.just_cleaned_s,
                       visit_min_s=CFG.timings.visit_min_s)
         rl.refresh()
@@ -266,9 +280,9 @@ def replay_cases() -> list[dict]:
                 view = replay_view(tl, v, k / 2)
                 reference[_us(view.now)] = guard.text(
                     to_display_state(view.snapshot, view.health, view.now, CFG))
-    return [{"id": "replay:real-cycles", "kind": "replay", "lines": lines,
-             "activity_visits": [_us(t) for t in tl._visit_starts],
-             "times": _segments(ts), "reference": reference}]
+    return {"id": case_id, "kind": "replay", "lines": lines,
+            "activity_visits": [_us(t) for t in tl._visit_starts],
+            "times": _segments(ts), "reference": reference}
 
 
 def tracker_cases() -> list[dict]:
@@ -301,7 +315,31 @@ def tracker_cases() -> list[dict]:
         ["feed", rec("CAT_SENSOR_TIMING", 11.0), at(3100)],
         ["feed", rec("READY", 11.0), at(3700)],
     ]
-    return [{"id": "tracker:gap-and-seed", "kind": "tracker", "visit_min_s": 30.0, "ops": ops}]
+    # The one interruption logged live (2026-11-21), then a second in one cycle, a pause that
+    # does not carry, and a gap mid-interruption: the seconds already cycled (cycled_s).
+    r0 = datetime(2026, 11, 21, 14, 33, 6, 878000, tzinfo=UTC)
+
+    def rt(s: float) -> int:
+        return _us(r0 + timedelta(seconds=s))
+
+    interrupted = [
+        ["feed", rec("CAT_SENSOR_TIMING", 10.6), rt(-480)],
+        ["feed", rec("CLEAN_CYCLE", 10.6), rt(0)],
+        ["feed", rec("CAT_SENSOR_INTERRUPTED", 10.6), rt(40.1)],
+        ["feed", rec("CLEAN_CYCLE", 10.6), rt(65.37)],
+        ["feed", rec("CAT_SENSOR_INTERRUPTED", 10.6), rt(70.003)],
+        ["feed", rec("CLEAN_CYCLE", 10.6), rt(81.25)],
+        ["feed", rec("READY", 10.6), rt(150.5)],
+        ["feed", rec("CLEAN_CYCLE", 10.6), rt(900)],
+        ["feed", rec("PAUSED", 10.6), rt(933.3)],
+        ["feed", rec("CLEAN_CYCLE", 10.6), rt(940)],
+        ["feed", rec("CAT_SENSOR_INTERRUPTED", 10.6), rt(951.1)],
+        ["gap", rt(960)],
+        ["feed", rec("CLEAN_CYCLE", 10.6), rt(1700)],
+    ]
+    return [{"id": "tracker:gap-and-seed", "kind": "tracker", "visit_min_s": 30.0, "ops": ops},
+            {"id": "tracker:interrupted", "kind": "tracker", "visit_min_s": 30.0,
+             "ops": interrupted}]
 
 
 def helper_cases() -> list[dict]:
@@ -450,17 +488,25 @@ def test_scenarios_including_the_idle_hour_and_the_night(runs):
     assert _check(runs, "scenario:") == len(SCENARIOS)
 
 
-def test_real_cycles_through_tracker_and_mapping(runs):
+@pytest.mark.parametrize("case_id", ["replay:real-cycles", "replay:interrupted"])
+def test_real_cycles_through_tracker_and_mapping(runs, case_id):
     by_id, _, cpy, _ = runs
-    _check(runs, "replay:")
+    _check(runs, case_id)
     # The guard's replay on CPython is the studio's Replay: the same states.
-    case = by_id["replay:real-cycles"]
+    case = by_id[case_id]
     ref = case["reference"]
     times = list(guard.times(case["times"]))
-    digests = [r.split(":")[0] for r in cpy["replay:real-cycles"].split(" ")]
+    digests = [r.split(":")[0] for r in cpy[case_id].split(" ")]
     assert len(times) == len(digests)
     for us, dg in zip(times, digests, strict=True):
         assert guard.text_digest(ref[us]) == dg, us
+    if case_id == "replay:interrupted":
+        # The resumed cleaning carries on: some state ends its cycle 155.27 s after the
+        # first clean start (130 s estimate plus 25.27 s standing still).
+        clean = case["lines"][3]["ts"]
+        assert case["lines"][3]["record"]["status"] == "CLEAN_CYCLE"
+        want = "cycle_end=t" + str(clean + 155_270_000)
+        assert any(want in r for r in ref.values()), want
 
 
 def test_tracker_gap_and_seed(runs):

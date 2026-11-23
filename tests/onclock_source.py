@@ -79,6 +79,7 @@ def snapshot(record, observed):
         visits_today=None,
         visit_started_at=observed.visit_started_at,
         cat_left_at=observed.cat_left_at,
+        cycled_s=observed.cycled_s,
     )
 
 

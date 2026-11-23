@@ -60,7 +60,8 @@ def _str(value, default):
 
 
 def snapshot_from_record(record, *, status_since=None, previous_status=None,
-                         last_visit_at=None, visit_started_at=None, cat_left_at=None):
+                         last_visit_at=None, visit_started_at=None, cat_left_at=None,
+                         cycled_s=0.0):
     """A :class:`RobotSnapshot` from a state line's ``record``. Odd values fall back to the
     model's defaults (the spike writes ``"<error: X>"`` for a property that raised)."""
     defaults = RobotSnapshot(status="UNKNOWN")
@@ -85,6 +86,7 @@ def snapshot_from_record(record, *, status_since=None, previous_status=None,
         visits_today=None,
         visit_started_at=visit_started_at,
         cat_left_at=cat_left_at,
+        cycled_s=cycled_s,
     )
 
 

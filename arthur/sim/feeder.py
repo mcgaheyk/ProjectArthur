@@ -57,6 +57,7 @@ from arthur.sources.logfile import (
     is_fresh,
     replay_view,
 )
+from arthur.sources.tracker import cycled_after
 from arthur.timebase import until_next_tick
 from arthur.transports.awtrix_ng import AwtrixNgTransport
 from arthur.transports.base import TransportError
@@ -195,6 +196,10 @@ class StudioFeeder:
         now = wall_fn()
         self._manual_since = now - timedelta(hours=2)
         self._manual_prev: str | None = "CLEAN_CYCLE"
+        # CLEAN_CYCLE run before _manual_since in the cycle under way, by the tracker's own rule
+        # (cycled_after), so switching CLEAN_CYCLE -> CAT_SENSOR_INTERRUPTED -> CLEAN_CYCLE by
+        # hand shows the resumed countdown.
+        self._manual_cycled = 0.0
         self._offline_since: datetime | None = None
         self._visit_start: datetime | None = None
         self._cat_left_at: datetime | None = None
@@ -409,6 +414,8 @@ class StudioFeeder:
                 m.setdefault("cat_left", False)
                 if m["cat_left"] and now_visit:
                     self._cat_left_at = now
+            self._manual_cycled = cycled_after(self.manual["status"], m["status"],
+                                               self._manual_cycled, self._manual_since, now)
             self._manual_prev = self.manual["status"]
             self._manual_since = now
         if "cat_left" in m and m["cat_left"] != self.manual["cat_left"]:
@@ -707,6 +714,7 @@ class StudioFeeder:
             visits_today=3,
             visit_started_at=self._visit_start if visit else None,
             cat_left_at=self._cat_left_at if visit else None,
+            cycled_s=self._manual_cycled,
         )
         health = p.model.FeederHealth(
             last_contact_at=now, ws_connected=m["ws_connected"], error=m["health_error"]
@@ -906,7 +914,7 @@ def _rebuild(obj: Any, cls: Any) -> Any:
 
 #: Feeder-observed snapshot fields shown beside the robot's raw ones in the studio.
 OBSERVED_FIELDS = ("status_since", "previous_status", "visit_started_at", "cat_left_at",
-                   "last_visit_at")
+                   "last_visit_at", "cycled_s")
 
 
 def _observed_json(snap: Any) -> dict[str, Any] | None:

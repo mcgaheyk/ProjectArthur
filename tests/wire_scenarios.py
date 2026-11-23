@@ -259,6 +259,18 @@ def partial_update():
     return _finish("partial_update", [robot_raw()], events, 1000)
 
 
+def interrupted_clean():
+    """A watched visit whose clean cycle the cat sensor stops, timed as the one interruption
+    logged live (2026-11-21): 40.1 s in, cycling again 25.27 s later, ready 85.13 s after
+    that. The cycle carries on, so the views carry ``cycled_s`` through the resume."""
+    events = visit(100, 9.7, 3479)[:-1]  # all but the ready 130 s after the clean
+    clean = 100 + 60 + 480
+    events += [push(clean + 40.1, robotCycleState="CYCLE_STATE_CAT_DETECT"),
+               push(clean + 65.37, robotCycleState="CYCLE_STATE_PROCESS"),
+               push(clean + 150.5, **status("idle"))]
+    return _finish("interrupted_clean", [robot_raw()], events, 1000)
+
+
 def an_hour():
     """An hour with three visits and the routine traffic: the on-clock heap measure."""
     raws = real_raws()
@@ -271,4 +283,5 @@ def an_hour():
 SCENARIOS = {f.__name__: f for f in (
     real_visits, no_weight, gap_missed_visit, gap_mid_visit, clean_no_visit, watched_visits,
     drawer_full, fault, sleeping, offline, dropped_socket, stale_socket, poll_401, poll_500,
-    rejected_refresh, login_rejected, no_robots, two_robots, partial_update, an_hour)}
+    rejected_refresh, login_rejected, no_robots, two_robots, partial_update, interrupted_clean,
+    an_hour)}

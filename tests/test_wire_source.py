@@ -344,6 +344,12 @@ CHECKS = {
     "partial_update": lambda sc, tr: any(p["snap"]["cat_left_at"] == {"us": _us(sc, 160)}
                                          for p in tr.probes),
     "watched_visits": lambda sc, tr: tr.fake_counts["graphql"] >= 2,
+    "interrupted_clean": lambda sc, tr: (
+        "CAT_SENSOR_INTERRUPTED" in _events(tr, "state", "status")
+        and any(p["snap"]["status"] == "CLEAN_CYCLE"
+                and p["snap"]["previous_status"] == "CAT_SENSOR_INTERRUPTED"
+                and abs(float(p["snap"]["cycled_s"]["f"]) - 40.1) < 0.01 for p in tr.probes)
+        and tr.probes[-1]["snap"]["cycled_s"] == {"f": "0.0"}),
 }
 
 

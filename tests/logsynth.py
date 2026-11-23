@@ -91,3 +91,18 @@ def visit_lines(start: float = 100.0, *, wait: bool = True) -> list[dict[str, An
     lines.append(state(t, "CLEAN_CYCLE", pet_weight=9.7))
     lines.append(state(t + 130, "READY", pet_weight=9.7))
     return lines
+
+
+#: Seconds from the clean cycle's start to each change in the one interruption logged live
+#: (2026-11-21): interrupted 40.1 s in, cycling again 25.27 s later, ready 85.13 s after that.
+INTERRUPTION_OFFSETS = (("CAT_SENSOR_INTERRUPTED", 40.1), ("CLEAN_CYCLE", 65.37),
+                        ("READY", 150.5))
+
+
+def interrupted_visit_lines(start: float = 100.0) -> list[dict[str, Any]]:
+    """As :func:`visit_lines`, but the clean cycle is interrupted the way the real one was
+    (:data:`INTERRUPTION_OFFSETS`) and then carries on to READY."""
+    lines = visit_lines(start)[:-1]  # drop the READY 130 s after the clean start
+    clean = start + 60 + 420
+    lines += [state(clean + dt, status, pet_weight=9.7) for status, dt in INTERRUPTION_OFFSETS]
+    return lines

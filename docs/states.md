@@ -39,7 +39,7 @@ at a time.
 |---|---|---|
 | `in_use` | Status `CAT_DETECTED` or `CAT_SENSOR_TIMING`, and no weight reading yet this visit. | Arthur is in there now. Two pages take turns: the poop emoji with a joke and "IN USE", then Arthur with how long he has been. |
 | `waiting` | Status `CAT_DETECTED` or `CAT_SENSOR_TIMING`, and the weight reading has arrived. | He has left; countdown to the clean cycle, `clean_cycle_wait_time_minutes` after the weight arrived (the robot reports 8). Waiting without a countdown if `is_sleeping` (the robot will not cycle yet), or if no weight has arrived `cat_left_fallback_s` after detection. |
-| `cleaning` | Status `CLEAN_CYCLE`. | Cycling: soapy blue, a moving border, "CLEANING" and a countdown that is a timed estimate (`clean_cycle_estimate_s`, 130 s; real cycles took 123 to 134 s). The raw phases are not used; see below. |
+| `cleaning` | Status `CLEAN_CYCLE`. | Cycling: soapy blue, a moving border, "CLEANING" and a countdown that is a timed estimate (`clean_cycle_estimate_s`, 130 s; real cycles took 123 to 134 s). After an interruption it carries on from where it was (D-0032). The raw phases are not used; see below. |
 | `interrupted` | Status `CAT_SENSOR_INTERRUPTED`. | He stepped back in mid-cycle and it stopped. Visibly different from `cleaning`. A little story that repeats, counted from when the interruption began: he strolls up to the globe, the view cuts to inside the box and he looks in, "INTERRUPTION", his face again, a second phrase, the globe alone (D-0016). |
 | `paused` | Status `PAUSED`. | The cycle is paused. |
 | `emptying` | Status `EMPTY_CYCLE`. | A person started an empty cycle. |
@@ -52,8 +52,17 @@ cycle resumed and finished without a new wait. **One has been logged live,** on 
 (by the program on the clock): the cat sensor stopped the cycle 40 s in, at 09:33:47;
 `CAT_SENSOR_INTERRUPTED` lasted 25 s; the cycle then resumed and finished 85 s later, so
 125 s of cycling in all, the usual length. The robot carried on from where it had stopped.
-**The cleaning countdown does not know that:** it starts again from 130 s when the cycle
-resumes, so that morning it was cut off with 0:45 still showing.
+
+**So does the cleaning countdown, since 2026-11-23 (D-0032).** The tracker keeps how long the
+cycle under way had run before the current status began (`cycled_s` on the snapshot): it
+grows when `CLEAN_CYCLE` gives way to `CAT_SENSOR_INTERRUPTED`, is kept when the cycle
+resumes, and is cleared by any other change of status and by a gap in watching. On the
+resume the countdown starts from the estimate less that time, so two interruptions in one
+cycle add up. On 2026-11-21 the old rule started again from 2:10 and was cut off with 0:45
+showing; this one would have started from 1:30 and been cut off with 0:05. If more than the
+estimate has already run, the countdown stands at 0:00 until the cycle ends. Only the cat
+sensor's interruption holds a cycle this way: a cycle resumed after `PAUSED` has never been
+seen, and its countdown starts again from 2:10.
 
 ### How a visit is read (D-0017)
 Measured on seven real visits, 2026-11-15 to 17. The two statuses do not say where the cat is:
@@ -148,6 +157,7 @@ Badges were removed (D-0012). What they used to mark:
   they would not end the countdown more accurately. `catDetect` and `robotCycleState` carry
   nothing usable.
 - **Open:** how long interruptions usually last (one seen live: 25 s) and whether the cycle
-  always carries on from where it stopped; what sleep mode does to
+  always carries on from where it stopped (the countdown now assumes it does, D-0032);
+  whether a paused cycle carries on the same way; what sleep mode does to
   the waiting state; whether `DRAWER_FULL` appears while cycles still run; how long after
   Arthur steps in `CAT_DETECTED` arrives (the push trails the robot's own clock by up to 5 s).

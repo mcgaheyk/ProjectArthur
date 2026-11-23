@@ -114,10 +114,18 @@ def _kind_and_fields(
         return _visit_kind(s, now, cfg)
     kind = LIVE_KINDS.get(status)
     if kind == "cleaning":
-        end = None
+        # After an interruption the robot carries on from where it stopped, so the countdown
+        # does too: the cycle is dated from when it would have begun had it not stood still
+        # (cycled_s is the CLEAN_CYCLE run before this status began), and never ends before
+        # the resume. With cycled_s 0 both are the status's own start and start + estimate.
+        start = end = None
         if s.status_since is not None:
-            end = s.status_since + timedelta(seconds=cfg.timings.clean_cycle_estimate_s)
-        return kind, {"since": s.status_since, "cycle_start": s.status_since, "cycle_end": end}
+            start = s.status_since
+            if s.cycled_s:
+                start = s.status_since - timedelta(seconds=s.cycled_s)
+            end = max(start + timedelta(seconds=cfg.timings.clean_cycle_estimate_s),
+                      s.status_since)
+        return kind, {"since": s.status_since, "cycle_start": start, "cycle_end": end}
     if kind == "powering":
         return kind, {"since": s.status_since, "detail": "up" if status == "POWER_UP" else "down"}
     if kind is not None:

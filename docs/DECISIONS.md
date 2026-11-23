@@ -741,3 +741,31 @@ run, checked frame for frame on the Mac. A fix that only the clock runs gives th
 (0.32 ms against 0.25 to 0.28). The home page stands still for 2.2 s every 15 minutes while
 the weather is fetched. Whisker's five-minute poll still holds the loop 0.2 to 0.3 s
 wherever it falls, a scene included.
+
+## D-0032 — After an interruption the cleaning countdown carries on from where it was
+
+**2026-11-23.** The first interruption logged live (2026-11-21, `docs/states.md`) showed the
+robot carrying on with its clean cycle from where the cat sensor had stopped it: 40 s of
+cycling, 25 s stopped, 85 s more, 125 s in all. The countdown started again from 2:10 on the
+resume and was cut off with 0:45 showing. Asked whether it should carry on instead, Kyle
+said to fix it.
+
+**The rule.** The tracker keeps how long the cycle under way had run before the current
+status began (`cycled_s`, `tracker.cycled_after`): it grows when `CLEAN_CYCLE` gives way to
+`CAT_SENSOR_INTERRUPTED`, is kept when the cycle resumes, and is cleared by any other change
+of status and by a gap in watching. Mapping ends the countdown at the resume plus the
+estimate less that time. Two interruptions in one cycle add up. The interrupted screen and
+every other screen are unchanged, and there is no new config key.
+
+**Why.** It is what the robot did, and the two interruptions in its history also finished
+without a new wait. On the 21st the countdown would have been cut off with 0:05 showing.
+
+**Rejected.**
+- Reading how far the cycle has got from `robotCycleStatus`. Each phase varies as much as
+  the whole cycle (`docs/states.md`), so it would not place the end better.
+- Treating `PAUSED` the same way. A paused cycle resuming has never been seen, so its
+  countdown still starts again. One word in `tracker.CYCLE_HOLD_STATUSES` changes that once
+  one has.
+
+**Accepted.** The rule rests on one live interruption. If the robot ever starts a cycle over
+after one, the countdown will reach 0:00 early and stand there until the cycle ends.

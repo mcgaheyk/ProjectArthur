@@ -19,6 +19,7 @@ from datetime import UTC, datetime, timedelta
 from arthur.config import Config
 from arthur.mapping import to_display_state
 from arthur.model import Cue, DisplayState, FeederHealth, RobotSnapshot, Weather
+from arthur.sources.tracker import cycled_after
 from arthur.timebase import SHOW_FPS
 
 #: The fixed "now" every fixture uses (an even second, so 2-frame blinks are in their "on"
@@ -327,7 +328,10 @@ def _visit(
     still inside) or, with None, stays CAT_DETECTED throughout; the pet weight changes 60 s
     after detection, which is when he has left; the robot waits its 8 minutes from then;
     a 130 s clean cycle. Interrupted: he steps back in 50 s into the cycle and it resumes
-    cleaning 25 s later, as the two interruptions in the robot's history did.
+    cleaning 25 s later, as the two interruptions in the robot's history did, and carries on
+    from where it stopped: the resumed stretch runs the remaining 80 s, and the snapshots
+    carry the 50 s already run as ``cycled_s`` (by the tracker's own rule), so the countdown
+    carries on too.
     """
     base = replace(
         BASE,
@@ -347,7 +351,9 @@ def _visit(
         changes: dict[str, object] = {"last_seen": _t(at), **kw}
         if status is not None and status != prior.status:
             changes.update(status=status, status_code=code, status_since=_t(at),
-                           previous_status=prior.status)
+                           previous_status=prior.status,
+                           cycled_s=cycled_after(prior.status, status, prior.cycled_s,
+                                                 prior.status_since, _t(at)))
         steps.append(Step(at, label, replace(prior, **changes)))
 
     in_at = 30
@@ -359,12 +365,14 @@ def _visit(
         last_visit_at=_t(in_at), visits_today=3)
     clean_at = out_at + 8 * 60
     add(clean_at, "cleaning", "CLEAN_CYCLE", "CCP", visit_started_at=None, cat_left_at=None)
+    clean_s = 130
     if interrupted:
         int_at = clean_at + 50
         add(int_at, "interrupted", "CAT_SENSOR_INTERRUPTED", "CSI")
         clean_at = int_at + 25
+        clean_s -= 50  # the cycle carries on from where it stopped
         add(clean_at, "cleaning", "CLEAN_CYCLE", "CCP")
-    done_at = clean_at + 130
+    done_at = clean_at + clean_s
     add(done_at, "just_cleaned", "READY", "RDY", waste_drawer_level=44.0)
     # just_cleaned turns into ready by itself after just_cleaned_s; a final step marks it.
     steps.append(Step(done_at + 5, "ready", steps[-1].snapshot))

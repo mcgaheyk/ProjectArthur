@@ -146,6 +146,7 @@ async def test_replay_through_the_mapping(client, fake_time):
     assert obs["visit_started_at"] == at(100).isoformat()
     assert obs["cat_left_at"] == at(160).isoformat()
     assert obs["previous_status"] == "CAT_DETECTED"
+    assert obs["cycled_s"] == 0.0
     # Raw fields follow the line in force.
     st = await control(client, {"log": {"position": pad + 100}})
     assert st["log"]["raw"]["robotStatus"] == "ROBOT_CAT_DETECT_DELAY"

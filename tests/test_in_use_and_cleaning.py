@@ -305,6 +305,26 @@ def test_cleaning_renders_every_countdown_cleanly():
     _strict(s, now)
 
 
+def test_resumed_cleaning_counts_on_from_where_it_was():
+    # The real interruption of 2026-11-21: 40.1 s cycled before it, so at the resume the
+    # countdown carries on (130 - 40.1 = 89.9 s left), not 2:10 again.
+    state, now = _state("cleaning", since_s=0, cycled_s=40.1)
+    assert state.since == now
+    assert _clean_left(state, now) == "1:30"
+    _, texts = _strict(state, now)
+    assert texts == ["CLEANING"]
+    fresh, _ = _state("cleaning", since_s=0)
+    assert _clean_left(fresh, now) == "2:10"
+
+
+def test_cleaning_countdown_holds_at_zero_past_the_estimate():
+    state, _ = _state("cleaning", since_s=0)
+    for late in (0, 0.5, 5, 60):
+        later = state.cycle_end + timedelta(seconds=late)
+        assert _clean_left(state, later) == "0:00"
+        _strict(state, later)
+
+
 def test_cleaning_word_fits():
     assert CFG.captions["cleaning"] == ("CLEANING",)
     assert small_font().width("CLEANING") <= 34

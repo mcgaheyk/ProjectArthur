@@ -30,6 +30,12 @@ The rules (measured on the real robot's log, 2026-11-15 to 17):
   everything else only watching can tell (the status and when it began, the status before
   it, the visit's start, when the cat left) is forgotten, so the next record is a first
   record. ``last_visit_at`` and the last weight are kept.
+- ``cycled_s``: the seconds of ``CLEAN_CYCLE`` already run, in the cycle under way, before the
+  current status began, so the cleaning countdown carries on after an interruption instead of
+  starting again (the robot resumes where it stopped; on 2026-11-21 it ran 40 s, stood 25 s,
+  then ran the remaining 85 s). :func:`cycled_after` is the rule: leaving ``CLEAN_CYCLE`` for
+  a :data:`CYCLE_HOLD_STATUSES` status adds the stretch just run; coming back from one to
+  ``CLEAN_CYCLE`` keeps it; any other change clears it. A first record and a gap leave it 0.
 """
 
 from __future__ import annotations
@@ -47,11 +53,17 @@ if TYPE_CHECKING:
 #: Statuses that mean a visit is under way.
 VISIT_STATUSES: frozenset[str] = frozenset({"CAT_DETECTED", "CAT_SENSOR_TIMING"})
 
+#: Statuses a clean cycle stands still in and then resumes from where it stopped: the cat
+#: sensor's interruption (seen live on 2026-11-21 and twice in the robot's history). ``PAUSED``
+#: is deliberately not one: a paused cycle resuming has never been seen, so the time run
+#: before a pause is forgotten.
+CYCLE_HOLD_STATUSES: frozenset[str] = frozenset({"CAT_SENSOR_INTERRUPTED"})
+
 #: Default for ``visit_min_s`` (the config's ``[timings] visit_min_s``).
 DEFAULT_VISIT_MIN_S: float = 30.0
 
 
-@record("status_since previous_status visit_started_at cat_left_at last_visit_at")
+@record("status_since previous_status visit_started_at cat_left_at last_visit_at cycled_s")
 class Observed:
     """The observed facts at one moment, ready to put on a ``RobotSnapshot``."""
 
@@ -60,6 +72,31 @@ class Observed:
     visit_started_at: datetime | None = None
     cat_left_at: datetime | None = None
     last_visit_at: datetime | None = None
+    cycled_s: float = 0.0
+
+
+def cycled_after(
+    old_status: str | None,
+    new_status: str,
+    cycled_s: float,
+    status_since: datetime | None,
+    seen_at: datetime,
+) -> float:
+    """``cycled_s`` after the status changes from ``old_status`` (which began at
+    ``status_since``, with ``cycled_s`` run before it) to ``new_status`` at ``seen_at``.
+
+    Leaving ``CLEAN_CYCLE`` for a hold status adds the stretch just run; coming back from a
+    hold status to ``CLEAN_CYCLE`` keeps the total; any other change (the cycle ends, or an
+    interruption goes anywhere but back to cycling) clears it. The studio's hand-built
+    snapshots use this too, so they follow the same rule.
+    """
+    if old_status == "CLEAN_CYCLE" and new_status in CYCLE_HOLD_STATUSES:
+        if status_since is None:
+            return cycled_s
+        return cycled_s + max(0.0, (seen_at - status_since).total_seconds())
+    if old_status in CYCLE_HOLD_STATUSES and new_status == "CLEAN_CYCLE":
+        return cycled_s
+    return 0.0
 
 
 def _weight(value: Any) -> float | None:
@@ -79,7 +116,7 @@ def _later(a: datetime | None, b: datetime | None) -> datetime | None:
 
 @record(
     "status status_since previous_status weight visit_started_at cat_left_at weighed"
-    " last_visit_at"
+    " last_visit_at cycled_s"
 )
 class TrackerState:
     """Everything a :class:`Tracker` holds after some records. Immutable, so a source can keep
@@ -93,6 +130,7 @@ class TrackerState:
     cat_left_at: datetime | None = None
     weighed: bool = False  # a weight change arrived in the visit under way
     last_visit_at: datetime | None = None  # latest qualified visit start (or seeded)
+    cycled_s: float = 0.0  # CLEAN_CYCLE run before status_since in this cycle (cycled_after)
 
     @property
     def in_visit(self) -> bool:
@@ -117,6 +155,7 @@ class TrackerState:
             visit_started_at=self.visit_started_at if in_visit else None,
             cat_left_at=self.cat_left_at if in_visit else None,
             last_visit_at=last,
+            cycled_s=self.cycled_s,
         )
 
     def feed(
@@ -131,7 +170,8 @@ class TrackerState:
 
         # Status bookkeeping.
         if first:
-            st = replace(st, status=status, status_since=seen_at, previous_status=None)
+            st = replace(st, status=status, status_since=seen_at, previous_status=None,
+                         cycled_s=0.0)
             if status not in VISIT_STATUSES:
                 st = replace(st, visit_started_at=None, cat_left_at=None, weighed=False)
         elif status != st.status:
@@ -144,7 +184,9 @@ class TrackerState:
                 st = replace(st, visit_started_at=None, cat_left_at=None, weighed=False)
             elif now_visit and not was_visit:
                 st = replace(st, visit_started_at=seen_at, cat_left_at=None, weighed=False)
-            st = replace(st, previous_status=st.status, status=status, status_since=seen_at)
+            cycled = cycled_after(st.status, status, st.cycled_s, st.status_since, seen_at)
+            st = replace(st, previous_status=st.status, status=status, status_since=seen_at,
+                         cycled_s=cycled)
 
         # Weight: a change during a visit means the cat has left.
         if weight is not None:

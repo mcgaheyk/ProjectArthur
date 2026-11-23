@@ -227,3 +227,85 @@ def test_states_are_immutable_snapshots():
     tr.feed(rec("CAT_DETECTED"), at(100))
     assert isinstance(before, TrackerState) and before.status == "READY"
     assert before.observed(at(200)).visit_started_at is None
+
+
+# --- a clean cycle carries on after an interruption (cycled_s) ------------------------------
+
+# The one interruption logged live (2026-11-21, when each change was seen, UTC).
+REAL_CLEAN = datetime(2026, 11, 21, 14, 33, 6, 878000, tzinfo=UTC)
+REAL_INTERRUPTED = datetime(2026, 11, 21, 14, 33, 46, 978000, tzinfo=UTC)
+REAL_RESUMED = datetime(2026, 11, 21, 14, 34, 12, 248000, tzinfo=UTC)
+REAL_READY = datetime(2026, 11, 21, 14, 35, 37, 378000, tzinfo=UTC)
+
+
+def test_real_interruption_carries_the_time_already_cycled():
+    tr = Tracker()
+    tr.feed(rec("CAT_SENSOR_TIMING"), REAL_CLEAN - timedelta(minutes=8))
+    seen = []
+    for t, status in ((REAL_CLEAN, "CLEAN_CYCLE"), (REAL_INTERRUPTED, "CAT_SENSOR_INTERRUPTED"),
+                      (REAL_RESUMED, "CLEAN_CYCLE"), (REAL_READY, "READY")):
+        tr.feed(rec(status), t)
+        o = tr.observed(t)
+        assert o.cycled_s == tr.state.cycled_s
+        seen.append(o.cycled_s)
+    assert seen[0] == 0.0
+    assert seen[1] == pytest.approx(40.1)
+    assert seen[2] == pytest.approx(40.1)
+    assert seen[3] == 0.0
+    assert tr.observed(REAL_READY).previous_status == "CLEAN_CYCLE"
+
+
+def test_two_interruptions_in_one_cycle_add_up():
+    tr = run((0, "READY", 9.5), (100, "CLEAN_CYCLE", 9.5), (130, "CAT_SENSOR_INTERRUPTED", 9.5),
+             (150, "CLEAN_CYCLE", 9.5), (170, "CAT_SENSOR_INTERRUPTED", 9.5),
+             (200, "CLEAN_CYCLE", 9.5))
+    assert tr.observed(at(210)).cycled_s == pytest.approx(30 + 20)
+    tr.feed(rec("READY"), at(260))
+    assert tr.observed(at(260)).cycled_s == 0.0
+
+
+@pytest.mark.parametrize("after", ["READY", "CAT_DETECTED", "CAT_SENSOR_TIMING", "PAUSED"])
+def test_an_interruption_that_does_not_resume_clears_it(after):
+    tr = run((0, "READY", 9.5), (100, "CLEAN_CYCLE", 9.5), (140, "CAT_SENSOR_INTERRUPTED", 9.5))
+    assert tr.observed(at(150)).cycled_s == pytest.approx(40)
+    tr.feed(rec(after), at(165))
+    assert tr.observed(at(170)).cycled_s == 0.0
+    tr.feed(rec("CLEAN_CYCLE"), at(200))  # a new cycle starts from nothing
+    assert tr.observed(at(210)).cycled_s == 0.0
+
+
+def test_a_pause_does_not_carry():
+    tr = run((0, "READY", 9.5), (100, "CLEAN_CYCLE", 9.5), (140, "PAUSED", 9.5),
+             (160, "CLEAN_CYCLE", 9.5))
+    assert tr.observed(at(170)).cycled_s == 0.0
+
+
+def test_a_gap_clears_it():
+    tr = run((0, "READY", 9.5), (100, "CLEAN_CYCLE", 9.5), (140, "CAT_SENSOR_INTERRUPTED", 9.5))
+    tr.gap(at(150))
+    assert tr.state.cycled_s == 0.0
+    tr.feed(rec("CLEAN_CYCLE"), at(400))  # a first record again
+    o = tr.observed(at(410))
+    assert (o.cycled_s, o.previous_status, o.status_since) == (0.0, None, at(400))
+
+
+@pytest.mark.parametrize("status", ["CLEAN_CYCLE", "CAT_SENSOR_INTERRUPTED"])
+def test_a_first_record_has_nothing_cycled(status):
+    tr = run((0, status, 9.5))
+    assert tr.observed(at(10)).cycled_s == 0.0
+    tr.feed(rec("CLEAN_CYCLE" if status != "CLEAN_CYCLE" else "CAT_SENSOR_INTERRUPTED"), at(30))
+    # From a first CAT_SENSOR_INTERRUPTED nothing was run before; from a first CLEAN_CYCLE
+    # the 30 s seen are counted (its true start is unknown, so it is at least that).
+    expected = 30.0 if status == "CLEAN_CYCLE" else 0.0
+    assert tr.observed(at(40)).cycled_s == pytest.approx(expected)
+
+
+def test_cycled_after_is_the_rule():
+    from arthur.sources.tracker import CYCLE_HOLD_STATUSES, cycled_after
+
+    assert "PAUSED" not in CYCLE_HOLD_STATUSES
+    assert cycled_after("CLEAN_CYCLE", "CAT_SENSOR_INTERRUPTED", 5.0, at(0), at(12)) == 17.0
+    assert cycled_after("CAT_SENSOR_INTERRUPTED", "CLEAN_CYCLE", 17.0, at(12), at(40)) == 17.0
+    assert cycled_after("CLEAN_CYCLE", "READY", 17.0, at(40), at(100)) == 0.0
+    assert cycled_after(None, "CLEAN_CYCLE", 0.0, None, at(0)) == 0.0
+    assert cycled_after("CLEAN_CYCLE", "CAT_SENSOR_INTERRUPTED", 0.0, None, at(0)) == 0.0

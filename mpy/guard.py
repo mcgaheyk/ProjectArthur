@@ -313,7 +313,8 @@ def case_replay(case, ctx, out):
                     last = d
             snap = replace(lines[i][1], status_since=obs.status_since,
                            previous_status=obs.previous_status, last_visit_at=last,
-                           visit_started_at=obs.visit_started_at, cat_left_at=obs.cat_left_at)
+                           visit_started_at=obs.visit_started_at, cat_left_at=obs.cat_left_at,
+                           cycled_s=obs.cycled_s)
         health = FeederHealth(last_contact_at=now, ws_connected=True)
         state = to_display_state(snap, health, now, cfg)
         if not first:

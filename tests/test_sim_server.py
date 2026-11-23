@@ -534,6 +534,35 @@ async def test_manual_cat_left_switch_drives_in_use_to_waiting(client):
     assert st["manual"]["cat_left"] is False
 
 
+async def test_manual_interruption_carries_the_cleaning_countdown_on(client):
+    feeder = client.app[FEEDER]
+    clock = [feeder.wall_fn()]
+    feeder.wall_fn = lambda: clock[0]
+    await client.post("/studio/control", json={"mode": "manual",
+                                                "manual": {"status": "CLEAN_CYCLE"}})
+    est = timedelta(seconds=feeder.pipe.current.cfg.timings.clean_cycle_estimate_s)
+    first = clock[0]
+    clock[0] += timedelta(seconds=40)
+    st = await (await client.post("/studio/control", json={
+        "manual": {"status": "CAT_SENSOR_INTERRUPTED"}})).json()
+    assert st["showing"]["kind"] == "interrupted"
+    clock[0] += timedelta(seconds=25)
+    st = await (await client.post("/studio/control", json={
+        "manual": {"status": "CLEAN_CYCLE"}})).json()
+    snap, health, now = feeder._manual_source()
+    assert snap.cycled_s == 40.0
+    state = feeder.pipe.current.state(snap, health, now)
+    assert (state.kind, state.since) == ("cleaning", now)
+    assert state.cycle_end == first + est + timedelta(seconds=25)
+    # Ending the cycle clears it; a pause does not carry.
+    await client.post("/studio/control", json={"manual": {"status": "READY"}})
+    assert feeder._manual_source()[0].cycled_s == 0.0
+    for status in ("CLEAN_CYCLE", "PAUSED", "CLEAN_CYCLE"):
+        clock[0] += timedelta(seconds=10)
+        await client.post("/studio/control", json={"manual": {"status": status}})
+    assert feeder._manual_source()[0].cycled_s == 0.0
+
+
 async def test_manual_offline_age_is_from_the_switch(client):
     feeder = client.app[FEEDER]
     clock = [feeder.wall_fn()]

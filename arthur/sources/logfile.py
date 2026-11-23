@@ -318,6 +318,7 @@ class Timeline:
             last_visit_at=obs.last_visit_at,
             visit_started_at=obs.visit_started_at,
             cat_left_at=obs.cat_left_at,
+            cycled_s=obs.cycled_s,
         )
         return StateAt(ln, snap, obs)
 

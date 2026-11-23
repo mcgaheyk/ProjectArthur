@@ -41,6 +41,35 @@ def test_interrupted_visit_resumes_cleaning():
         "ready", "in_use", "waiting", "cleaning", "interrupted", "cleaning",
         "just_cleaned", "ready",
     ]
+    sc = SCENARIOS["interrupted_visit"]
+    steps = [(s.label, s.at_s) for s in sc.steps]
+    assert steps == [("ready", 0), ("in_use", 30), ("in_use (timing)", 38), ("waiting", 90),
+                     ("cleaning", 570), ("interrupted", 620), ("cleaning", 645),
+                     ("just_cleaned", 725), ("ready", 730)]
+    assert sc.duration_s == 725 + 120
+    est = timedelta(seconds=CFG.timings.clean_cycle_estimate_s)
+    first = sc.start + timedelta(seconds=570)
+    # The first stretch counts down from 2:10 as before.
+    snap, health, now = sc.at(575)
+    s = to_display_state(snap, health, now, CFG)
+    assert (snap.cycled_s, s.cycle_start, s.cycle_end) == (0.0, first, first + est)
+    # The resumed stretch carries on from where it stopped: 80 s left, ending as the robot
+    # does (50 s run + 80 s), 25 s later than the first start's estimate.
+    snap, health, now = sc.at(645)
+    s = to_display_state(snap, health, now, CFG)
+    resumed = sc.start + timedelta(seconds=645)
+    assert snap.cycled_s == 50.0
+    assert (s.kind, s.since) == ("cleaning", resumed)
+    assert s.cycle_start == resumed - timedelta(seconds=50)
+    assert s.cycle_end == sc.start + timedelta(seconds=725)
+    # Every other snapshot carries nothing cycled.
+    assert [st.snapshot.cycled_s for st in sc.steps] == [0, 0, 0, 0, 0, 50.0, 50.0, 0, 0]
+
+
+@pytest.mark.parametrize("name", sorted(set(SCENARIOS) - {"interrupted_visit"}))
+def test_other_scenarios_carry_nothing_cycled(name):
+    assert all(st.snapshot is None or st.snapshot.cycled_s == 0.0
+               for st in SCENARIOS[name].steps)
 
 
 def test_no_weight_becomes_wait_without_countdown():

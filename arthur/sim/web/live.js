@@ -29,6 +29,7 @@ const OBSERVED_LABELS = [
   ["visit_started_at", "visit start"],
   ["cat_left_at", "cat left"],
   ["last_visit_at", "last visit"],
+  ["cycled_s", "cycled"],  // seconds, not a time
 ];
 const RAW_LABELS = [
   // [key, label] of the robot's own fields shown next to the mapped state
@@ -505,7 +506,10 @@ export function initLive({ control, getMeta }) {
         const oline = el("div", { class: "raw small" }, "Feeder saw ");
         for (const [k, label] of OBSERVED_LABELS) {
           const v = obs[k];
-          const text = v == null ? "–" : (k === "previous_status" ? String(v) : fmtLocal(v, k === "last_visit_at"));
+          const text = v == null ? "–"
+            : k === "previous_status" ? String(v)
+            : k === "cycled_s" ? `${Number(v).toFixed(1)} s`
+            : fmtLocal(v, k === "last_visit_at");
           oline.append(el("span", { class: "chip", title: k }, el("b", { text: `${label} ` }), text));
         }
         showing.append(oline);

@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -8,6 +8,7 @@ from arthur.fixtures import BASE, FIXTURES, HEALTHY, NOW, ago
 from arthur.mapping import to_display_state
 from arthur.model import KINDS, LAYERS, Cue, DisplayState, FeederHealth, Weather
 from arthur.schedule import idle_cue
+from arthur.sources.tracker import Tracker
 
 CFG = default_config()
 
@@ -417,3 +418,65 @@ def test_repository_config_opens_every_fixture_without_a_cue(name):
     fixtures carry their own cue, and the rest open on the home page (or are not idle)."""
     fx = FIXTURES[name]
     assert to_display_state(fx.snapshot, fx.health, fx.now, CFG).cue is None
+
+
+# --- the cleaning countdown carries on after an interruption -------------------------------
+
+# The one interruption logged live (2026-11-21, when each change was seen, UTC).
+_CLEAN = datetime(2026, 11, 21, 14, 33, 6, 878000, tzinfo=UTC)
+_INTERRUPTED = datetime(2026, 11, 21, 14, 33, 46, 978000, tzinfo=UTC)
+_RESUMED = datetime(2026, 11, 21, 14, 34, 12, 248000, tzinfo=UTC)
+_READY = datetime(2026, 11, 21, 14, 35, 37, 378000, tzinfo=UTC)
+
+
+def _real_interruption():
+    """(time, snapshot) at each real change, through the tracker as the feeder sees them."""
+    tr = Tracker()
+    tr.feed({"status": "CAT_SENSOR_TIMING", "pet_weight": 10.6}, _CLEAN - timedelta(minutes=8))
+    out = []
+    for t, status in ((_CLEAN, "CLEAN_CYCLE"), (_INTERRUPTED, "CAT_SENSOR_INTERRUPTED"),
+                      (_RESUMED, "CLEAN_CYCLE"), (_READY, "READY")):
+        tr.feed({"status": status, "pet_weight": 10.6}, t)
+        o = tr.observed(t)
+        out.append((t, replace(BASE, status=status, status_since=o.status_since,
+                               previous_status=o.previous_status, cycled_s=o.cycled_s,
+                               last_visit_at=o.last_visit_at)))
+    return out
+
+
+def _at(snap, now):
+    return state(snap, replace(HEALTHY, last_contact_at=now), now)
+
+
+def test_resumed_cycle_counts_down_from_where_it_was():
+    est = timedelta(seconds=CFG.timings.clean_cycle_estimate_s)
+    (t0, first), _, (t2, resumed), (t3, ready) = _real_interruption()
+    s = _at(first, t0)
+    assert (s.kind, s.since, s.cycle_start, s.cycle_end) == ("cleaning", t0, t0, t0 + est)
+    s = _at(resumed, t2)
+    assert s.kind == "cleaning"
+    assert s.since == _RESUMED  # the screen's animation is still timed from the resume
+    assert s.cycle_start == _RESUMED - timedelta(seconds=40.1)
+    # 130 s from the cycle's first start plus the 25.27 s it stood still.
+    assert s.cycle_end == _CLEAN + est + (_RESUMED - _INTERRUPTED)
+    assert (s.cycle_end - _READY).total_seconds() == pytest.approx(4.77)
+    assert (s.cycle_end - t2).total_seconds() == pytest.approx(89.9)
+    # just_cleaned still follows the resumed cycle.
+    s = _at(ready, t3 + timedelta(seconds=1))
+    assert (s.kind, s.since) == ("just_cleaned", _READY)
+
+
+def test_cycled_past_the_estimate_ends_at_the_resume():
+    snap = replace(BASE, status="CLEAN_CYCLE", status_since=ago(10), cycled_s=200.0)
+    s = state(snap)
+    assert (s.since, s.cycle_end) == (ago(10), ago(10))
+    assert s.cycle_start == ago(210)
+
+
+def test_nothing_cycled_is_unchanged():
+    snap = replace(BASE, status="CLEAN_CYCLE", status_since=ago(30))
+    assert snap.cycled_s == 0.0
+    assert state(snap) == state(replace(snap, cycled_s=0.0))
+    s = state(snap)
+    assert (s.cycle_start, s.cycle_end) == (
+        ago(30), ago(30) + timedelta(seconds=CFG.timings.clean_cycle_estimate_s))

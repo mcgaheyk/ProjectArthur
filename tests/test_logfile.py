@@ -12,6 +12,7 @@ from logsynth import (
     at,
     error,
     info,
+    interrupted_visit_lines,
     record,
     state,
     visit_lines,
@@ -112,6 +113,36 @@ def test_visit_fields_from_the_tracker(tmp_path):
     assert (s.status, s.visit_started_at, s.cat_left_at) == ("CAT_SENSOR_TIMING", at(100), at(160))
     s = tl.at(at(600)).snapshot  # cleaning: the visit is over
     assert (s.visit_started_at, s.cat_left_at) == (None, None)
+
+
+def test_interrupted_cycle_replays_with_the_countdown_carried_on(tmp_path):
+    rl = load(tmp_path, ("spike-20260301.jsonl", interrupted_visit_lines(100)))
+    tl = rl.timeline
+    clean = 100 + 60 + 420
+    est = CFG.timings.clean_cycle_estimate_s
+
+    (v,) = tl.visits()
+
+    def mapped(t):
+        rv = replay_view(tl, v, (at(t) - v.window_start).total_seconds())
+        assert rv.now == at(t)
+        return rv.snapshot, to_display_state(rv.snapshot, rv.health, rv.now, CFG)
+
+    snap, s = mapped(clean + 10)
+    assert (snap.cycled_s, s.kind, s.cycle_end) == (0.0, "cleaning", at(clean + est))
+    snap, s = mapped(clean + 50)
+    assert s.kind == "interrupted" and snap.cycled_s == pytest.approx(40.1)
+    snap, s = mapped(clean + 70)  # resumed at clean + 65.37
+    assert snap.cycled_s == pytest.approx(40.1)
+    assert (s.kind, s.since) == ("cleaning", at(clean + 65.37))
+    # 130 s from the first start plus the 25.27 s it stood still: 4.77 s after the real READY.
+    assert (s.cycle_end - at(clean)).total_seconds() == pytest.approx(est + 25.27)
+    assert (s.cycle_end - at(clean + 150.5)).total_seconds() == pytest.approx(4.77)
+    snap, s = mapped(clean + 151)
+    assert (snap.cycled_s, s.kind) == (0.0, "just_cleaned")
+    assert [k for k, _ in kinds_through(tl, v)] == [
+        "ready", "in_use", "waiting", "cleaning", "interrupted", "cleaning", "just_cleaned",
+        "ready"]
 
 
 def test_blips_are_not_visits(tmp_path):

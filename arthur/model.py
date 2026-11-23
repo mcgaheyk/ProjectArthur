@@ -67,6 +67,7 @@ HEALTH_ERRORS: tuple[str, ...] = ("auth", "api", "no_robots")
     "status status_code is_online is_on waste_drawer_level litter_level litter_level_state"
     " is_sleeping is_laser_dirty power_type wait_time_minutes last_seen pet_weight_lbs"
     " status_since previous_status last_visit_at visits_today visit_started_at cat_left_at"
+    " cycled_s"
 )
 class RobotSnapshot:
     """Library-agnostic facts about the robot at one moment.
@@ -103,6 +104,10 @@ class RobotSnapshot:
     # the pet-weight update arrived (None until then). See arthur/sources/tracker.py.
     visit_started_at: datetime | None = None
     cat_left_at: datetime | None = None
+    # Seconds of CLEAN_CYCLE already run in the cycle under way before the current status
+    # began: nonzero only when the cycle resumed after CAT_SENSOR_INTERRUPTED, so the cleaning
+    # countdown carries on from where it was. See tracker.cycled_after.
+    cycled_s: float = 0.0
 
 
 @record("last_contact_at ws_connected error")
@@ -169,7 +174,10 @@ class DisplayState:
       already offline at the first observation); no_data → the feeder's last contact.
     - ``deadline``: waiting → when the clean cycle should start (None while sleeping or when
       the cat leaving was not seen); just_cleaned → when it returns to ready.
-    - ``cycle_start`` / ``cycle_end``: cleaning → start and estimated end.
+    - ``cycle_start`` / ``cycle_end``: cleaning → when the cycle would have begun had it not
+      stood still (``status_since`` less the ``cycled_s`` run before an interruption), and the
+      estimated end, ``clean_cycle_estimate_s`` after that but never before the status began.
+      ``since`` stays when the current status began.
     - ``fault_code``: fault → ``PD``, ``OTF``, ``CSF`` or the raw code.
     - ``detail``: extra word for the kind: powering → ``"up"``/``"down"``; no_data → the reason
       (``"auth"``, ``"api"``, ``"no_robots"``, ``"timeout"``, ``"no_snapshot"``).
