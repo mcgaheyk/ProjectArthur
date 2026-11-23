@@ -1,6 +1,6 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-22, afternoon._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-23, morning._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
 - **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
@@ -19,11 +19,11 @@ _Last updated: 2026-11-22, afternoon._ Current state only. History belongs in gi
   clock is on its charger; the cable to the Mac came out some time on 2026-11-21 or 22.
   What it has done alone, from its own log and status (`docs/reference/onclock.md`, "The
   first two days alone"):
-  - **Three visits drawn through**, in use to ready: 2026-11-21 at 09:23, 2026-11-22 at
-    07:42 and 13:19. The countdown reached zero within 1 to 12 s of the real clean start.
-    The first had **the first interruption ever logged live** (25 s, 40 s into the clean);
-    in the third a second weight reading started the countdown again, as it should.
-    Nobody was watching the clock; this is from the logs.
+  - **Four visits drawn through**, in use to ready: 2026-11-21 at 09:23, 2026-11-22 at
+    07:42, 13:19 and 22:19. The countdown reached zero within 1 to 12 s of the real clean
+    start. The first had **the first interruption ever logged live** (25 s, 40 s into the
+    clean); in the third and the fourth a second weight reading started the countdown
+    again, as it should. Nobody was watching the clock; this is from the logs.
   - **A cold boot by itself**, at 00:26 on 2026-11-22. Its power had gone some time after
     the Mac went to sleep at about 12:15 on the 21st (it had been on the Mac's USB port;
     when it went dark, and for how long, is in no log). It started from the autostart,
@@ -37,20 +37,27 @@ _Last updated: 2026-11-22, afternoon._ Current state only. History belongs in gi
     --clock ADDRESS push` put new code in the second slot (111 files in 8.8 s) and the
     program was back 12.5 s after the command began: about 7 s on the last frame, under a
     second of NO DATA, then the home page. The boot script marked the new slot healthy.
+    **The second**, at 10:05 on 2026-11-23 (the countdown after an interruption, D-0032):
+    the 8 changed files in 2.1 s, and the home page was back about 9 s after the command
+    began. The boot script marked that slot healthy too.
   - **Speed.** Mapping and drawing one beat: home 21 to 23 ms, the weather page 26 to 29,
     a scene 14 to 18, a wipe 29 to 30; a push about 40; a memory collection 22 to 25. So a
     beat costs about half of its 125 ms.
   - **What held the loop, found and mostly fixed** (measured on the clock; D-0031). A
     scene's plan took 0.4 to 1.0 s, because the scenes' random-number generator made big
-    integers on the clock's 32-bit MicroPython. With its state in 16-bit halves the plans
-    take 0.15 s (bird, stretch) and 0.46 s (rat), inside their 0.875 s lead. The weather
+    integers on the clock's 32-bit MicroPython. With its state in 16-bit halves, over 19
+    hours and 66 plays of each scene, the plans took 0.18 s for the bird (0.21 at worst),
+    0.15 s for the stretch (0.16) and 0.43 s for the rat (0.68), all inside their 0.875 s
+    lead. The weather
     fetch holds everything for 2.2 s every 15 minutes (the TLS handshake with Open-Meteo);
     it kept clear of pages and scenes already and now waits out a visit too, so it falls
     on the home page. **Left:** Whisker's five-minute poll holds the loop 0.2 s wherever
-    it falls, a scene included (seen once in the new code's first 14 minutes). `status`
-    now says what was on screen at each late beat (`late_by_part`).
+    it falls, a scene included. In those 19 hours `status` counted 25 late beats during
+    scenes (0.23 s at worst) and 122 on the weather page (0.48 s at worst); how many of
+    them are the poll is not broken down (`late_by_part`).
   - Memory: 0.61 MB of the 3 MB heap in use after a collection at a start, 0.73 MB after
-    14 hours (0.84 at most). Storage: 7.2 MB free with both slots filled.
+    14 hours (0.84 at most); on the next run 0.76 MB after 19 hours (0.78 at most).
+    Storage: 7.2 MB free with both slots filled.
   - **The log** is kept on the Mac by `scripts/follow_clock.command`, running since
     2026-11-21 (started from Terminal; it waits while the Mac sleeps and stops when the
     Mac restarts). **Lost already:** the clock's log from 12:05 on the 21st to the cold
@@ -90,14 +97,15 @@ _Last updated: 2026-11-22, afternoon._ Current state only. History belongs in gi
   **never from a Claude session's shell**: the 13:47 copy lost the clock (not the robot) at
   17:22, when the session that started it closed, and the clock showed the stale border until
   18:04 (D-0024). Never run a second copy, or `scripts/spike_log.py`, on the same account.
-- **Built and tested (4,101 tests):**
+- **Built and tested (4,131 tests):**
   - Feeder: `arthur/feeder.py` (the loop), `arthur/pusher.py` (when to push),
     `arthur/sources/whisker.py` (the one Whisker connection). On a login or API failure it
     shows NO DATA and retries; it reloads `config/display.toml` when the file changes; it
     writes `logs/spike-*.jsonl` in the spike's format, so the studio's Robot log source
     follows it.
   - Visit rules (D-0017): in use lasts until the weight reading arrives, the countdown runs
-    from that moment, cleaning is a 130-second estimate. `arthur/sources/tracker.py` keeps
+    from that moment, cleaning is a 130-second estimate that carries on from where it was
+    after an interruption (D-0032). `arthur/sources/tracker.py` keeps
     these observed facts for both the live source and the log reader. Replayed over the log's
     seven real visits, the countdown ended within 4 s of the real clean start every time.
     What the feeder did not watch comes from the robot's activity history: at start, after
@@ -230,8 +238,8 @@ _Last updated: 2026-11-22, afternoon._ Current state only. History belongs in gi
     against a fake Whisker. Its first real contact was from the Mac on 2026-11-20
     (`scripts/wire_check.py`: Whisker accepted our User-Agent, the token renewed, the robot
     and the history read correctly), its first real password login on 2026-11-21 (from the
-    Mac, then the clock's own). Since then it has carried five real visits, an interruption
-    and five dropped live connections with no error.
+    Mac, then the clock's own). Since then it has carried six real visits, an interruption
+    and seven dropped live connections with no error.
   - **The shared code runs on both Pythons, in `main`.** `arthur/`'s model, config, schedule,
     mapping, tracker and all the drawing code run unchanged under MicroPython 1.29
     (`arthur/compat.py`, stand-ins in `mpy/lib/`; the rule is in CLAUDE.md and the
@@ -379,10 +387,7 @@ _Last updated: 2026-11-22, afternoon._ Current state only. History belongs in gi
 4. **The on-clock trial (D-0029, D-0031), with Claude.** The clock runs itself since
    2026-11-21, Kyle said to leave it, and the Mac's feeder is the way back (above). Done so
    far: the log follower, a real visit, a night, a cold boot, the cable out, dropped live
-   connections, and a code change over Wi-Fi. What is left, in order:
-   - **Kyle: say whether the cleaning countdown should carry on after an interruption**
-     from where it was, not start again from 2:10 (`docs/states.md`; on 2026-11-21 it was
-     cut off with 0:45 showing). One interruption is all there is to go on.
+   connections, and two code changes over Wi-Fi. What is left, in order:
    - after a Mac restart, start the follower again:
      `open -a Terminal scripts/follow_clock.command`;
    - keep the log across the clock's restarts (lost once already), and keep the last good
@@ -391,7 +396,8 @@ _Last updated: 2026-11-22, afternoon._ Current state only. History belongs in gi
    - hold Whisker's five-minute poll back from pages and scenes the way the weather is
      (its TLS handshake holds the loop 0.2 to 0.3 s);
    - watch for, in the log and `status`: a config change sent over Wi-Fi, a Wi-Fi outage,
-     48 hours without a restart, a weather fetch held back by a visit, memory over days;
+     48 hours without a restart, a weather fetch held back by a visit, memory over days,
+     and the next interruption (the countdown should carry on from where it was, D-0032);
    - the weather's 2.2 s handshake could be made cheaper only in the clock's MicroPython
      build (mbedTLS's elliptic-curve arithmetic), which means a new install over USB; not
      tried;
@@ -444,9 +450,10 @@ _Last updated: 2026-11-22, afternoon._ Current state only. History belongs in gi
 - **Idle laser notice** can only say "LASER": "WIPE LASER" and "LASER DIRTY" are too wide for
   the line. It does not say what to do.
 - **Cleaning:** the countdown is an estimate (130 s; real cycles took 123 to 135 s), so it can
-  reach zero up to 7 s early or be cut off up to 5 s early. **After an interruption it
-  starts again from 130 s** although the cycle carries on from where it stopped: on
-  2026-11-21 it was cut off with 0:45 showing.
+  reach zero up to 7 s early or be cut off up to 5 s early. After an interruption it
+  carries on from where it was (D-0032, since 2026-11-23). That rests on the one real
+  interruption, where it would have been cut off with 0:05 showing; no interruption has
+  happened since the change. A cycle resumed after a pause still starts again from 130 s.
   The 6-row digits and the pale bubbles on the blue border have only been judged on a monitor.
 - On-battery and connection-down are no longer shown anywhere (badges were removed).
 - **Drawer full:** the narrow M and W in "EMPTY NOW" and the flashing ring have only been
@@ -490,7 +497,7 @@ _Last updated: 2026-11-22, afternoon._ Current state only. History belongs in gi
 - Whether the feeder can share a Whisker account with Home Assistant's Litter-Robot
   integration. People who build their own will ask; the README does not claim either way.
 - For the on-clock build (D-0029): whether it holds up over weeks (its longest run so far
-  is 14 hours); how long Whisker's refresh token lasts; memory over days (the heap grew
+  is 19 hours); how long Whisker's refresh token lasts; memory over days (the heap grew
   from 0.61 to 0.73 MB in 14 hours, part of it the log ring filling); when and why the
   clock lost power on 2026-11-21, and whether the Mac's USB port stops powering it when the
   Mac sleeps; whether the weather's 2.2 s hold or the poll's 0.2 s shows on the LEDs;

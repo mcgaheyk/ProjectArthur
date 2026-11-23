@@ -706,6 +706,25 @@ falls in a scene. That is the next thing that shows. The first scheduled weather
 the new code, at 15:04:41, fell on the home page (1,990 ms). Not yet seen on the clock: a
 weather fetch held back by a visit.
 
+**The 19 hours that code then ran** (to 10:05 on 2026-11-23; `status` read at 18.9 hours:
+49,446 pushes, none failed, one visit drawn through at 22:19). Plans over 66 plays of each
+scene, mean and worst in ms: bird 182 and 208, stretch 151 and 157, rat 427 and 680, so all
+inside the 0.875 s lead. Late wakes by what was on screen, count and worst: home 371
+(2,136 ms, the weather fetch), the weather page 122 (483 ms), the three scenes 25 between
+them (227 ms), a wipe 2 (156 ms), waiting 3 (85 ms), cleaning 1 (38 ms). How many of the
+page's and the scenes' are the poll is not broken down: about 68 polls fell on the page and
+45 in scenes in that time, and one poll can make two late wakes.
+Heap after a collection: 0.76 MB (0.78 at most).
+
+**The second change over Wi-Fi** (commit `8ed2a48`, the cleaning countdown after an
+interruption, D-0032), at 10:05:53 on 2026-11-23: the 8 files slot a lacked of 111
+(31,878 bytes) in 2.1 s, and `push` reported the program back 5.7 s after it began. On the
+screen, from the clock's log: the new program started at 10:05:56, the first frame (NO
+DATA) was pushed at 10:06:01, and the home page followed at 10:06:02 when Whisker
+answered from the saved token. So about 5 s on the last frame and under a second of NO
+DATA. The log follower lost the door once during the restart and carried on. The boot
+script marked slot a healthy after its two minutes (tries a: 0).
+
 ## Assumed about the real clock, not checked
 
 - The daemon stops the running autostart (and so our launcher, which stops the program) on
