@@ -19,9 +19,9 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
   clock is on its charger; the cable to the Mac came out some time on 2026-11-21 or 22.
   What it has done alone, from its own log and status (`docs/reference/onclock.md`, "The
   first two days alone"):
-  - **Four visits drawn through**, in use to ready: 2026-11-21 at 09:23, 2026-11-22 at
-    07:42, 13:19 and 22:19. The countdown reached zero within 1 to 12 s of the real clean
-    start. The first had **the first interruption ever logged live** (25 s, 40 s into the
+  - **Five visits drawn through**, in use to ready: 2026-11-21 at 09:23, 2026-11-22 at
+    07:42, 13:19 and 22:19, 2026-11-23 at 10:27. The countdown reached zero within 1 to 12 s
+    of the real clean start. The first had **the first interruption ever logged live** (25 s, 40 s into the
     clean); in the third and the fourth a second weight reading started the countdown
     again, as it should. Nobody was watching the clock; this is from the logs.
   - **A cold boot by itself**, at 00:26 on 2026-11-22. Its power had gone some time after
@@ -39,7 +39,10 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
     second of NO DATA, then the home page. The boot script marked the new slot healthy.
     **The second**, at 10:05 on 2026-11-23 (the countdown after an interruption, D-0032):
     the 8 changed files in 2.1 s, and the home page was back about 9 s after the command
-    began. The boot script marked that slot healthy too.
+    began. The boot script marked that slot healthy too. **The third**, at 11:03 the same
+    morning (the poll held back, D-0033): 8 files in 2.0 s, the home page back
+    about 10 s after the command began, healthy too; NO DATA showed for about 3 s that
+    time (the weather's first fetch fell in it).
   - **Speed.** Mapping and drawing one beat: home 21 to 23 ms, the weather page 26 to 29,
     a scene 14 to 18, a wipe 29 to 30; a push about 40; a memory collection 22 to 25. So a
     beat costs about half of its 125 ms.
@@ -51,10 +54,16 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
     lead. The weather
     fetch holds everything for 2.2 s every 15 minutes (the TLS handshake with Open-Meteo);
     it kept clear of pages and scenes already and now waits out a visit too, so it falls
-    on the home page. **Left:** Whisker's five-minute poll holds the loop 0.2 s wherever
-    it falls, a scene included. In those 19 hours `status` counted 25 late beats during
-    scenes (0.23 s at worst) and 122 on the weather page (0.48 s at worst); how many of
-    them are the poll is not broken down (`late_by_part`).
+    on the home page. Whisker's five-minute poll held the loop 0.2 s wherever it fell, a
+    scene included: in those 19 hours `status` counted 25 late beats during scenes (0.23 s
+    at worst) and 122 on the weather page (0.48 s at worst). **Since 11:03 on 2026-11-23
+    the routine poll waits for the home page too (D-0033):** it is held while a page or
+    scene is on or about to begin, 90 s at most, and never during a visit, with the live
+    connection down, or when it is a retry. In its first 22 minutes
+    there, three of the four polls due were held (59.7 s at longest) and no late beat
+    fell on a page or in a scene. **Left:** the live
+    connection's reconnect (a few a night) and the history reads (four a day) still hold
+    the loop 0.3 s wherever they fall.
   - Memory: 0.61 MB of the 3 MB heap in use after a collection at a start, 0.73 MB after
     14 hours (0.84 at most); on the next run 0.76 MB after 19 hours (0.78 at most).
     Storage: 7.2 MB free with both slots filled.
@@ -65,9 +74,11 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
     (128 KB, about 13 hours of an ordinary day).
   - On the clock the install folder and everything in it are readable by root only (set
     by hand on 2026-11-21; the installer still makes the folders mode 777).
+  **A weather fetch held back by a visit** was seen on 2026-11-23: the one due at 10:36
+  fell in the 10:27 visit and ran at 10:38:24, as the screen went back to the home page
+  (read from the 2 s late beat it leaves; fetches are not logged).
   **Not yet seen there:** a config change sent over Wi-Fi, a Wi-Fi outage, a token that
-  will not renew, 48 hours without a restart, a weather fetch held back by a visit. Kyle
-  has not said how any of it looks.
+  will not renew, 48 hours without a restart. Kyle has not said how any of it looks.
   **The screen showed the stale border from 02:08 to 09:05 on 2026-11-21** (the Mac's
   feeder was stopped seven hours before the install ran), and was stale or dark for an
   unknown time before the cold boot.
@@ -97,7 +108,7 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
   **never from a Claude session's shell**: the 13:47 copy lost the clock (not the robot) at
   17:22, when the session that started it closed, and the clock showed the stale border until
   18:04 (D-0024). Never run a second copy, or `scripts/spike_log.py`, on the same account.
-- **Built and tested (4,131 tests):**
+- **Built and tested (4,146 tests):**
   - Feeder: `arthur/feeder.py` (the loop), `arthur/pusher.py` (when to push),
     `arthur/sources/whisker.py` (the one Whisker connection). On a login or API failure it
     shows NO DATA and retries; it reloads `config/display.toml` when the file changes; it
@@ -294,12 +305,15 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
     the studio's reader. No secret appears in any log, status or door answer. The door now
     reads every request into one buffer made at start. The launcher gives MicroPython a
     3 MB heap; the largest heap in use over a compressed day was 1.1 MB.
-    **Known weak points:** (1) Whisker's poll and a reconnect open a TLS connection, 0.3 s
-    of held loop, wherever they fall, a scene included, and what a password login costs a
+    **Known weak points:** (1) a reconnect of the live connection and a history read open
+    a TLS connection, 0.3 s of held loop, wherever they fall, a scene included (the
+    routine poll now waits for the home page, D-0033), and what a password login costs a
     scene has not been seen; (2) a
     `config.json` the new code rejects stops both code slots, and then only USB reaches
     the clock; (3) the log is kept in memory and is lost at every restart unless the Mac
-    is following it (it happened on 2026-11-22).
+    is following it (it happened on 2026-11-22); (4) `ws_connected` in the snapshot's
+    health is always true, on the Mac and the clock, so nothing on screen or in `health`
+    says the live connection is down; the clock's `status` has the true one, `live_up`.
   - **Checked before the first install,** on 2026-11-20 evening with the clock on USB and
     the Mac's feeder still running:
     `scripts/clock.py build` gives the same file, byte for byte, as the MicroPython that
@@ -387,17 +401,17 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
 4. **The on-clock trial (D-0029, D-0031), with Claude.** The clock runs itself since
    2026-11-21, Kyle said to leave it, and the Mac's feeder is the way back (above). Done so
    far: the log follower, a real visit, a night, a cold boot, the cable out, dropped live
-   connections, and two code changes over Wi-Fi. What is left, in order:
+   connections, and three code changes over Wi-Fi. What is left, in order:
    - after a Mac restart, start the follower again:
      `open -a Terminal scripts/follow_clock.command`;
    - keep the log across the clock's restarts (lost once already), and keep the last good
      `config.json` so a bad one cannot stop both slots; the installer to make the install
      folders root-only;
-   - hold Whisker's five-minute poll back from pages and scenes the way the weather is
-     (its TLS handshake holds the loop 0.2 to 0.3 s);
    - watch for, in the log and `status`: a config change sent over Wi-Fi, a Wi-Fi outage,
-     48 hours without a restart, a weather fetch held back by a visit, memory over days,
-     and the next interruption (the countdown should carry on from where it was, D-0032);
+     48 hours without a restart, memory over days, the next interruption (the countdown
+     should carry on from where it was, D-0032), and over a day `poll_held` and the late
+     beats on pages and scenes in `late_by_part` (D-0033; they were 6.5 and 1.3 an hour
+     before it);
    - the weather's 2.2 s handshake could be made cheaper only in the clock's MicroPython
      build (mbedTLS's elliptic-curve arithmetic), which means a new install over USB; not
      tried;
@@ -500,6 +514,6 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
   is 19 hours); how long Whisker's refresh token lasts; memory over days (the heap grew
   from 0.61 to 0.73 MB in 14 hours, part of it the log ring filling); when and why the
   clock lost power on 2026-11-21, and whether the Mac's USB port stops powering it when the
-  Mac sleeps; whether the weather's 2.2 s hold or the poll's 0.2 s shows on the LEDs;
+  Mac sleeps; whether the weather's 2.2 s hold on the home page shows on the LEDs;
   whether AWTRIX's autostart survives a firmware update on this clock (the docs say it
   does; not tried).

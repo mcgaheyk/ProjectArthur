@@ -707,8 +707,10 @@ push takes 2.5 s). Then **the Whisker poll, every five minutes**: 162 ms on the 
 14:54:31, and 198 ms and 35 ms in the middle of the rat scene at 14:59:32. Its TLS handshake
 (0.3 s) is not held back from pages and scenes as the weather's is; about one poll in five
 falls in a scene. That is the next thing that shows. The first scheduled weather fetch on
-the new code, at 15:04:41, fell on the home page (1,990 ms). Not yet seen on the clock: a
-weather fetch held back by a visit.
+the new code, at 15:04:41, fell on the home page (1,990 ms). A weather fetch held back by
+a visit was first seen on 2026-11-23: the one due at 10:36 fell in the 10:27 visit and ran
+at 10:38:24, as the screen went back to the home page (read from the 2 s late wake it
+leaves; fetches are not logged).
 
 **The 19 hours that code then ran** (to 10:05 on 2026-11-23; `status` read at 18.9 hours:
 49,446 pushes, none failed, one visit drawn through at 22:19). Plans over 66 plays of each
@@ -728,6 +730,27 @@ DATA) was pushed at 10:06:01, and the home page followed at 10:06:02 when Whiske
 answered from the saved token. So about 5 s on the last frame and under a second of NO
 DATA. The log follower lost the door once during the restart and carried on. The boot
 script marked slot a healthy after its two minutes (tries a: 0).
+
+**The routine poll held back from pages and scenes** (D-0033, commit `321b8d5`, pushed at
+11:03:26 on 2026-11-23: 8 files, 33,221 bytes in 2.0 s into slot b; first frame at
+11:03:33, the home page at 11:03:36, so NO DATA showed for 3 s, the weather's first
+handshake falling in it; healthy after two minutes). The clock's program answers the
+monitor's `poll_ok`: no while it is idle with a page or scene on or beginning within 5 s.
+A due poll then waits for the home page, 90 s at most; it is never held on any other
+screen, with the live subscription down, or as a retry.
+
+| | late wakes on the weather page | in scenes | polls held |
+|---|---|---|---|
+| the 19 hours to 10:05 | 122 (6.5 an hour) | 25 (1.3 an hour) | none could be |
+| the 58 minutes from 10:06 | 4 | 0 | none could be |
+| the first 22 minutes with the hold | 0 | 0 | 3 of the 4 due, 59.7 s at longest |
+
+`poll_held` read `[3, 59.7]`. Late wakes of about 0.2 s, which is what a poll costs, fell
+on the home page at 11:14:02 (185 ms), 11:19:39 (176 ms) and 11:25:40 (200 ms); the first
+poll, due at 11:08:36, left none among the eight worst. A poll that changes nothing writes
+no log line, so its time shows only this way. `live_up` read true at both readings.
+Twenty-two minutes is a small sample: whether the page's and the scenes' late wakes stay at none, and
+so how many of the old ones were the poll, wants a day of `late_by_part`.
 
 ## Assumed about the real clock, not checked
 
