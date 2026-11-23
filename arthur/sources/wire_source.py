@@ -9,6 +9,9 @@
   minutes, the history at start, every six hours and when asked, never closer than 120 s,
   and the back-offs (a rejected login 600 s doubling to an hour; anything else 30 s doubling
   to 600 s; a failed poll waits at least 120 s). The error clears with the next contact.
+  ``poll_ok`` (the clock's program passes it) is handed to the monitor: a routine poll waits
+  while it says no, up to :data:`arthur.wire.monitor.POLL_HOLD_S`; :meth:`poll_held` counts
+  the polls that waited. The Mac's feeder passes none, and every poll runs when it is due.
 - **Logins, as cautiously as today's source** (:func:`arthur.spikelog.connect_account`): the
   saved token is used while it is valid and renewed from its refresh token when it is not;
   the password is used only when there is no usable token, its renewal was refused, or
@@ -106,7 +109,7 @@ class WireSource:
     def __init__(self, cfg, *, credentials, tls=None, sink=None, log_dir="logs",
                  token_path=None, load_token=None, save_token=None, delete_token=None,
                  serial=None, wall_fn=None, mono_fn=None, sleep=None, say=None, local=None,
-                 client_kw=None):
+                 client_kw=None, poll_ok=None):
         self.cfg = cfg
         self._credentials = tuple(credentials) if credentials else None
         self._wall = wall_fn or _now_utc
@@ -150,7 +153,7 @@ class WireSource:
             self.client, self._on_record, on_error=self._on_error, on_info=self._on_info,
             on_activity=self._on_activity, poll_s=self.poll_s, mono=self._mono,
             now=self._epoch_now, sleep=sleep or sleep_or_stop, connect=self._connect,
-            before_tick=self._flush, after_history=self._fallback)
+            before_tick=self._flush, after_history=self._fallback, poll_ok=poll_ok)
         self.tracker = Tracker(cfg.timings.visit_min_s)
         self.recorder = sf.Recorder(wall=self._wall, mono=self._mono)
         self._record = None
@@ -189,6 +192,18 @@ class WireSource:
         self.cfg = cfg
         self.tracker.visit_min_s = float(cfg.timings.visit_min_s)
         self.monitor.poll_s = self.poll_s
+
+    def set_poll_ok(self, fn):
+        """Hand ``poll_ok`` (or None) to the monitor after the source was built."""
+        self.monitor.poll_ok = fn
+
+    def poll_held(self):
+        """``[polls held back by poll_ok, the longest wait in seconds]``."""
+        return [self.monitor.polls_held, round(self.monitor.poll_held_max_s, 1)]
+
+    def live_up(self):
+        """The monitor's live subscription is acknowledged and up."""
+        return self.monitor.live_up
 
     def forget_contact(self):
         """Before running again after watching stopped on purpose (the clock's pause): show

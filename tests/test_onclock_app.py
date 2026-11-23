@@ -26,6 +26,7 @@ from arthur.onclock.awtrix import TransportError
 from arthur.onclock.clocklog import ClockLog
 from arthur.render import Frame, overlay_stale, render
 from arthur.render import idle_show as show
+from arthur.schedule import idle_cue
 from arthur.sim.server import CLOCKS, create_app
 from arthur.tools.export_config import export
 
@@ -835,6 +836,149 @@ async def test_the_weather_waits_on_every_screen_but_home_and_no_data(client, cl
     for name in ("in_use", "waiting", "cleaning", "interrupted", "just_cleaned",
                  "drawer_full", "fault", "robot_offline"):
         assert name in KINDS
+
+
+async def test_the_poll_waits_only_for_the_idle_show(client, clock, tmp_path):
+    """The Whisker poll's TLS handshake holds the loop about 0.3 s: it waits while a page or
+    scene is on or about to begin, and nowhere else: never in a visit or any robot screen,
+    in NO DATA, or before the first beat (the monitor itself never holds one while the live
+    connection is down). ``_quiet`` is unchanged in every case."""
+    from arthur.model import KINDS
+
+    root = idle_cfg_root(tmp_path)
+    app = make_app(client, clock, FakeSource(READY), root)
+    assert app._poll_ok() and app._quiet()  # no state yet
+    clock.t = 1000.0 + 20  # the home page, the weather page from 45 s
+    await run_for(app, clock, 1)
+    home = app.state
+    assert home.kind == "ready" and home.cue is None and app.health.ws_connected
+    assert app._poll_ok() and app._quiet()
+    page = Cue(kind="page", at=START + timedelta(seconds=45), length_s=54.0, n=0)
+    scene = Cue(kind="scene", at=START + timedelta(seconds=144), length_s=36.0, n=0)
+    for kind in KINDS:
+        for cue in (None, page, scene):
+            app.state = replace(home, kind=kind, cue=cue)
+            held = kind == "ready" and cue is not None
+            assert app._poll_ok() is not held, (kind, cue)
+            assert app._quiet() is (kind == "no_data" or (kind == "ready" and cue is None))
+    app.state = home
+    clock.t = 1000.0 + 39.875  # the page begins in 5.125 s
+    assert app._poll_ok() and app._quiet()
+    clock.t = 1000.0 + 40.0  # within QUIET_AHEAD_S of the page
+    assert not app._poll_ok() and not app._quiet()
+
+
+async def test_status_says_how_many_polls_were_held(client, clock, root):
+    app = make_app(client, clock, FakeSource(READY), root)
+    assert app.status()["poll_held"] == [0, 0.0]  # a source that cannot say
+    assert app.status()["live_up"] is None
+
+    class Counting(FakeSource):
+        hook = None
+
+        def set_poll_ok(self, fn):
+            self.hook = fn
+
+        def poll_held(self):
+            return [4, 37.0]
+
+        def live_up(self):
+            return True
+
+    src = Counting(READY)
+    app = make_app(client, clock, src, root)
+    assert src.hook == app._poll_ok
+    st = app.status()
+    assert st["poll_held"] == [4, 37.0] and st["live_up"] is True
+    assert json.loads(json.dumps(st)) == st
+
+
+class PollingSource(FakeSource):
+    """A real :class:`arthur.wire.monitor.Monitor` on the app's fake time, polling a stub
+    client that notes when each poll begins."""
+
+    def __init__(self, snapshot, clock) -> None:
+        super().__init__(snapshot)
+        self.clock = clock
+        self.hook = None
+        self.mon = None
+        self.polls: list[float] = []
+
+    def set_poll_ok(self, fn):
+        self.hook = fn
+
+    def poll_held(self):
+        return [self.mon.polls_held, round(self.mon.poll_held_max_s, 1)]
+
+    async def run(self, stop):
+        from arthur.wire.monitor import Monitor
+
+        async def sleep(stop, seconds):
+            end = self.clock.t + seconds
+            while self.clock.t < end and not stop.is_set():
+                await asyncio.sleep(0)  # the app's beats move the time
+            return stop.is_set()
+
+        self.mon = Monitor(self, on_record=lambda record, source: None,
+                           mono=lambda: self.clock.t,
+                           now=lambda: self.clock.wall().timestamp(), sleep=sleep,
+                           poll_ok=self.hook)
+        await self.mon.run(stop)
+
+    async def connect(self):
+        return self.record()
+
+    async def refresh_robot(self):
+        self.polls.append(self.clock.t)
+        return self.record()
+
+    def record(self):
+        return {"status": "READY"}
+
+    async def history(self, start=None, limit=100):
+        return []
+
+    async def live(self, on_update, on_event=None):
+        on_event("ws_start_ack", "")  # the subscription acknowledged: polls may be held
+        await asyncio.Event().wait()
+
+    def live_up(self):
+        return None if self.mon is None else self.mon.live_up
+
+
+async def test_over_idle_rounds_no_poll_starts_in_a_page_or_scene(client, clock, tmp_path,
+                                                                  monkeypatch):
+    """Twenty minutes of the idle show (three-minute rounds) with the real monitor: every
+    poll begins on the home page, clear of a page or scene by the margin, and they still
+    come every five minutes or a little more. (Frames are not drawn here, to keep it fast;
+    the show's timing is the schedule's.)"""
+    from arthur.wire.monitor import POLL_HOLD_S
+
+    root = idle_cfg_root(tmp_path)
+    monkeypatch.setattr(appmod, "render", lambda state, now, cfg: Frame(52, 16))
+    monkeypatch.setattr(show, "prepare_scene", lambda cue, cfg: True)
+    src = PollingSource(READY, clock)
+    app = make_app(client, clock, src, root)
+    clock.stop_at = clock.t + 20 * 60
+    await asyncio.wait_for(app.run(), timeout=120)
+    cfg = app.cfg
+    since = app.state.since
+    assert since is not None and app.state.kind == "ready"
+    starts = [START + timedelta(seconds=t - 1000.0) for t in src.polls]
+    # 300 s in falls on home; 600 s in on the page (held to its end, 640 s); 940 s in is
+    # 4 s before a scene (held to its end, 1,000 s).
+    assert src.polls == [1300.0, 1640.0, 2000.0]
+    for at in starts:
+        for ahead in (0.0, appmod.QUIET_AHEAD_S - 0.5):
+            assert idle_cue(since, at + timedelta(seconds=ahead), cfg) is None, at
+    gaps = [b - a for a, b in itertools.pairwise([1000.0, *src.polls])]
+    assert all(300 <= g <= 300 + POLL_HOLD_S + 1 for g in gaps), gaps
+    assert app.status()["poll_held"] == [2, 60.0]
+    assert app.status()["live_up"] is False  # the source has stopped
+    shows = {idle_cue(since, START + timedelta(seconds=s), cfg).kind
+             for s in range(0, 20 * 60, 5)
+             if idle_cue(since, START + timedelta(seconds=s), cfg) is not None}
+    assert shows == {"page", "scene"}  # the show really played around the polls
 
 
 def test_the_quiet_margin_covers_a_fetch_and_the_plan_lead():

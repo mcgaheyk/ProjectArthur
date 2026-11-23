@@ -298,15 +298,16 @@ The feeder's live source also needs `cycle_count` (D-0025) and the activities as
 
 `arthur/sources/wire_source.py` (`WireSource`) is the feeder's source on this client; the
 Mac runs it with `python -m arthur.feeder --source wire`. `tests/test_wire_source.py` plays
-20 scripted scenarios through it and through the pylitterbot source (pylitterbot 2025.8.0 and
+21 scripted scenarios through it and through the pylitterbot source (pylitterbot 2025.8.0 and
 pycognito themselves), each against a fresh fake with the same made-up time, and compares
-every `view()` sampled, every log line and every console line. They agree in 18: the real
+every `view()` sampled, every log line and every console line. They agree in 19: the real
 visits of `tests/data/real-cycles.jsonl`, a visit with no weight pushed (with and without the
 weight in the history), a missed visit found after a gap, a gap ending mid-visit, a clean with
 no visit seen, two watched visits and the six-hourly read, drawer full, a pinch fault and a
 pause, sleeping, offline and off, a dropped socket, a stale socket, a 500 on a poll, a
 refused renewal (one password login), a refused password (retried after 10 and 20 minutes),
-no robot, a partial message, and an hour of traffic. Allowed everywhere: an error line's
+no robot, a partial message, a clean cycle the cat sensor interrupts (D-0032), and an hour
+of traffic. Allowed everywhere: an error line's
 `error` and `message` and the console text after "failed [kind]:" (the libraries' own
 exceptions), and two console lines only ours writes ("Whisker live updates subscribed",
 "Whisker live connection closed: …").
@@ -326,6 +327,13 @@ Where they differ, on purpose:
   studio's last-visit fallback for a weight with no detection near it).
 - **Stopping**: a login or request still running when the feeder stops gets 5 s to finish
   before it is cancelled; pylitterbot's source cancels it at once.
+- **A poll held back, on the clock only (D-0033).** `Monitor` takes an optional `poll_ok`
+  hook. While it says no, a routine poll that is due waits, up to 90 s
+  (`monitor.POLL_HOLD_S`); the clock's program says no while a page or scene is on screen.
+  A poll is never held while the live subscription is down (`Monitor.live_up`, set on
+  `start_ack` and cleared when the socket closes) or when it is a retry after a failed
+  poll. The Mac's feeder passes no hook, so there every poll runs when it is due and the
+  comparisons above are unaffected.
 
 ## MicroPython 1.29 notes (ran, on the Mac's Homebrew build and the static ARMv7 build)
 

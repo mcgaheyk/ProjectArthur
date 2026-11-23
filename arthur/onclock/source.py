@@ -23,6 +23,10 @@ config, the program's :class:`~arthur.onclock.clocklog.ClockLog`, the shared
   the source's console lines go into the log ring, in the shapes ``scripts/clock.py logs
   pull`` writes back into the Mac's ``logs/spike-*.jsonl``, ``spike-activity-*.jsonl`` and
   ``feeder-console.log``.
+- **Polls held back from the idle show.** :meth:`ClockSource.set_poll_ok` takes the program's
+  ``poll_ok`` (``ClockApp._poll_ok``) and hands it to the wire source, now or when it is
+  built; :meth:`ClockSource.poll_held` reports the monitor's count of held polls and
+  :meth:`ClockSource.live_up` whether its live subscription is up.
 - **A second run** of the same source (after a pause from the Mac, or after its task died)
   starts with :meth:`WireSource.forget_contact`: nothing old is shown as current, and the
   first contact is treated as the end of a gap in watching (D-0025), so the history is read.
@@ -160,6 +164,7 @@ class ClockSource:
         self.say = console(log, self._epoch, echo=echo)
         self.tokens = TokenStore(self.root)
         self.inner = None
+        self.poll_ok = None  # handed to the wire source (set_poll_ok)
         self.error = None
         self.runs = 0
         self.secret_reads = 0
@@ -193,6 +198,26 @@ class ClockSource:
         elif self.runs > 1:
             self.inner.forget_contact()
         await self.inner.run(stop)
+
+    def set_poll_ok(self, fn):
+        """``poll_ok`` for the wire source's monitor: a routine poll waits while it says
+        False (:data:`arthur.wire.monitor.POLL_HOLD_S` at most)."""
+        self.poll_ok = fn
+        if self.inner is not None:
+            self.inner.set_poll_ok(fn)
+
+    def poll_held(self):
+        """``[count, worst seconds]`` of polls held back; ``[0, 0.0]`` before the wire source
+        is built."""
+        if self.inner is None:
+            return [0, 0.0]
+        return self.inner.poll_held()
+
+    def live_up(self):
+        """The wire source's live subscription is up; None before it is built."""
+        if self.inner is None:
+            return None
+        return self.inner.live_up()
 
     # -- before the connection ---------------------------------------------------------------
 
@@ -239,7 +264,7 @@ class ClockSource:
         return WireSource(self.cfg, credentials=creds, tls=self.tls,
                           sink=LogRingSink(self.log), load_token=self.tokens.load,
                           save_token=self.tokens.save, delete_token=self.tokens.delete,
-                          say=self.say, client_kw=client_kw, **kw)
+                          say=self.say, client_kw=client_kw, poll_ok=self.poll_ok, **kw)
 
 
 def make_source(*, cfg, log, tls, root, **kw):

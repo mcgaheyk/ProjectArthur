@@ -265,7 +265,7 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
     and ready followed on time; at 17:58 the weight arrived over the live connection 60 s
     after detection and the clock went to waiting at that moment. Nobody was watching the
     clock; this is from the logs. Against a fake Whisker it gives the same views, log
-    lines and console lines as the pylitterbot source in 18 of 20 scripted cases; the two
+    lines and console lines as the pylitterbot source in 19 of 21 scripted cases; the two
     that differ are on purpose (`docs/reference/whisker-wire.md`). The log code it shares
     with the pylitterbot source was reorganised (`arthur/sources/spikeformat.py`,
     `records.py`); the real logs replay identically through the old and new code.

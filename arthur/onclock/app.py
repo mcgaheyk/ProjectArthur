@@ -233,6 +233,11 @@ class ClockApp:
         #: The heap in use just after a scheduled collection: the last and the largest.
         self.heap_after_gc = None
         self.heap_after_gc_max = None
+        # The Whisker source holds its routine poll back from pages and scenes (_poll_ok),
+        # if it can (ClockSource; the tests' scripted sources cannot).
+        hook = getattr(source, "set_poll_ok", None)
+        if hook is not None:
+            hook(self._poll_ok)
 
     # -- the console ---------------------------------------------------------------------
 
@@ -334,8 +339,32 @@ class ClockApp:
             "woke_late": self.woke_late,
             "worst_late": self.worst_late,
             "late_by_part": self.late_by_part,
+            "poll_held": self._poll_held(),
+            "live_up": self._live_up(),
         }
         return out
+
+    def _poll_held(self):
+        """``[count, worst s]`` of Whisker polls held back from the idle show (the source's
+        monitor counts them); ``[0, 0.0]`` when the source cannot say."""
+        fn = getattr(self.source, "poll_held", None)
+        if fn is None:
+            return [0, 0.0]
+        try:
+            return fn()
+        except Exception:  # noqa: BLE001 - status never fails for this
+            return [0, 0.0]
+
+    def _live_up(self):
+        """The Whisker source's live subscription is up; None when the source cannot say or
+        has not connected yet."""
+        fn = getattr(self.source, "live_up", None)
+        if fn is None:
+            return None
+        try:
+            return fn()
+        except Exception:  # noqa: BLE001 - status never fails for this
+            return None
 
     def drawing(self, within_s):
         """Healthy, as ``deploy/clock/boot.py`` asks it: not paused, and a frame reached
@@ -635,7 +664,37 @@ class ClockApp:
         st = self.state
         if st is None or st.kind == "no_data":
             return True
-        if st.kind != "ready" or st.cue is not None:
+        if st.kind != "ready":
+            return False
+        return self._show_clear(st)
+
+    def _poll_ok(self):
+        """For the Whisker source: True when its five-minute poll may run now. A poll opens a
+        TLS connection to Whisker, whose handshake holds the loop about 0.3 s on the clock
+        (measured there on 2026-11-21), and nothing is drawn meanwhile: about one poll in
+        five fell in a 36-second scene, and in 19 hours ``status`` counted 25 late wakes in
+        scenes (0.23 s at worst) and 122 on the weather page.
+
+        - No state yet, or any screen but the idle one (NO DATA, in use, waiting, cleaning,
+          interrupted, a fault, drawer full, ...): True. The poll is the safety net during a
+          visit and is never held there.
+        - Idle: False while a page or scene is on or begins within :data:`QUIET_AHEAD_S`, else
+          True. The monitor's cap (:data:`arthur.wire.monitor.POLL_HOLD_S`, 90 s) keeps an
+          unusual ``[idle]`` split from starving it; with the default split a held poll waits
+          at most about a minute.
+
+        The monitor itself never holds a poll while the live connection is down (with no
+        pushes the poll is the only source) or when it retries a failed poll, and does not
+        ask this then."""
+        st = self.state
+        if st is None or st.kind != "ready":
+            return True
+        return self._show_clear(st)
+
+    def _show_clear(self, st):
+        """The idle state ``st`` has no page or scene on, and none begins within
+        :data:`QUIET_AHEAD_S` (judged on the state from the last beat)."""
+        if st.cue is not None:
             return False
         return idle_cue(st.since, self.clock.wall() + _seconds(QUIET_AHEAD_S), self.cfg) is None
 

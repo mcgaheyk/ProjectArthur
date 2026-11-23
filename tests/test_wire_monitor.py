@@ -256,6 +256,172 @@ async def test_history_failures_back_off_above_the_poll():
     assert [e[2] for e in seen["errors"]] == ["activity", "activity"]
 
 
+# -- a routine poll held back by poll_ok (the clock's idle show) ---------------------------
+
+
+class LiveStub(StubClient):
+    """A stub whose live subscription is acknowledged at once; ``close()`` and ``ack()``
+    send ``ws_closed`` and ``ws_start_ack`` as the real client does."""
+
+    def __init__(self, clock):
+        super().__init__(clock)
+        self.on_event = None
+
+    async def live(self, on_update, on_event=None):
+        self.on_update = on_update
+        self.on_event = on_event
+        on_event("ws_start_ack", "")
+        await asyncio.Event().wait()
+
+    def close(self):
+        self.on_event("ws_closed", "gone; reconnecting in 1s")
+
+    def ack(self):
+        self.on_event("ws_start_ack", "")
+
+
+class Gate:
+    """``poll_ok`` for the tests: False inside any of ``closed`` (``(from, to)`` in fake
+    seconds); notes every time it is asked."""
+
+    def __init__(self, clock, *closed):
+        self.clock = clock
+        self.closed = list(closed)
+        self.asked: list[float] = []
+
+    def __call__(self):
+        self.asked.append(self.clock.t)
+        return not any(a <= self.clock.t < b for a, b in self.closed)
+
+
+async def test_a_held_poll_runs_on_the_first_tick_the_hook_allows():
+    clock = FakeTime()
+    client = LiveStub(clock)
+    gate = Gate(clock, (290, 330))
+    mon, seen = make(clock, client, poll_ok=gate)
+    await drive(mon, clock, 700)
+    assert calls(client, "poll") == [330, 630]  # the next one poll_s after the held one ran
+    assert gate.asked[0] == 300 and gate.asked[-1] == 630
+    assert all(t >= 300 for t in gate.asked)  # asked only when a poll is due
+    assert mon.polls_held == 1 and mon.poll_held_max_s == 30
+    assert (330, "poll", "READY") in seen["records"]
+
+
+async def test_a_held_poll_runs_anyway_after_poll_hold_s():
+    from arthur.wire.monitor import POLL_HOLD_S
+
+    clock = FakeTime()
+    client = LiveStub(clock)
+    mon, _seen = make(clock, client, poll_ok=lambda: False)
+    await drive(mon, clock, 800)
+    assert POLL_HOLD_S == 90
+    assert calls(client, "poll") == [390, 780]
+    assert mon.polls_held == 2 and mon.poll_held_max_s == 90
+
+
+async def test_a_retry_after_a_failed_poll_is_never_held():
+    """A poll that fails is retried when its delay is up, whatever the hook says; after
+    the next success the routine poll can be held again."""
+    clock = FakeTime()
+    client = LiveStub(clock)
+    client.fail["refresh_robot"] = [wire("api"), wire("api"), None]
+    gate = Gate(clock, (0, 330), (400, 1100))
+    mon, seen = make(clock, client, poll_ok=gate)
+    await drive(mon, clock, 1200)
+    # 330 (held 30 s, fails), 450 and 570 retries in the closed window (the second works),
+    # then 870 held to 960 (the cap: 90 s).
+    assert calls(client, "poll") == [330, 450, 570, 960]
+    assert [e[3] for e in seen["errors"]] == [120, 120]
+    assert 450 not in gate.asked and 570 not in gate.asked  # retries do not ask
+    assert mon.polls_held == 2 and mon.poll_held_max_s == 90
+    assert mon.error is None
+
+
+async def test_a_hook_that_raises_polls_at_once():
+    clock = FakeTime()
+    client = LiveStub(clock)
+
+    def broken():
+        raise RuntimeError("a bug in the hook")
+
+    mon, seen = make(clock, client, poll_ok=broken)
+    await drive(mon, clock, 700)
+    assert calls(client, "poll") == [300, 600]
+    assert mon.polls_held == 0 and mon.poll_held_max_s == 0
+    assert seen["errors"] == []
+
+
+async def test_a_closed_hook_holds_nothing_but_the_poll():
+    """History reads (routine and asked for) and the heartbeat keep their times."""
+    runs = []
+    for hook in (None, lambda: False):
+        clock = FakeTime()
+        client = LiveStub(clock)
+        mon, seen = make(clock, client, poll_ok=hook, activity_s=600)
+        clock.at(650, mon.want_history)
+        await drive(mon, clock, 1900)
+        runs.append((calls(client, "history"),
+                     [t for t, s, _ in seen["records"] if s == "heartbeat"],
+                     calls(client, "poll")))
+    assert runs[0][:2] == runs[1][:2]
+    assert runs[1][1] == [900, 1800]
+    assert len(runs[1][0]) >= 3
+    assert runs[0][2] == [300, 600, 900, 1200, 1500, 1800]
+    assert runs[1][2] == [390, 780, 1170, 1560]
+
+
+async def test_without_the_hook_polls_are_as_before():
+    """The same run with ``poll_ok`` None and with a hook that always says yes: every call
+    at the same tick, and nothing counted."""
+    runs = []
+    for hook in (None, lambda: True):
+        clock = FakeTime()
+        client = StubClient(clock)
+        client.fail["refresh_robot"] = [None, wire("api"), None]
+        mon, seen = make(clock, client, poll_ok=hook)
+        clock.at(700, mon.want_history)
+        await drive(mon, clock, 2000)
+        runs.append((client.calls, seen, clock.sleeps))
+        assert mon.polls_held == 0 and mon.poll_held_max_s == 0
+    assert runs[0] == runs[1]
+
+
+async def test_a_poll_is_never_held_while_the_live_connection_is_down():
+    """Until Whisker acknowledges the subscription, and after it closes, the poll is the
+    only source: it runs on time and the hook is not asked. Once acknowledged it is held."""
+    clock = FakeTime()
+    client = LiveStub(clock)
+    gate = Gate(clock, (0, 10_000))
+    infos = []
+    mon, _seen = make(clock, client, poll_ok=gate,
+                      on_info=lambda e, t: infos.append((clock.t, e, t)))
+    ups = []
+    clock.at(5, lambda: ups.append(mon.live_up))
+    clock.at(250, client.close)
+    clock.at(251, lambda: ups.append(mon.live_up))
+    clock.at(650, client.ack)
+    clock.at(651, lambda: ups.append(mon.live_up))
+    await drive(mon, clock, 1000)
+    assert ups == [True, False, True]
+    assert calls(client, "poll") == [300, 600, 990]  # on time while down, then held 90 s
+    assert 300 not in gate.asked and 600 not in gate.asked and 900 in gate.asked
+    assert mon.polls_held == 1 and mon.poll_held_max_s == 90
+    assert mon.live_up is False  # run ended
+    assert infos == [(0, "connected", ""), (1, "ws_start_ack", ""),
+                     (250, "ws_closed", "gone; reconnecting in 1s"),
+                     (650, "ws_start_ack", ""), (1000, "live_ended", "CancelledError")]
+
+
+async def test_without_an_acknowledged_subscription_nothing_is_held():
+    """The plain stub never acknowledges: a hook that always says no holds nothing."""
+    clock = FakeTime()
+    client = StubClient(clock)
+    mon, _seen = make(clock, client, poll_ok=lambda: False)
+    await drive(mon, clock, 700)
+    assert calls(client, "poll") == [300, 600]
+    assert mon.polls_held == 0 and mon.live_up is False
+
+
 # -- with the real client and the fake Whisker ---------------------------------------------
 
 

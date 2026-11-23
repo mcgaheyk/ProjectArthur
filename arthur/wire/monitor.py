@@ -22,6 +22,20 @@ top of each turn of the loop, and ``after_history()`` (async) after its history 
 
 A history read that is due (:meth:`Monitor.want_history`) and allowed is made at once, not a
 tick later, as the feeder's source does.
+
+**Holding a routine poll back** (the clock only). A poll opens a TLS connection, and on the
+clock its handshake holds the program's loop about 0.3 s, so a poll that lands in a page or
+scene shows as a hitch. A poll is held only while the live subscription is acknowledged and
+up (``live_up``: set on ``ws_start_ack``, cleared on ``ws_closed`` and whenever the live task
+starts or ends); with it down the poll is the only source and runs on time. Then
+``poll_ok()``, when given, is asked when a poll is due: while it says
+False the poll waits for a later tick, up to :data:`POLL_HOLD_S` past when it was due. Only a
+routine poll waits: a retry after a failed poll runs when its delay is up whatever the hook
+says. A hook that raises counts as True. The next poll is ``poll_s`` after the poll actually
+ran, so polls are never closer together than without the hook. ``polls_held`` and
+``poll_held_max_s`` count the polls that ran late for it and the longest wait. Nothing else
+waits for the hook: the history, the heartbeat, the connect and the live connection keep
+their timing. Without ``poll_ok`` every poll runs on the first tick it is due, as before.
 """
 
 import asyncio
@@ -40,6 +54,13 @@ from arthur.wire.const import (
 TICK_S = 1.0
 ACTIVITY_S = 6 * 3600.0
 FIRST_ACTIVITY_WINDOW_S = 72 * 3600.0
+#: The longest a routine poll waits for ``poll_ok`` once it is due (seconds). On the clock the
+#: hook says no while a page or scene of the idle show is on or about to begin; in the default
+#: config the idle round is home 45 s, page 54 s, home 45 s, scene 36 s, so a held poll waits
+#: at most about a minute and this cap matters only for unusual ``[idle]`` shares. Contact
+#: stays well inside ``no_data_after_s`` (600 s): a routine poll is at most this late, and a
+#: retry after a failed poll is never held.
+POLL_HOLD_S = 90.0
 
 
 class Backoff:
@@ -78,11 +99,18 @@ class Monitor:
     def __init__(self, client, on_record, on_error=None, on_info=None, on_activity=None,
                  poll_s=POLL_S, mono=util.mono, now=util.now, sleep=sleep_or_stop,
                  heartbeat_s=HEARTBEAT_S, activity_s=ACTIVITY_S, history_limit=100,
-                 connect=None, before_tick=None, after_history=None):
+                 connect=None, before_tick=None, after_history=None, poll_ok=None):
         self.client = client
         self.connect = connect or client.connect
         self.before_tick = before_tick
         self.after_history = after_history
+        #: ``poll_ok() -> bool``: may a routine poll run now? None: always (see the module).
+        self.poll_ok = poll_ok
+        #: Polls that ran late because ``poll_ok`` said no, and the longest such wait (s).
+        self.polls_held = 0
+        self.poll_held_max_s = 0.0
+        #: The live subscription is acknowledged and up (``ws_start_ack`` until ``ws_closed``).
+        self.live_up = False
         self.last_exc = None
         self.on_record = on_record
         self.on_error = on_error or _noop
@@ -126,6 +154,16 @@ class Monitor:
         self.last_exc = exc
         self.on_error(kind, where, str(exc), retry_in)
 
+    def _may_poll(self):
+        """``poll_ok()``, or True without one; a hook that raises never stops a poll."""
+        fn = self.poll_ok
+        if fn is None:
+            return True
+        try:
+            return bool(fn())
+        except Exception:  # noqa: BLE001 - the hook must never break the monitor
+            return True
+
     def _contact(self, source):
         if source != "heartbeat":
             self.last_contact = self.now()
@@ -150,16 +188,26 @@ class Monitor:
             api_backoff.reset()
             self.connected = True
             self.on_info("connected", "")
-            live = asyncio.create_task(self.client.live(self._pushed, self.on_info))
+            self.live_up = False
+            live = asyncio.create_task(self.client.live(self._pushed, self._live_event))
             try:
                 await self._watch(stop)
             finally:
                 self.connected = False
+                self.live_up = False
                 live.cancel()
                 try:
                     await live
                 except BaseException as exc:  # noqa: BLE001 - CancelledError, or its failure
                     self.on_info("live_ended", type(exc).__name__)
+
+    def _live_event(self, event, text):
+        """The live connection's events: note whether it is up, then hand each on."""
+        if event == "ws_start_ack":
+            self.live_up = True
+        elif event == "ws_closed":
+            self.live_up = False
+        self.on_info(event, text)
 
     def _pushed(self):
         self._contact("ws")
@@ -175,6 +223,8 @@ class Monitor:
         next_activity = mono()
         activity_tried = None
         activity_failing = False
+        poll_failing = False  # the last poll attempt failed: the next one is a retry
+        held_from = None  # when the due poll was first held back, on ``mono``
         while not stop.is_set():
             now = mono()
             if self.before_tick is not None:
@@ -204,13 +254,20 @@ class Monitor:
                     next_activity = mono() + max(delay, self.poll_every)
             if self.after_history is not None:
                 await self.after_history()
-            if now >= next_poll:
+            if now >= next_poll and (poll_failing or not self.live_up
+                                     or now - next_poll >= POLL_HOLD_S or self._may_poll()):
+                if held_from is not None:
+                    self.polls_held += 1
+                    self.poll_held_max_s = max(self.poll_held_max_s, now - held_from)
+                    held_from = None
                 try:
                     await self.client.refresh_robot()
                     self._contact("poll")
                     poll_backoff.reset()
+                    poll_failing = False
                     next_poll = mono() + self.poll_every
                 except Exception as exc:  # noqa: BLE001
+                    poll_failing = True
                     kind = errors.kind_of(exc)
                     if kind == errors.AUTH:
                         self._fail(kind, "poll", exc, None)
@@ -218,6 +275,8 @@ class Monitor:
                     delay = max(poll_backoff.next(), MIN_POLL_S)
                     self._fail(kind, "poll", exc, delay)
                     next_poll = mono() + delay
+            elif now >= next_poll and held_from is None:
+                held_from = now  # held back: asked again on the next tick
             if now >= next_heartbeat:
                 self._contact("heartbeat")
                 next_heartbeat = mono() + self.heartbeat_s

@@ -506,3 +506,32 @@ def test_feeder_builds_the_wire_source(tmp_path, monkeypatch):
     assert fd.main(["--clock", "h"], environ={}) == 0
     assert built["source"] == "pylitterbot"
     assert fd.main(["--clock", "h"], environ={"ARTHUR_SOURCE": "nope"}) == fd.EXIT_USAGE
+
+
+def test_poll_ok_reaches_the_monitor(tmp_path):
+    """The clock's hook goes to the monitor, at build or after; without it nothing is held
+    (the Mac's feeder)."""
+    def hook():
+        return False
+
+    kw = {"credentials": ("u", "p"), "tls": Tls(allow_plain=True), "sink": ListSink(),
+          "token_path": tmp_path / "t.json", "say": Console()}
+    src = WireSource(CFG, poll_ok=hook, **kw)
+    assert src.monitor.poll_ok is hook
+    assert src.poll_held() == [0, 0.0]
+    src.monitor.polls_held, src.monitor.poll_held_max_s = 3, 41.25
+    assert src.poll_held() == [3, 41.2]
+    plain = WireSource(CFG, **kw)
+    assert plain.monitor.poll_ok is None
+    plain.set_poll_ok(hook)
+    assert plain.monitor.poll_ok is hook
+    plain.set_poll_ok(None)
+    assert plain.monitor.poll_ok is None
+
+
+def test_live_up_is_the_monitors(tmp_path):
+    src = WireSource(CFG, credentials=("u", "p"), tls=Tls(allow_plain=True), sink=ListSink(),
+                     token_path=tmp_path / "t.json", say=Console())
+    assert src.live_up() is False
+    src.monitor.live_up = True
+    assert src.live_up() is True

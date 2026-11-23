@@ -177,7 +177,11 @@ arthur/onclock/source.py: def make_source(*, cfg, log, tls, root, **kw) -> Clock
 `heap_after_gc_max` (the heap in use just after the scheduled collections), `beats` and `gc`
 (milliseconds of work per beat by what was drawn, mean and worst), `late_beats` (beats whose
 work took over 125 ms), `woke_late` and `worst_late` (beats that woke over 20 ms after their
-tick, and the eight worst as `[epoch s, ms]`: what blocked the loop).
+tick, and the eight worst as `[epoch s, ms, what was on screen]`: what blocked the loop),
+`late_by_part` (the late wakes by what was on screen, each `[count, worst ms]`),
+`poll_held` (`[count, longest wait s]` of Whisker polls held back from pages and scenes,
+D-0033) and `live_up` (whether Whisker's live subscription is acknowledged and up, from the
+monitor; `health.ws_connected` beside it is always true and tells nothing).
 
 `main` opens the door with `door = await arthur.onclock.door.start(app, root)` (port 7531
 on every interface; it raises `DoorError` without a valid key in `secrets.json`, and `main`

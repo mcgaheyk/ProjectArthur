@@ -769,3 +769,48 @@ without a new wait. On the 21st the countdown would have been cut off with 0:05 
 
 **Accepted.** The rule rests on one live interruption. If the robot ever starts a cycle over
 after one, the countdown will reach 0:00 early and stand there until the cycle ends.
+
+## D-0033 — On the clock, Whisker's routine poll waits for the home page
+
+**2026-11-23.** Every HTTPS request on the clock opens a TLS connection, and the handshake
+with Whisker's hosts is 0.3 s of arithmetic during which nothing is drawn. The five-minute
+poll fell wherever it fell: about one in five in a scene. In 19 hours `status` counted 25
+late beats during scenes and 122 on the weather page (`docs/reference/onclock.md`). Asked
+whether to hold the poll back from pages and scenes, as the weather fetch already is
+(D-0031), Kyle said to do it.
+
+**The rule.** The clock's program tells the Whisker monitor when a poll may run
+(`ClockApp._poll_ok`, `Monitor.poll_ok`): not while the clock is idle with a page or scene on
+screen or about to begin within 5 s. A poll that is due then waits for the home page, about
+a minute at most in the usual round and never more than 90 s (`monitor.POLL_HOLD_S`). It is
+never held:
+- on any other screen (a visit, waiting, cleaning, a fault, NO DATA), where the poll is the
+  safety net for a missed push;
+- while the live connection is down, when the poll is the only source (the monitor now
+  tracks that itself, `live_up`);
+- when it is a retry after a failed poll.
+The next poll is counted from when the held one ran, so polls are never closer together
+than before. The Mac's feeder passes no hook and polls as it always did. `status` counts the
+polls held and the longest wait (`poll_held`).
+
+**Why.** The hitch falls on the one part of the display that moves 8 times a second, and
+the poll's timing matters to nothing: with the live connection up it only confirms what the
+pushes already said.
+
+**Rejected.**
+- Holding the reconnect of a dropped live connection the same way. It also opens a TLS
+  connection, but it happens a few times a night, and a visit that began while it waited
+  would be seen late.
+- Holding the history reads (every six hours, and when asked). Four a day, and the code that
+  decides when one is due is the part of the monitor most worth leaving alone.
+- Polling early, ahead of a page or scene, to keep the five-minute spacing. Polls closer
+  together are what the account's good standing argues against.
+- Keeping one HTTPS connection open between polls so there is no handshake. Five minutes
+  idle is longer than the server keeps one.
+
+**Accepted.** A poll can be up to 90 s late, so contact can be 390 s old where it was 300 s,
+against the 600 s after which NO DATA shows. If a poll held for a minute or more fails and
+its retry fails too, NO DATA shows until the next retry succeeds; it took three failed
+polls in a row before. The reconnect and the history reads still hold the loop
+0.3 s wherever they fall. `health.ws_connected` in the snapshot is still always true, on
+the Mac and the clock; only the monitor's `live_up` tells the truth.

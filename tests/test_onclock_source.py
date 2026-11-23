@@ -267,3 +267,35 @@ async def test_log_lines_have_the_shapes_logs_pull_sorts(tmp_path, fakew):
     for _, ln in src.log.read(0, 10**7)[0]:
         if ln["kind"] == "console":
             assert ln["name"] == "arthur.whisker" and ln["ts"].endswith("Z")
+
+
+async def test_poll_ok_is_handed_to_the_wire_source_when_built(tmp_path, fakew):
+    """The program's hook is kept until the wire source is built, then reaches its monitor;
+    the held-poll counts read [0, 0.0] before that."""
+    def hook():
+        return True
+
+    root = make_root(tmp_path, fakew)
+    src = source(fakew, root)
+    src.set_poll_ok(hook)
+    assert src.poll_held() == [0, 0.0]
+    run = Running(src)
+    await until(lambda: src.inner is not None)
+    assert src.inner.monitor.poll_ok is hook
+    src.inner.monitor.polls_held = 2
+    src.inner.monitor.poll_held_max_s = 12.0
+    assert src.poll_held() == [2, 12.0]
+    src.set_poll_ok(None)
+    assert src.inner.monitor.poll_ok is None
+    await run.end()
+
+
+async def test_live_up_is_none_until_built_then_the_monitors(tmp_path, fakew):
+    root = make_root(tmp_path, fakew)
+    src = source(fakew, root)
+    assert src.live_up() is None
+    run = Running(src)
+    await until(lambda: src.inner is not None and src.live_up() is True)
+    assert src.inner.monitor.live_up is True
+    await run.end()
+    assert src.live_up() is False
