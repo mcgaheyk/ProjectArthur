@@ -3,8 +3,9 @@
 #
 #   open -a Terminal scripts/follow_clock.command
 #
-# The program on the clock keeps its log in memory only (about 128 KB) and loses it at every
-# restart. This asks the clock for new lines every 2 s and appends them under logs/, where
+# The program on the clock keeps its log in memory (about 128 KB) and, since D-0035, on its
+# flash too (about four days), so lines missed while this was away are fetched when it comes
+# back, across restarts of the clock as well. This asks the clock for new lines every 2 s and appends them under logs/, where
 # the feeder's logs are: the studio's Robot log source reads them the same way. It keeps
 # trying while the clock or the Mac is away, and picks up where it left off.
 #

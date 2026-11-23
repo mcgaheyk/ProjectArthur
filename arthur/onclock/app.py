@@ -98,6 +98,11 @@ GC_EVERY_BYTES = 512 * 1024
 QUIET_AHEAD_S = 5.0
 #: A beat that wakes more than this after its tick counts as woken late (``status()``).
 LATE_WAKE_MS = 20.0
+#: With the log on the flash (D-0035): write the waiting lines about this often, at a quiet
+#: moment (:meth:`ClockApp._quiet`) ...
+LOG_FLUSH_S = 60.0
+#: ... and whatever is on screen once they have waited this long (a visit, a drawer full).
+LOG_FLUSH_MAX_S = 600.0
 WORST_LATE_KEPT = 8
 #: The config file under ``root``.
 CONFIG_NAME = "config.json"
@@ -297,6 +302,7 @@ class ClockApp:
         self._scene_on = False  # the last beat was in a scene slot
         self._services = None
         self._gc_at = 0
+        self._log_flushed_at = None  # monotonic time of the last flush of the log
         self.stats = _Stats()
         self.gc_pauses = _Stats()
         self.late_beats = 0
@@ -468,6 +474,7 @@ class ClockApp:
             "paused": self.paused,
             "log_first_seq": self.log.first_seq,
             "log_last_seq": self.log.last_seq,
+            "log_store": self.log.store_status() if hasattr(self.log, "store_status") else None,
             "heap_after_gc": self.heap_after_gc,
             "heap_after_gc_max": self.heap_after_gc_max,
             "beats": self.stats.summary(),
@@ -873,6 +880,25 @@ class ClockApp:
                 self.console("error", "could not plan the coming scene ahead", exc)
             return None
 
+    def _flush_log(self, force=False):
+        """Write the log's waiting lines to the flash: every :data:`LOG_FLUSH_S` when
+        :meth:`_quiet` (the home page, nothing about to play), after :data:`LOG_FLUSH_MAX_S`
+        whatever is on, and with ``force``. Timed as ``"log flush"`` in ``beats``."""
+        log = self.log
+        if getattr(log, "store", None) is None or not log.pending:
+            return
+        mono = self.clock.mono()
+        if self._log_flushed_at is None:
+            self._log_flushed_at = mono
+        waited = mono - self._log_flushed_at
+        if not force and (waited < LOG_FLUSH_S
+                          or (waited < LOG_FLUSH_MAX_S and not self._quiet())):
+            return
+        t0 = stamp_us()
+        log.flush()
+        self.stats.add("log flush", since_us(t0))
+        self._log_flushed_at = self.clock.mono()
+
     def _collect(self, force=False):
         """Collect when :data:`GC_EVERY_BYTES` have been allocated since the last time (or
         now, with ``force``). MicroPython only: CPython's collector is left alone."""
@@ -917,6 +943,7 @@ class ClockApp:
                         self._note_late(late)
                 await self.tick()
                 self._collect()
+                self._flush_log()
                 if self._exit.is_set():
                     break
                 now = self.clock.wall()
@@ -935,6 +962,7 @@ class ClockApp:
                 pass
             self.console("info", "stopped (exit " + str(self._exit_code) + "); the last "
                          "frame goes stale on the clock by itself")
+            self._flush_log(force=True)
         return self._exit_code
 
 

@@ -26,6 +26,7 @@ folder.
 | `ROOT/state.json` | active slot, failed starts, errors, halted | boot.py, the door |
 | `ROOT/config.json` | the exported config (`arthur.tools.export_config`), outside the slots so a colour or caption needs no new slot | `install`, the door |
 | `ROOT/config.good.a.json`, `ROOT/config.good.b.json` | the kept copies (D-0034): the exact bytes of the last `config.json` the code from that slot loaded, written whole and only when they changed | the program |
+| `ROOT/log/` | the log on the flash (D-0035): `id` (the log's id, the same across restarts) and segments `s<first seq, 10 digits>.jsonl`, each line `<seq> <json>`; about 64 KB each, the oldest removed past 1 MiB (about four days of an ordinary day) | the program (`arthur/onclock/logstore.py`) |
 | `ROOT/secrets.json` | mode 600: `whisker_username`, `whisker_password` (D-0030), `door_key` (64 hex digits) | `install` only |
 | `ROOT/tokens.json` | Whisker's tokens (`access_token`, `id_token`, `refresh_token`), written whole (temporary file and rename) and **only when the refresh token changes**, i.e. after a password login; an hourly renewal never writes the flash | the program (`arthur/onclock/source.py`) |
 | `/tmp/arthur/` | RAM: `boot.txt` (boot's notes), `console.log` and `console.prev.log` (the program's stdout and stderr, from the launcher), `booted` (the power-on marker) | the launcher, boot.py |
@@ -94,7 +95,10 @@ row). SIGTERM, SIGINT or SIGHUP to the launcher stops the program too. `install`
 them over the cable.
 
 **Writes to the flash:** one small `state.json` per start, one when healthy, one per recorded
-error; none while halted. A restart from the Mac or a new bundle adds one (the door).
+error; none while halted. A restart from the Mac or a new bundle adds one (the door). The
+program's log (D-0035): one append of the waiting lines about once a minute on the home
+page (at the latest after 10 minutes, whatever is on; at once past 256 lines or 32 KB
+waiting; and as the program stops), about 250 KB a day in all.
 
 **Tests only:** boot.py and `main` read `ARTHUR_ONCLOCK_TEST` (a JSON object) from the
 environment, which points the program at fakes and shortens boot's waits (`door_port`,
@@ -111,7 +115,8 @@ In the order they happen at each start:
 2. **boot.py** picks and counts the slot, imports `arthur.onclock.main` from it and starts the
    health watch beside `main`.
 3. **`main(root, source_factory)`** (`arthur/onclock/main.py`), in order: the log ring
-   (`ClockLog`, 128 KB of JSON text); the config: `ROOT/config.json`, which then becomes
+   (`ClockLog`, 128 KB of JSON text, kept on the flash too under `ROOT/log/` when the
+   program runs from a slot, D-0035); the config: `ROOT/config.json`, which then becomes
    this slot's kept copy, or, if it does not load, this slot's kept copy and then the other
    slot's, with an error line in the log and `config_error` in `status` (D-0034; only when
    none of the three loads does the start end with exit 1, a counted failure); one `Tls` for the CA bundle, shared by Whisker and
@@ -196,8 +201,14 @@ carries on without it, saying so) and closes it with `door.close()` when `run()`
 
 - `log.read(after_seq, max_bytes)` returns the lines numbered above `after_seq` (at least
   one if there is one, then as many as fit in `max_bytes`) and the number to pass as
-  `after_seq` next time. Numbers start again when the program restarts; the door's `run` id
-  tells the Mac.
+  `after_seq` next time. With the log on the flash (D-0035) lines older than the ring holds
+  come from there, and the numbers carry on across restarts: a new run starts 256 past the
+  last line on the flash (past any number the last run handed out, as it never had more
+  than 256 waiting), and `logs` answers carry the log's `log` id, which stays the same. The
+  Mac (`arthur.clocktool.pull_logs`) keeps its place when `run` changes and `log` does not;
+  a new `log` (or none: the program before D-0035) means the numbers started again from 1.
+  Lines lost to a power cut are the ones not yet written, at most about a minute's (ten
+  during a visit).
 - **Log lines are dicts with a `kind`**, which says where the Mac puts them:
   `state`, `info`, `error` go to `logs/spike-YYYYMMDD.jsonl` and `activity`, `pet_weight` to
   `logs/spike-activity-YYYYMMDD.jsonl`, exactly as `arthur.spikelog` writes them (so the
@@ -270,7 +281,7 @@ The cost: the program's heap is 34 KB larger from the start.
 | `bundle-file` | a chunk (`path`, `offset`) | appends to `<file>.part` in order; when whole and its hash matches, renames it into place |
 | `bundle-commit` | optional: a config | checks every file against the manifest, deletes what the manifest does not name, writes the manifest, (the config,) makes the slot active with no tries, asks the program to restart |
 | `bundle-abort` | | forgets the transfer |
-| `logs` | (`after`, `max`) | lines from the memory log |
+| `logs` | (`after`, `max`) | lines from the log (memory, then the flash for older ones), with `run` and the flash log's `log` id |
 | `pause`, `resume` | | `app.pause()`, `app.resume()`: pushing and the Whisker connection stop, so the Mac's feeder can take the screen and the account |
 | `restart` | | clears the active slot's count, then `request_restart()` |
 

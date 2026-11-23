@@ -1311,3 +1311,38 @@ async def test_a_reload_keeps_the_new_copy_and_clears_the_error(client, clock, t
     assert st["config_in_use"] == st["config_kept"] == flash_id(new) != flash_id(good)
     assert (root / "config.good.a.json").read_bytes() == new
     assert app.cfg.timings.heartbeat_s == 20
+
+
+async def test_the_log_goes_to_the_flash_at_quiet_moments(client, clock, tmp_path):
+    """D-0035: the waiting lines are written about once a minute, on the home page only
+    (a flush is a write to the flash), and once more as the program stops."""
+    from arthur.onclock.clocklog import ClockLog
+    from arthur.onclock.logstore import LogStore
+
+    root = idle_cfg_root(tmp_path)
+    app = make_app(client, clock, FakeSource(READY), root)
+    app.log = ClockLog(10**6, store=LogStore(str(tmp_path / "log")))
+    flushed = {}
+    real = app.log.flush
+
+    def flush():
+        flushed[round(clock.t - 1000, 3)] = app._quiet()
+        return real()
+
+    app.log.flush = flush
+
+    def chatter(c):  # a line every 10 s, so there is always something waiting
+        if round(c.t * 8) % 80 == 0:
+            app.log.append({"kind": "console", "msg": "tick"})
+
+    clock.on_tick = chatter
+    clock.t = 1000.0 + 30
+    await run_for(app, clock, 300)
+    times = sorted(flushed)
+    assert len(times) >= 3
+    assert all(flushed[t] for t in times[:-1])  # each at a quiet moment ...
+    assert times[-1] >= 299  # ... and the last as it stopped, whatever was on
+    assert app.log.pending == 0
+    st = app.status()["log_store"]
+    assert st["flushes"] == len(times) and st["failures"] == 0 and st["bytes"] > 0
+    assert "log flush" in app.status()["beats"]

@@ -618,7 +618,8 @@ class LogSink:
 
 def pull_logs(client: Any, log_dir: Path) -> dict[str, int]:
     """Fetch every new line from the clock's memory log and append it on the Mac. Remembers
-    where it got to in ``<log_dir>/clock-logs.json`` (per program run)."""
+    where it got to in ``<log_dir>/clock-logs.json``: per program run, or, when the clock
+    keeps its log on the flash, per log (``"log"``, the same across restarts; D-0035)."""
     mark_path = Path(log_dir) / "clock-logs.json"
     try:
         mark = json.loads(mark_path.read_text())
@@ -627,15 +628,22 @@ def pull_logs(client: Any, log_dir: Path) -> dict[str, int]:
     sink = LogSink(log_dir)
     after = mark.get("next", 0)
     run = mark.get("run")
+    log_id = mark.get("log")
     try:
         while True:
             res = client.logs(after)
-            if res["run"] != run:  # the program restarted: its log starts again from 1
-                if after != 0:
+            if res["run"] != run:
+                if log_id is not None and res.get("log") == log_id:
+                    # The program restarted, but its log is on the flash and its numbering
+                    # carries on (D-0035): keep our place.
+                    run = res["run"]
+                elif after != 0:  # a log that starts again from 1
                     after = 0
                     run = res["run"]
+                    log_id = res.get("log")
                     continue
                 run = res["run"]
+            log_id = res.get("log")
             for _, line in res["lines"]:
                 sink.write(line)
             if res["next"] == after or not res["lines"]:
@@ -644,7 +652,7 @@ def pull_logs(client: Any, log_dir: Path) -> dict[str, int]:
     finally:
         sink.close()
         Path(log_dir).mkdir(parents=True, exist_ok=True)
-        mark_path.write_text(json.dumps({"run": run, "next": after}))
+        mark_path.write_text(json.dumps({"run": run, "next": after, "log": log_id}))
     return sink.counts
 
 

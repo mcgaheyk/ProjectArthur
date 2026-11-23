@@ -4,7 +4,8 @@
     from arthur.onclock.main import main
     code = asyncio.run(main("/data/awtrix-ng/state/arthur", source_factory))
 
-In order: the log ring; the config (below); the shared TLS context for the clock's CA
+In order: the log ring (kept on the flash too, in ``<root>/log``, when this program runs
+from a code slot: :mod:`arthur.onclock.logstore`, D-0035); the config (below); the shared TLS context for the clock's CA
 bundle; the robot source, from ``source_factory(cfg=, log=, tls=, root=)``
 (``deploy/clock/boot.py`` hands :func:`arthur.onclock.source.make_source` through); the
 :class:`~arthur.onclock.app.ClockApp`, reporting the slot's bundle id as its version; the
@@ -34,7 +35,8 @@ good: a frame reached AWTRIX within the last :data:`HEALTHY_PUSH_S` seconds.
 **Tests only:** the environment variable ``ARTHUR_ONCLOCK_TEST`` (a JSON object) points the
 program at fakes: ``awtrix`` (base URL), ``ca_file``, ``server_name`` (the name the test
 certificates carry), ``weather_url``, ``lr4_url``, ``cognito_url``, ``door_port`` and
-``door_host``, and ``client`` (keyword arguments for the Whisker client, such as ``stale_s``). On the clock the
+``door_host``, ``log_store`` (true: keep the log on the flash outside a slot too), and
+``client`` (keyword arguments for the Whisker client, such as ``stale_s``). On the clock the
 daemon starts the launcher with a clean environment, so none of this applies there.
 """
 
@@ -46,6 +48,8 @@ from arthur.wire.const import CLOCK_CA_FILE
 from arthur.wire.net import Tls
 
 EXIT_FAILED = 1
+#: The folder under the root that holds the log on the flash.
+LOG_DIR = "log"
 TEST_ENV = "ARTHUR_ONCLOCK_TEST"
 #: Healthy means a frame reached AWTRIX at most this long ago.
 HEALTHY_PUSH_S = 60.0
@@ -141,8 +145,15 @@ async def main(root, source_factory, *, ca_file=None, base_url=None,
         base_url = base_url or test.get("awtrix") or "http://127.0.0.1"
         if door_port is None:
             door_port = test.get("door_port") or doormod.DOOR_PORT
-        log = ClockLog(log_bytes)
         slot = slot_name(root)
+        # In a slot the log is kept on the flash too, under <root>/log (D-0035); the tests
+        # that run the repository's arthur keep it in RAM only, as before.
+        store = None
+        if slot is not None or test.get("log_store"):
+            from arthur.onclock.logstore import LogStore
+
+            store = LogStore(root + "/" + LOG_DIR)
+        log = ClockLog(log_bytes, store=store)
         # config.json, else a kept copy (an error, said once below); raises if none loads.
         cfg, cfg_data, cfg_error = start_config(root, slot)
         tls = Tls(ca_file=ca_file, server_name=test.get("server_name"))

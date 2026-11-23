@@ -734,8 +734,10 @@ class Door:
         if not is_int(after) or after < 0 or not is_int(most) or most < 1:
             raise DoorError("bad logs request")
         lines, nxt = self.app.log.read(after, min(most, MAX_LOG_BYTES))
-        return {"ok": True, "run": self.run_id, "lines": [[q, ln] for q, ln in lines],
-                "next": nxt}
+        # "log": the id of the log on the flash, the same across restarts (D-0035); with it a
+        # reader keeps its place when "run" changes. None when the log is in RAM only.
+        return {"ok": True, "run": self.run_id, "log": getattr(self.app.log, "log_id", None),
+                "lines": [[q, ln] for q, ln in lines], "next": nxt}
 
 
 async def start(app, root, host="0.0.0.0", port=DOOR_PORT, validate_config=None):

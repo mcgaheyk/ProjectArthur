@@ -851,3 +851,36 @@ Neither of those two files changed.
 slot that was not running when this arrived has the older code until the next push
 replaces it; until then a fall-back to it is as exposed as before. A slot that has never
 loaded a `config.json` has only the other slot's copy to fall back to.
+
+## D-0035 — The clock keeps its log on the flash
+
+**2026-11-23.** The program on the clock kept its log in RAM only: 128 KB, about 13 hours,
+lost at every restart and whenever the Mac's follower was away longer than that. It was
+lost once already (2026-11-21 to 22). Kyle chose this as the first thing to fix in the
+backlog.
+
+**The rule.** The log ring also writes its lines to `ROOT/log/` on the flash
+(`arthur/onclock/logstore.py`), in 64 KB segment files capped at 1 MiB in all (about four
+days of an ordinary day), oldest removed first. Lines are written in batches: about once a
+minute on the idle home page, after ten minutes whatever is on, at once past 256 lines or
+32 KB waiting, and as the program stops. A `logs` request older than the ring is answered
+from the flash. The numbering carries on across restarts (a new run starts 256 past the
+last line on the flash), and the door's `logs` answer gives the log's id, the same across
+restarts, so the Mac's follower keeps its place instead of starting again, with no line
+twice. `status` has `log_store` (size, flushes, failures, the last error) and the flush's
+time under `beats`.
+
+**Why this way.** JFFS2 levels wear, and 250 KB a day is nothing to 7 MB of NOR flash, but
+a write is a stall in the loop, so batches and quiet moments, the rule the weather and
+the poll already follow. Keeping the numbering means the follower needs no new logic
+beyond "same log, keep my place".
+
+**Rejected.**
+- Writing each line as it comes: hundreds of tiny writes an hour, each a possible stall.
+- Keeping only a copy at stop: a crash or a power cut, the cases that matter most, would
+  lose everything.
+- A bigger ring in RAM: still lost at a restart, and the heap is shared with the drawing.
+
+**Accepted.** A power cut loses the lines not yet written (about a minute's, up to ten during a visit). A flash that
+refuses a write loses that batch (counted in `status`); if that run then restarts, the
+follower may skip lines it never saw. 1 MiB of the 7.2 MB free.
