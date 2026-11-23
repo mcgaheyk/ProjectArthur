@@ -771,6 +771,7 @@ screen, with the live subscription down, or as a retry.
 | the 58 minutes from 10:06 | 4 | 0 | none could be |
 | the first 22 minutes with the hold | 0 | 0 | 3 of the 4 due, 59.7 s at longest |
 | the first 3.9 hours with the hold (to 14:55) | 0 | 0 | 36, 60.6 s at longest |
+| all 7.5 hours that code ran (to 18:34) | 0 | 0 | 63 at 18:26, 60.6 s at longest |
 
 `poll_held` read `[3, 59.7]`. Late wakes of about 0.2 s, which is what a poll costs, fell
 on the home page at 11:14:02 (185 ms), 11:19:39 (176 ms) and 11:25:40 (200 ms); the first
@@ -779,6 +780,24 @@ no log line, so its time shows only this way. `live_up` read true at both readin
 At 3.9 hours every late wake was on the home page (91) or in the start-up's NO DATA (4),
 where the old rates would have put about 25 on the page and 5 in scenes: so those late
 wakes were the poll, all of them so far. 15,236 pushes in that time, none failed.
+
+**The kept config, on the clock** (D-0034, commit `bb70d45`, pushed at 18:34:00 on
+2026-11-23 from a worktree at that commit, so without D-0035's log on the flash): the 5
+files slot a lacked (27,377 bytes) in 1.9 s, and `push` reported the program back 5.3 s
+after it began. First frame (NO DATA) at 18:34:08, the home page under a second later;
+healthy after two minutes (tries a: 0). `status` read `config` (the file on the flash),
+`config_in_use` and `config_kept` all `470834297cb28a26` and `config_error` null, and the
+free flash fell by 4,096 bytes: `config.good.a.json` was written at that first start.
+Slot b holds the poll-hold bundle `3bc1b9a7fc44c19b`, which has no kept copy and does not
+fall back to one. A refused `config.json` has been met only on the Mac's MicroPython and
+the emulated clock (`tests/test_onclock_e2e.py`, 17 of 17 on both), not on the real clock.
+
+**After a fall-back, wait for `tries` to read 0 before pushing again** (found by that test
+on the emulated clock, where the pushes come seconds apart). boot.py adds one to a slot's
+count at every start and clears it only when it calls the slot healthy, 120 s or more
+after the start. So each failing push that ends in a fall-back costs the good slot one of
+its three starts, and after three in a row without two quiet minutes boot finds both slots
+spent and halts, whatever the config. boot.py is not replaced over Wi-Fi.
 
 ## Assumed about the real clock, not checked
 

@@ -1,6 +1,6 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-23, morning._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-23, evening._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
 - **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
@@ -19,8 +19,8 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
   clock is on its charger; the cable to the Mac came out some time on 2026-11-21 or 22.
   What it has done alone, from its own log and status (`docs/reference/onclock.md`, "The
   first two days alone"):
-  - **Five visits drawn through**, in use to ready: 2026-11-21 at 09:23, 2026-11-22 at
-    07:42, 13:19 and 22:19, 2026-11-23 at 10:27. The countdown reached zero within 1 to 12 s
+  - **Seven visits drawn through**, in use to ready: 2026-11-21 at 09:23, 2026-11-22 at
+    07:42, 13:19 and 22:19, 2026-11-23 at 10:27, 17:30 and 18:04. The countdown reached zero within 1 to 12 s
     of the real clean start. The first had **the first interruption ever logged live** (25 s, 40 s into the
     clean); in the third and the fourth a second weight reading started the countdown
     again, as it should. Nobody was watching the clock; this is from the logs.
@@ -42,7 +42,10 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
     began. The boot script marked that slot healthy too. **The third**, at 11:03 the same
     morning (the poll held back, D-0033): 8 files in 2.0 s, the home page back
     about 10 s after the command began, healthy too; NO DATA showed for about 3 s that
-    time (the weather's first fetch fell in it).
+    time (the weather's first fetch fell in it). **The fourth**, at 18:34 that evening
+    (the kept config, D-0034): 5 files in 1.9 s, the home page back about 9 s after the
+    command began, healthy too. It was sent from a copy of the code at commit `bb70d45`,
+    so **the clock does not have the log on the flash (D-0035), which is in `main`.**
   - **Speed.** Mapping and drawing one beat: home 21 to 23 ms, the weather page 26 to 29,
     a scene 14 to 18, a wipe 29 to 30; a push about 40; a memory collection 22 to 25. So a
     beat costs about half of its 125 ms.
@@ -59,9 +62,10 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
     at worst) and 122 on the weather page (0.48 s at worst). **Since 11:03 on 2026-11-23
     the routine poll waits for the home page too (D-0033):** it is held while a page or
     scene is on or about to begin, 90 s at most, and never during a visit, with the live
-    connection down, or when it is a retry. In its first 3.9 hours
-    there 36 polls were held (60.6 s at longest) and no late beat fell on a page or in
-    a scene, where the old rates would have put about 30: those hitches were the poll. **Left:** the live
+    connection down, or when it is a retry. In the 7.5 hours
+    that code ran, over 60 polls were held (60.6 s at longest) and no late beat fell on
+    a page or in a scene, where the old rates would have put about 60: those hitches
+    were the poll. **Left:** the live
     connection's reconnect (a few a night) and the history reads (four a day) still hold
     the loop 0.3 s wherever they fall.
   - Memory: 0.61 MB of the 3 MB heap in use after a collection at a start, 0.73 MB after
@@ -108,7 +112,7 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
   **never from a Claude session's shell**: the 13:47 copy lost the clock (not the robot) at
   17:22, when the session that started it closed, and the clock showed the stale border until
   18:04 (D-0024). Never run a second copy, or `scripts/spike_log.py`, on the same account.
-- **Built and tested (4,146 tests):**
+- **Built and tested (4,178 tests):**
   - Feeder: `arthur/feeder.py` (the loop), `arthur/pusher.py` (when to push),
     `arthur/sources/whisker.py` (the one Whisker connection). On a login or API failure it
     shows NO DATA and retries; it reloads `config/display.toml` when the file changes; it
@@ -249,7 +253,7 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
     against a fake Whisker. Its first real contact was from the Mac on 2026-11-20
     (`scripts/wire_check.py`: Whisker accepted our User-Agent, the token renewed, the robot
     and the history read correctly), its first real password login on 2026-11-21 (from the
-    Mac, then the clock's own). Since then it has carried six real visits, an interruption
+    Mac, then the clock's own). Since then it has carried nine real visits, an interruption
     and seven dropped live connections with no error.
   - **The shared code runs on both Pythons, in `main`.** `arthur/`'s model, config, schedule,
     mapping, tracker and all the drawing code run unchanged under MicroPython 1.29
@@ -309,9 +313,17 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
     a TLS connection, 0.3 s of held loop, wherever they fall, a scene included (the
     routine poll now waits for the home page, D-0033), and what a password login costs a
     scene has not been seen; (2) a
-    `config.json` the new code rejects stops both code slots, and then only USB reaches
-    the clock; (3) the log is kept in memory and is lost at every restart unless the Mac
-    is following it (it happened on 2026-11-22); (4) `ws_connected` in the snapshot's
+    `config.json` the code rejects used to stop both code slots, leaving only USB. Since
+    18:34 on 2026-11-23 each slot keeps the last config it accepted and falls back to it
+    (D-0034; `status` shows `config_error` and the Mac's tool warns). What is left of
+    it: slot b still holds the morning's code, without this, until the next push
+    replaces it; and every start of a slot counts against its three until it has run
+    two minutes and is marked healthy, so several failing pushes in quick succession,
+    each falling back to the same good slot, can use that slot up and halt both (boot's
+    count, which cannot change over Wi-Fi: after a fall-back wait for `tries` to read 0
+    before pushing again); (3) the log is kept in memory and is lost at every restart unless the Mac
+    is following it (it happened on 2026-11-22); keeping it on the flash is built
+    (D-0035) and not on the clock; (4) `ws_connected` in the snapshot's
     health is always true, on the Mac and the clock, so nothing on screen or in `health`
     says the live connection is down; the clock's `status` has the true one, `live_up`.
   - **Checked before the first install,** on 2026-11-20 evening with the clock on USB and
@@ -401,16 +413,19 @@ _Last updated: 2026-11-23, morning._ Current state only. History belongs in git 
 4. **The on-clock trial (D-0029, D-0031), with Claude.** The clock runs itself since
    2026-11-21, Kyle said to leave it, and the Mac's feeder is the way back (above). Done so
    far: the log follower, a real visit, a night, a cold boot, the cable out, dropped live
-   connections, and three code changes over Wi-Fi. What is left, in order:
+   connections, and four code changes over Wi-Fi. What is left, in order:
    - after a Mac restart, start the follower again:
      `open -a Terminal scripts/follow_clock.command`;
-   - keep the log across the clock's restarts (lost once already), and keep the last good
-     `config.json` so a bad one cannot stop both slots; the installer to make the install
-     folders root-only;
+   - **send the log on the flash to the clock (D-0035).** Kyle's other session built it
+     on 2026-11-23 (commit `ca1e5f2`: `arthur/onclock/logstore.py`, a small change to the
+     door's `logs` answer, the follower). The whole suite and the emulated clock's 17
+     end-to-end tests pass with it; it has not run on the real clock, and the session
+     that sent D-0034 did not review it. The next `push` from `main` sends it;
+   - the installer to make the install folders root-only;
    - watch for, in the log and `status`: a config change sent over Wi-Fi, a Wi-Fi outage,
      48 hours without a restart, memory over days, the next interruption (the countdown
      should carry on from where it was, D-0032), and whether the late beats on pages and
-     scenes in `late_by_part` stay at none over days (D-0033; none in the first 3.9
+     scenes in `late_by_part` stay at none over days (D-0033; none in the first 7.5
      hours, against 6.5 and 1.3 an hour before it);
    - the weather's 2.2 s handshake could be made cheaper only in the clock's MicroPython
      build (mbedTLS's elliptic-curve arithmetic), which means a new install over USB; not
