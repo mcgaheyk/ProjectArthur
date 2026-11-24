@@ -28,6 +28,8 @@ kept or read. (:func:`arthur.onclock.app.start_config`, ``ClockApp.keep_config``
 
 Returns the exit code: 0 to stop for good, 42 to be restarted, 1 if the program failed (the
 traceback is printed; boot.py counts it as a failed start), as when no config loads at all.
+A failure also leaves one error line in the log, with the exception's type name only, and
+whatever the log holds unwritten goes to the flash before ``main`` returns.
 
 :func:`healthy` is what boot.py asks, besides the door's greeting, before it calls a start
 good: a frame reached AWTRIX within the last :data:`HEALTHY_PUSH_S` seconds.
@@ -44,6 +46,7 @@ import sys
 
 from arthur.onclock.app import ClockApp, trace_text
 from arthur.onclock.clocklog import DEFAULT_MAX_BYTES, ClockLog
+from arthur.wire import util
 from arthur.wire.const import CLOCK_CA_FILE
 from arthur.wire.net import Tls
 
@@ -138,6 +141,7 @@ async def main(root, source_factory, *, ca_file=None, base_url=None,
 
     _current.clear()
     door = None
+    log = None
     try:
         test = test_settings() if settings is None else settings
         root = root.rstrip("/") if len(root) > 1 else root
@@ -186,8 +190,22 @@ async def main(root, source_factory, *, ca_file=None, base_url=None,
     except Exception as exc:  # noqa: BLE001 - the boot script counts a non-zero exit
         print("arthur on the clock failed:", file=sys.stderr)
         print(trace_text(exc), file=sys.stderr)
+        if log is not None:
+            # The type's name only: an exception's text can carry what it was handed.
+            try:
+                log.append({"kind": "console", "ts": util.utc_iso_ms(util.now()),
+                            "level": "error", "name": "arthur.clock",
+                            "msg": "the program stopped on an error: " + type(exc).__name__})
+            except Exception:  # noqa: BLE001, S110 - the exit code is what counts
+                pass
         return EXIT_FAILED
     finally:
         if door is not None:
             door.close()
+        if log is not None:
+            # What this run logged reaches the flash, a start that failed included.
+            try:
+                log.flush()
+            except Exception:  # noqa: BLE001, S110 - never changes the exit code
+                pass
         _current.clear()

@@ -1269,6 +1269,50 @@ async def test_a_failure_to_keep_the_copy_is_logged_and_ignored(client, tmp_path
     assert st["config_kept"] is None and st["config_error"] is None
 
 
+def flash_lines(root: Path) -> list[dict]:
+    """Every line the log on the flash under ``root`` holds, read by a fresh store."""
+    from arthur.onclock.logstore import LogStore
+
+    log = ClockLog(10**6, store=LogStore(str(root / "log")))
+    lines, _ = log.read(0, 10**9)
+    return [ln for _, ln in lines]
+
+
+async def test_a_start_that_fails_leaves_its_type_name_on_the_flash(tmp_path, monkeypatch, capsys):
+    from arthur.onclock.main import main
+
+    root = slot_root(tmp_path, monkeypatch)
+
+    def factory(**kw):
+        raise ValueError("whisker_password=hunter2")  # made up: text that must not be kept
+
+    rc = await main(str(root), factory, ca_file=None, settings={"door_host": "127.0.0.1"},
+                    door_port=free_port())
+    assert rc == 1
+    assert "arthur on the clock failed" in capsys.readouterr().err
+    errors = [ln for ln in flash_lines(root) if ln.get("level") == "error"]
+    assert errors[-1]["msg"] == "the program stopped on an error: ValueError"
+    assert set(errors[-1]) == {"kind", "ts", "level", "name", "msg"}
+    assert errors[-1]["kind"] == "console"
+    for p in (root / "log").iterdir():
+        assert "hunter2" not in p.read_text(errors="replace")
+
+
+async def test_a_flush_that_raises_does_not_change_the_failure_code(tmp_path, monkeypatch):
+    from arthur.onclock import main as mainmod
+
+    root = slot_root(tmp_path, monkeypatch)
+    (root / "config.json").write_bytes(b"{")  # nothing loads: the start fails
+
+    def boom(self):
+        raise RuntimeError("the flash went away")
+
+    monkeypatch.setattr(mainmod.ClockLog, "flush", boom)
+    rc = await mainmod.main(str(root), lambda **kw: FakeSource(READY), ca_file=None,
+                            settings={"door_host": "127.0.0.1"}, door_port=free_port())
+    assert rc == 1
+
+
 def test_the_slot_is_named_from_where_the_code_was_imported(monkeypatch):
     from arthur.onclock import main as mainmod
 

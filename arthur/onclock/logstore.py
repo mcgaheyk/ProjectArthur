@@ -15,7 +15,9 @@ The ring hands lines over in batches (:meth:`LogStore.append`), each one append 
 so the flash sees a write about once a minute, not once a line. JFFS2 levels the wear; at
 about 250 KB a day this is nothing to 7 MB of NOR flash. A line cut short by a power loss
 (no newline at the end of the file) is never read, and the next batch starts a new segment
-rather than continuing it.
+rather than continuing it; so does the next batch after a write that failed or fell short.
+A line that will not decode (cut inside a multi-byte character) is skipped by itself, and a
+segment that cannot be read counts as empty: one damaged file never turns the store off.
 
 Nothing here raises to the caller for a fault on the flash except :meth:`open` and
 :meth:`append`, which the ring catches and counts. Runs on CPython and MicroPython: no
@@ -51,11 +53,16 @@ def segment_first(name):
 
 def _lines(data):
     """``[(seq, text), ...]`` from a segment's bytes: whole lines only (a last line with no
-    newline was cut short), any line that does not parse skipped."""
+    newline was cut short), any line that does not parse skipped. Each line is decoded by
+    itself, so one cut inside a multi-byte character (MicroPython's ``json.dumps`` leaves
+    non-ASCII as it is) loses only that line."""
     out = []
-    text = data.decode()
-    parts = text.split("\n")
-    for part in parts[:-1]:  # the piece after the last newline is empty or cut short
+    parts = data.split(b"\n")
+    for raw in parts[:-1]:  # the piece after the last newline is empty or cut short
+        try:
+            part = raw.decode()
+        except UnicodeError:
+            continue
         sp = part.find(" ")
         if sp <= 0:
             continue
@@ -96,9 +103,13 @@ class LogStore:
         self._segs = segs
         self.last_seq = 0
         self._open_new = True
-        # The newest segment that has a whole line holds the last one.
+        # The newest segment that has a whole line holds the last one. One that cannot be
+        # read counts as holding none.
         for i in range(len(segs) - 1, -1, -1):
-            data = self._read(segs[i][1])
+            try:
+                data = self._read(segs[i][1])
+            except OSError:
+                continue
             got = _lines(data)
             if got:
                 self.last_seq = got[-1][0]
@@ -130,16 +141,31 @@ class LogStore:
 
     def append(self, items):
         """Write ``items`` (``[(seq, json_text), ...]``, rising) in one append. Raises
-        OSError when the flash refuses; the ring counts it."""
+        OSError when the flash refuses (or writes only part); the ring counts it, and the
+        next batch starts a new segment, so nothing is ever written after a cut line.
+
+        A new segment is written from empty (``"wb"``): a file of its name can be there
+        already only as a torn first write with no whole line in it (with one, the flash's
+        last line would be at or past this number, and the new run would number higher)."""
         if not items:
             return
         data = "".join([str(s) + " " + t + "\n" for s, t in items]).encode()
+        mode = "ab"
         if self._open_new or not self._segs:
-            self._segs.append([items[0][0], segment_name(items[0][0]), 0])
+            name = segment_name(items[0][0])
+            self._segs = [s for s in self._segs if s[1] != name]
+            self._segs.append([items[0][0], name, 0])
             self._open_new = False
+            mode = "wb"
         seg = self._segs[-1]
-        with open(self.folder + "/" + seg[1], "ab") as f:
-            f.write(data)
+        try:
+            with open(self.folder + "/" + seg[1], mode) as f:
+                wrote = f.write(data)
+            if wrote is not None and wrote < len(data):
+                raise OSError(28, "short write: " + str(wrote) + " of " + str(len(data)))
+        except Exception:
+            self._open_new = True  # the file may end mid-line: never continue it
+            raise
         seg[2] += len(data)
         self.last_seq = items[-1][0]
         if seg[2] >= self.segment_bytes:

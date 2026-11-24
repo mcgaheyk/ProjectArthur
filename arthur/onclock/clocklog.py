@@ -15,10 +15,19 @@ also go there, in batches (:meth:`ClockLog.flush`, called by the app about once 
 quiet moment, and at once when :data:`FLUSH_LINES` or :data:`FLUSH_BYTES` are waiting), and
 a read that asks for lines older than the ring holds is answered from the flash. The
 numbering then carries on across restarts: a new run starts :data:`FLUSH_LINES` past the
-last line on the flash, which is past any number the last run handed out (it never had more
-than that many lines waiting), so a reader that remembers a number never skips a line. A
-flash that refuses a write loses that batch, and says so in :meth:`store_status`; the ring
-in RAM is unaffected.
+last line on the flash. That is past any number the last run handed out, because a run's
+first line goes to the flash at once, on its own, and from then on no more than
+:data:`FLUSH_LINES` lines wait unwritten; so the flash's last line is never further than
+that behind the last number handed out, even for a run that died before its first timed
+flush, and a reader that remembers a number never skips a line or sees one twice. What still
+breaks it: the flash refusing writes (the first line's, or batches) while more than
+:data:`FLUSH_LINES` lines are handed out, and then a restart; the new run then reuses
+numbers the old one gave out. A flash that refuses a write loses that batch, and says so in
+:meth:`store_status`; the ring in RAM is unaffected.
+
+A line on the flash that is not JSON (damage) is read back as ``{"damaged_line": seq,
+"text": <its first characters>}`` and counted (``damaged`` in :meth:`store_status`), so
+one bad line never stops a reader.
 """
 
 import json
@@ -32,6 +41,8 @@ FLUSH_LINES = 256
 FLUSH_BYTES = 32 * 1024
 #: How many characters of a flash error :meth:`ClockLog.store_status` keeps.
 ERROR_CHARS = 200
+#: How many characters of a damaged line :meth:`ClockLog.read` hands over.
+DAMAGED_CHARS = 120
 
 
 class ClockLog:
@@ -49,6 +60,8 @@ class ClockLog:
         self.store_failures = 0  # batches the flash refused (or opening it), since start
         self.flushes = 0
         self.resumed_from = None  # the last line on the flash at start, with a store
+        self.damaged = 0  # reads of a line that was not JSON, since start
+        self._first_written = False  # this run's first line has had its flush
         if store is not None:
             try:
                 last = store.open()
@@ -79,7 +92,11 @@ class ClockLog:
         if self.store is not None:
             self._pending.append((seq, text))
             self._pending_bytes += len(text)
-            if len(self._pending) >= FLUSH_LINES or self._pending_bytes >= FLUSH_BYTES:
+            # The run's first line goes at once (one try), so the flash's last line is
+            # this run's own from the start (the numbering rule, above).
+            if (not self._first_written or len(self._pending) >= FLUSH_LINES
+                    or self._pending_bytes >= FLUSH_BYTES):
+                self._first_written = True
                 self.flush()
         return seq
 
@@ -123,7 +140,8 @@ class ClockLog:
         return {"id": st.log_id, "first_seq": st.first_seq, "last_seq": st.last_seq,
                 "bytes": st.size_bytes, "resumed_from": self.resumed_from,
                 "pending": len(self._pending), "flushes": self.flushes,
-                "failures": self.store_failures, "error": self.store_error}
+                "failures": self.store_failures, "error": self.store_error,
+                "damaged": self.damaged}
 
     @property
     def first_seq(self):
@@ -180,6 +198,17 @@ class ClockLog:
 
     def read(self, after_seq, max_bytes):
         """:meth:`read_text` with each line as a dict again: ``([(seq, line), ...],
-        next_seq)``."""
+        next_seq)``. A text that is not a JSON object (a damaged line on the flash) comes as
+        ``{"damaged_line": seq, "text": ...}``, counted in ``damaged`` each time it is read."""
         texts, nxt = self.read_text(after_seq, max_bytes)
-        return [(seq, json.loads(text)) for seq, text in texts], nxt
+        out = []
+        for seq, text in texts:
+            try:
+                line = json.loads(text)
+            except ValueError:
+                line = None
+            if not isinstance(line, dict):
+                self.damaged += 1
+                line = {"damaged_line": seq, "text": text[:DAMAGED_CHARS]}
+            out.append((seq, line))
+        return out, nxt
