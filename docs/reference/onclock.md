@@ -191,8 +191,13 @@ tick, and the eight worst as `[epoch s, ms, what was on screen]`: what blocked t
 D-0033), `config_in_use` and `config_kept` (the ids of the config the program runs on and
 of this slot's kept copy, in the form of the door's `config`, which is the file on the
 flash), `config_error` (None, or why `config.json` was refused and which kept copy is in
-use, D-0034) and `live_up` (whether Whisker's live subscription is acknowledged and up, from the
-monitor; `health.ws_connected` beside it is always true and tells nothing).
+use, D-0034), `live_up` (whether Whisker's live subscription is acknowledged and up, from the
+monitor; `health.ws_connected` beside it is always true and tells nothing) and `log_store`
+(the log on the flash, D-0035: its `id`, `first_seq` and `last_seq`, `bytes`,
+`resumed_from` (the flash's last line when this run started), `pending` (lines not yet
+written), `flushes`, `failures` and `error` (writes the flash refused, and the last
+reason), and `damaged` (reads of a line that was not JSON, D-0036); None when the log is in
+memory only). A write to the flash is timed under `beats` as `log flush`.
 
 `main` opens the door with `door = await arthur.onclock.door.start(app, root)` (port 7531
 on every interface; it raises `DoorError` without a valid key in `secrets.json`, and `main`
@@ -203,12 +208,17 @@ carries on without it, saying so) and closes it with `door.close()` when `run()`
   one if there is one, then as many as fit in `max_bytes`) and the number to pass as
   `after_seq` next time. With the log on the flash (D-0035) lines older than the ring holds
   come from there, and the numbers carry on across restarts: a new run starts 256 past the
-  last line on the flash (past any number the last run handed out, as it never had more
-  than 256 waiting), and `logs` answers carry the log's `log` id, which stays the same. The
+  last line on the flash. That is past any number the last run handed out, because a run's
+  first line is written to the flash at once (D-0036) and after it no more than 256 lines
+  ever wait unwritten. `logs` answers carry the log's `log` id, which stays the same. The
   Mac (`arthur.clocktool.pull_logs`) keeps its place when `run` changes and `log` does not;
   a new `log` (or none: the program before D-0035) means the numbers started again from 1.
   Lines lost to a power cut are the ones not yet written, at most about a minute's (ten
-  during a visit).
+  during a visit). A line on the flash that is not JSON comes back as
+  `{"damaged_line": seq, "text": ...}` and reading carries on (D-0036). What still breaks
+  the numbering: the flash refusing writes for more than 256 lines and then a restart (the
+  Mac is then sent the flash's lines a second time); and a fall-back to a slot whose code
+  has no flash log, then a return (the same).
 - **Log lines are dicts with a `kind`**, which says where the Mac puts them:
   `state`, `info`, `error` go to `logs/spike-YYYYMMDD.jsonl` and `activity`, `pet_weight` to
   `logs/spike-activity-YYYYMMDD.jsonl`, exactly as `arthur.spikelog` writes them (so the
@@ -791,6 +801,27 @@ free flash fell by 4,096 bytes: `config.good.a.json` was written at that first s
 Slot b holds the poll-hold bundle `3bc1b9a7fc44c19b`, which has no kept copy and does not
 fall back to one. A refused `config.json` has been met only on the Mac's MicroPython and
 the emulated clock (`tests/test_onclock_e2e.py`, 17 of 17 on both), not on the real clock.
+
+**The log on the flash, on the clock** (D-0035 and D-0036, commit `bdc2c69`, pushed at
+10:00:19 on 2026-11-24, the fifth change over Wi-Fi): the 5 files slot b lacked (28,809
+bytes) in 1.8 s, and `push` reported the program back 5.2 s after it began. The home page
+was back at 10:00:28, under a second after the first frame (NO DATA); healthy after two
+minutes (tries b: 0). What `status` and the Mac's copy showed:
+
+| | |
+|---|---|
+| the first start | `log_store`: a new id, `resumed_from` 0; line 1 on the flash at once (129 bytes, `flushes` 1) with 60 lines waiting |
+| the first timed write | 60 lines (12.2 KB) in 17.2 ms (`log flush` under `beats`), about a minute after the start; the free flash fell by 4 KB |
+| a restart from the Mac at 10:04:03, made to test it | the old run wrote its last three lines as it stopped (the flash's last line 64); the new run numbered from 321 (64 + 1 + 256), same log id, line 321 on the flash at once; the second timed write 19.1 ms |
+| the Mac's follower across that restart | kept its place (`logs/clock-logs.json`: the new `run`, the same `log`, `next` 381); no line of the day twice in `logs/feeder-console.log` |
+| the whole log read back into an empty folder (`logs pull --log-dir`) | lines 1 to 64 from the flash and 321 on from memory: 7 robot, 100 history and 18 console lines, the console lines the same as the follower's copy, line for line; reading the 12.8 KB segment through the door left no late wake of 41 ms or more |
+
+The follower was stopped and started again from Terminal after the push (the copy running
+since 2026-11-21 had the old `pull_logs`, which starts from 0 at every restart of the
+clock and would have fetched the flash's lines again each time). Slot a now holds
+`de0132fbecdb8070` as the fall-back: the kept config, no flash log. **Not yet seen on the
+clock:** the folder reaching 1 MiB and the oldest segment going (about four days), a full
+64 KB segment read back, a write during a visit, a write the flash refuses, a power cut.
 
 **After a fall-back, wait for `tries` to read 0 before pushing again** (found by that test
 on the emulated clock, where the pushes come seconds apart). boot.py adds one to a slot's

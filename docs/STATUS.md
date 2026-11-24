@@ -1,6 +1,6 @@
 # STATUS.md — project memory
 
-_Last updated: 2026-11-23, evening._ Current state only. History belongs in git and DECISIONS.md.
+_Last updated: 2026-11-24, morning._ Current state only. History belongs in git and DECISIONS.md.
 
 ## Where things stand
 - **Hardware:** Kyle has a **Ulanzi TC002** (52x16) and a **Raspberry Pi 5** (D-0010). **The
@@ -19,8 +19,8 @@ _Last updated: 2026-11-23, evening._ Current state only. History belongs in git 
   clock is on its charger; the cable to the Mac came out some time on 2026-11-21 or 22.
   What it has done alone, from its own log and status (`docs/reference/onclock.md`, "The
   first two days alone"):
-  - **Seven visits drawn through**, in use to ready: 2026-11-21 at 09:23, 2026-11-22 at
-    07:42, 13:19 and 22:19, 2026-11-23 at 10:27, 17:30 and 18:04. The countdown reached zero within 1 to 12 s
+  - **Eight visits drawn through**, in use to ready: 2026-11-21 at 09:23, 2026-11-22 at
+    07:42, 13:19 and 22:19, 2026-11-23 at 10:27, 17:30 and 18:04, 2026-11-24 at 09:09. The countdown reached zero within 1 to 12 s
     of the real clean start. The first had **the first interruption ever logged live** (25 s, 40 s into the
     clean); in the third and the fourth a second weight reading started the countdown
     again, as it should. Nobody was watching the clock; this is from the logs.
@@ -44,8 +44,10 @@ _Last updated: 2026-11-23, evening._ Current state only. History belongs in git 
     about 10 s after the command began, healthy too; NO DATA showed for about 3 s that
     time (the weather's first fetch fell in it). **The fourth**, at 18:34 that evening
     (the kept config, D-0034): 5 files in 1.9 s, the home page back about 9 s after the
-    command began, healthy too. It was sent from a copy of the code at commit `bb70d45`,
-    so **the clock does not have the log on the flash (D-0035), which is in `main`.**
+    command began, healthy too. **The fifth**, at 10:00 on 2026-11-24 (the log on the
+    flash, D-0035 and D-0036): 5 files in 1.8 s, the home page back about 9 s after the
+    command began, healthy too. **The clock now has everything in `main`** (commit
+    `bdc2c69`); the fall-back slot holds the fourth change's code.
   - **Speed.** Mapping and drawing one beat: home 21 to 23 ms, the weather page 26 to 29,
     a scene 14 to 18, a wipe 29 to 30; a push about 40; a memory collection 22 to 25. So a
     beat costs about half of its 125 ms.
@@ -65,17 +67,26 @@ _Last updated: 2026-11-23, evening._ Current state only. History belongs in git 
     connection down, or when it is a retry. In the 7.5 hours
     that code ran, over 60 polls were held (60.6 s at longest) and no late beat fell on
     a page or in a scene, where the old rates would have put about 60: those hitches
-    were the poll. **Left:** the live
+    were the poll. Over the next run, 15.4 hours to 10:00 on 2026-11-24: 148 polls held
+    (59.6 s at longest), 3 late beats on the weather page (0.2 s at worst) and none in a
+    scene, where the old rates would have put about 100 and 20. **Left:** the live
     connection's reconnect (a few a night) and the history reads (four a day) still hold
     the loop 0.3 s wherever they fall.
   - Memory: 0.61 MB of the 3 MB heap in use after a collection at a start, 0.73 MB after
     14 hours (0.84 at most); on the next run 0.76 MB after 19 hours (0.78 at most).
     Storage: 7.2 MB free with both slots filled.
-  - **The log** is kept on the Mac by `scripts/follow_clock.command`, running since
-    2026-11-21 (started from Terminal; it waits while the Mac sleeps and stops when the
-    Mac restarts). **Lost already:** the clock's log from 12:05 on the 21st to the cold
-    boot, and the first 30 lines after it. The clock keeps its log in memory only
-    (128 KB, about 13 hours of an ordinary day).
+  - **The log is on the clock's flash since 10:00 on 2026-11-24** (D-0035, D-0036):
+    about four days of it (1 MiB), written about once a minute on the home page, and it
+    outlives a restart. Tried on the clock that morning: a restart sent from the Mac
+    carried the numbering on, the Mac's follower kept its place with no line twice, and
+    the whole log read back from the clock matched the Mac's copy line for line. A write
+    took 17 and 19 ms. A power cut still loses what was not yet written (about a minute,
+    up to ten during a visit). **Not yet seen there:** the oldest part being dropped at
+    1 MiB, a write the flash refuses, a power cut. The Mac still keeps its own copy with
+    `scripts/follow_clock.command` (restarted from Terminal at 10:01 that day for the new
+    code; it waits while the Mac sleeps and stops when the Mac restarts); when it has
+    been away it now fetches what it missed. **Lost before this:** the clock's log from
+    12:05 on the 21st to the cold boot, and the first 30 lines after it.
   - On the clock the install folder and everything in it are readable by root only (set
     by hand on 2026-11-21; the installer still makes the folders mode 777).
   **A weather fetch held back by a visit** was seen on 2026-11-23: the one due at 10:36
@@ -112,7 +123,7 @@ _Last updated: 2026-11-23, evening._ Current state only. History belongs in git 
   **never from a Claude session's shell**: the 13:47 copy lost the clock (not the robot) at
   17:22, when the session that started it closed, and the clock showed the stale border until
   18:04 (D-0024). Never run a second copy, or `scripts/spike_log.py`, on the same account.
-- **Built and tested (4,178 tests):**
+- **Built and tested (4,190 tests):**
   - Feeder: `arthur/feeder.py` (the loop), `arthur/pusher.py` (when to push),
     `arthur/sources/whisker.py` (the one Whisker connection). On a login or API failure it
     shows NO DATA and retries; it reloads `config/display.toml` when the file changes; it
@@ -253,8 +264,8 @@ _Last updated: 2026-11-23, evening._ Current state only. History belongs in git 
     against a fake Whisker. Its first real contact was from the Mac on 2026-11-20
     (`scripts/wire_check.py`: Whisker accepted our User-Agent, the token renewed, the robot
     and the history read correctly), its first real password login on 2026-11-21 (from the
-    Mac, then the clock's own). Since then it has carried nine real visits, an interruption
-    and seven dropped live connections with no error.
+    Mac, then the clock's own). Since then it has carried ten real visits, an interruption
+    and nine dropped live connections with no error.
   - **The shared code runs on both Pythons, in `main`.** `arthur/`'s model, config, schedule,
     mapping, tracker and all the drawing code run unchanged under MicroPython 1.29
     (`arthur/compat.py`, stand-ins in `mpy/lib/`; the rule is in CLAUDE.md and the
@@ -295,7 +306,8 @@ _Last updated: 2026-11-23, evening._ Current state only. History belongs in git 
     0.3 s, a code change in about 1 s, and a clean removal.
   - **The clock's own program, in `main`, on the real clock since 2026-11-21:**
     `arthur/onclock/app.py` (the loop, the push to AWTRIX on 127.0.0.1, the weather, each
-    scene's plan built 0.875 s before its slot, a log kept in memory). Under MicroPython on
+    scene's plan built 0.875 s before its slot, a log kept in memory and on the flash).
+    Under MicroPython on
     the Mac every frame it pushed matched CPython's, with a scripted source.
   - **The pieces are joined into one program, in `main`** (on the real clock since
     2026-11-21). The
@@ -315,15 +327,17 @@ _Last updated: 2026-11-23, evening._ Current state only. History belongs in git 
     scene has not been seen; (2) a
     `config.json` the code rejects used to stop both code slots, leaving only USB. Since
     18:34 on 2026-11-23 each slot keeps the last config it accepted and falls back to it
-    (D-0034; `status` shows `config_error` and the Mac's tool warns). What is left of
-    it: slot b still holds the morning's code, without this, until the next push
-    replaces it; and every start of a slot counts against its three until it has run
+    (D-0034; `status` shows `config_error` and the Mac's tool warns), and since
+    2026-11-24 both slots have that code. What is left of
+    it: every start of a slot counts against its three until it has run
     two minutes and is marked healthy, so several failing pushes in quick succession,
     each falling back to the same good slot, can use that slot up and halt both (boot's
     count, which cannot change over Wi-Fi: after a fall-back wait for `tries` to read 0
-    before pushing again); (3) the log is kept in memory and is lost at every restart unless the Mac
-    is following it (it happened on 2026-11-22); keeping it on the flash is built
-    (D-0035) and not on the clock; (4) `ws_connected` in the snapshot's
+    before pushing again); (3) the log on the flash is new (D-0035, D-0036, on the clock since 2026-11-24): the
+    fall-back slot's code does not have it until the next push, so a fall-back and a
+    return would send the Mac the flash's lines a second time; reading a long stretch
+    back holds the loop one segment's read at a time, not yet measured with a full
+    64 KB segment; (4) `ws_connected` in the snapshot's
     health is always true, on the Mac and the clock, so nothing on screen or in `health`
     says the live connection is down; the clock's `status` has the true one, `live_up`.
   - **Checked before the first install,** on 2026-11-20 evening with the clock on USB and
@@ -413,14 +427,14 @@ _Last updated: 2026-11-23, evening._ Current state only. History belongs in git 
 4. **The on-clock trial (D-0029, D-0031), with Claude.** The clock runs itself since
    2026-11-21, Kyle said to leave it, and the Mac's feeder is the way back (above). Done so
    far: the log follower, a real visit, a night, a cold boot, the cable out, dropped live
-   connections, and four code changes over Wi-Fi. What is left, in order:
+   connections, five code changes over Wi-Fi, and the log on the flash through a
+   restart. What is left, in order:
    - after a Mac restart, start the follower again:
-     `open -a Terminal scripts/follow_clock.command`;
-   - **send the log on the flash to the clock (D-0035).** Kyle's other session built it
-     on 2026-11-23 (commit `ca1e5f2`: `arthur/onclock/logstore.py`, a small change to the
-     door's `logs` answer, the follower). The whole suite and the emulated clock's 17
-     end-to-end tests pass with it; it has not run on the real clock, and the session
-     that sent D-0034 did not review it. The next `push` from `main` sends it;
+     `open -a Terminal scripts/follow_clock.command` (it now fetches what it missed, up
+     to about four days);
+   - watch the log on the flash in `status` (`log_store`): `failures` and `damaged`
+     staying at 0, the time of a write (`log flush` under `beats`; 17 and 19 ms so far),
+     and around 2026-11-28 the folder reaching 1 MiB and dropping its oldest part;
    - the installer to make the install folders root-only;
    - watch for, in the log and `status`: a config change sent over Wi-Fi, a Wi-Fi outage,
      48 hours without a restart, memory over days, the next interruption (the countdown

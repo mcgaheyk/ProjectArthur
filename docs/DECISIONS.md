@@ -884,3 +884,49 @@ beyond "same log, keep my place".
 **Accepted.** A power cut loses the lines not yet written (about a minute's, up to ten during a visit). A flash that
 refuses a write loses that batch (counted in `status`); if that run then restarts, the
 follower may skip lines it never saw. 1 MiB of the 7.2 MB free.
+
+## D-0036 — The flash log is anchored at each start, and damage stops nothing
+
+**2026-11-24.** D-0035 was reviewed before it went to the clock, and its numbering rule
+did not hold. A new run starts 256 past the last line on the flash, on the argument that
+the last run never had more than 256 lines unwritten. But a run's first write came about a
+minute after its first line, so a run that ended sooner (a power cut, a crash, a start
+that failed) left the flash's last line where it was, and the next run gave out the same
+numbers again. The Mac's follower keeps its place by number: it would have skipped the new
+run's first lines, or been sent the whole flash a second time. Those short runs are the
+ones whose log matters most.
+
+**The rule.**
+- A run's first line goes to the flash at once, by itself, one try. The flash's last line
+  is then the run's own from its first line on, and D-0035's rule holds.
+- A start that fails leaves one line in the log, with the exception's type name and
+  nothing else (its text can carry what it was handed), and whatever the run logged is
+  written before the program exits.
+- Damage never turns the log off or stops a reader. A line that will not decode is passed
+  over by itself. A line that is not JSON is handed on as `{"damaged_line": seq, "text":
+  ...}` and counted (`log_store.damaged`). A segment that cannot be read counts as empty.
+  A new segment is written from empty, and after a write that failed or fell short the
+  next batch starts a new segment, so nothing is ever written after a cut line.
+
+**Why.** As it was, one line cut inside a multi-byte character would have kept the log off
+the flash at every later start, and one line that was not JSON would have had the door
+answer "internal error" to the follower every ten seconds for good. Neither needs more
+than a power cut at the wrong moment.
+
+**Rejected.**
+- A high-water number in a file of its own, moved on every 256 lines: a second file to
+  keep whole, for what one early write gives.
+- The follower remembering its place for each log id, so that a fall-back to code without
+  the flash log and a return cost no second copy: that case ends at the next push, when
+  both slots have this code.
+
+**Accepted.** The flash refusing writes for more than 256 lines and then a restart still
+gives numbers out twice; the follower is then sent the flash's lines again, up to 1 MiB.
+Until the next push the fall-back slot has no flash log (the same second copy if the clock
+falls back to it and returns). Reading old lines back holds the loop for one segment's
+read at a time, wherever it falls: a 12.8 KB segment cost under 41 ms on the clock, a full
+64 KB one has not been read there yet.
+
+**On the clock** since 10:00 on 2026-11-24 with D-0035 (commit `bdc2c69`); a restart made
+to test it carried the numbering on and the follower kept its place
+(`docs/reference/onclock.md`, "The log on the flash, on the clock").
